@@ -1,6 +1,8 @@
 package src
 
-import "os"
+import (
+	"os"
+)
 
 func Err(err error) {
 	if err != nil {

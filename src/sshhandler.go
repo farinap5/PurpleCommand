@@ -3,20 +3,16 @@ package src
 import (
 	"encoding/binary"
 	"io"
-	//"os"
+	"sync"
+	"syscall"
+	"unsafe"
 	"os/exec"
-	//"syscall"
-	//"unsafe"
-
 	"github.com/creack/pty"
 	"golang.org/x/crypto/ssh"
 )
 
-
 // Hand ssh requests. it is in another file cause it gets bigger
 func (s Session) HandServerConn(x string, chans <-chan ssh.NewChannel) {
-	// Channel handles window size
-	windowS := make(chan Window, 1)
 
 	for newChan := range chans {
 		if newChan.ChannelType() != "session" {
@@ -27,85 +23,70 @@ func (s Session) HandServerConn(x string, chans <-chan ssh.NewChannel) {
 		channel, req, err := newChan.Accept()
 		Err(err)
 
+		f, tty, err := pty.Open()
+		if err != nil {
+			Err(err)
+		}
+
+
 		go func(in <-chan *ssh.Request) {
 			defer channel.Close()
 			for req := range in {
 
 				switch req.Type {
+				// TODO: exec is not needed. Must be created another case for exec call.
 				case "shell", "exec":
 					println("shell")
+
+					// TODO: use a shell existing in the system / default shell
 					cmd := exec.Command("/bin/bash","-i")
 
-					ptm, err := pty.Start(cmd)
+					cmd.Stdout = tty
+					cmd.Stdin = tty
+					cmd.Stderr = tty
+
+					cmd.SysProcAttr = &syscall.SysProcAttr{
+						Setctty: true,
+						Setsid:  true,
+					}
+
+					err = cmd.Start()
 					Err(err)
+
+					var once sync.Once
+					close := func() {
+						channel.Close()
+					}
+
 					go func() {
-						for win := range windowS {
-							SetWinSize(ptm, win.Height, win.Width)
-						}
+						io.Copy(channel, f)
+						once.Do(close)
 					}()
 
-					defer func() { ptm.Close() }()
-
-					go io.Copy(ptm,channel)
-					io.Copy(channel,ptm)
+					go func() {
+						io.Copy(f, channel)
+						once.Do(close)
+					}()
 					
 					channel.SendRequest("exit-status", false, []byte{0, 0, 0, 0})
-					return
-
 				case "pty-req":
-					ptyReq, ok := parsePtyRequest(req.Payload)
-					if !ok {
-						req.Reply(false, nil)
-						continue
-					}
-					windowS <- ptyReq.Window
-					req.Reply(ok,nil)
-
+					newTermLen := req.Payload[3]
+					w := binary.BigEndian.Uint32(req.Payload[newTermLen+4:])
+					h := binary.BigEndian.Uint32(req.Payload[newTermLen+4:][4:])
+					SetWinsize(f.Fd(), w, h)
+					req.Reply(true,nil)
 				case "env":
 					req.Reply(true, nil)
 
 				case "window-change":
-					//var payload = struct{ Value string }{}
-					win, ok := parseWinSizeReq(req.Payload)
-					if ok {
-						windowS <-win
-					}
+					w := binary.BigEndian.Uint32(req.Payload)
+					h := binary.BigEndian.Uint32(req.Payload[4:])
+					SetWinsize(f.Fd(), w, h)
 					req.Reply(true, nil)
 				}
 			}
 		} (req)
 	}
-}
-
-
-func parseUint32(in []byte) (uint32, []byte, bool) {
-	if len(in) < 4 {
-		return 0, nil, false
-	}
-	return binary.BigEndian.Uint32(in), in[4:], true
-}
-
-func parseWinSizeReq(s []byte) (win Window, ok bool) {
-	width32, s, ok := parseUint32(s)
-	if width32 < 1 {
-		ok = false
-	}
-	if !ok {
-		return
-	}
-	height32, _, ok := parseUint32(s)
-	if height32 < 1 {
-		ok = false
-	}
-	if !ok {
-		return
-	}
-	win = Window{
-		Width:  int(width32),
-		Height: int(height32),
-	}
-	println(win.Height, win.Width)
-	return
 }
 
 
@@ -123,25 +104,8 @@ func parseString(in []byte) (out string, rest []byte, ok bool) {
 	return
 }
 
-func parsePtyRequest(s []byte) (pty Pty, ok bool) {
-	term, s, ok := parseString(s)
-	if !ok {
-		return
-	}
-	width32, s, ok := parseUint32(s)
-	if !ok {
-		return
-	}
-	height32, _, ok := parseUint32(s)
-	if !ok {
-		return
-	}
-	pty = Pty{
-		Term: term,
-		Window: Window{
-			Width:  int(width32),
-			Height: int(height32),
-		},
-	}
-	return
+
+func SetWinsize(fd uintptr, w, h uint32) {
+	ws := &WindowsConf{Width: uint16(w), Height: uint16(h)}
+	syscall.Syscall(syscall.SYS_IOCTL, fd, uintptr(syscall.TIOCSWINSZ), uintptr(unsafe.Pointer(ws)))
 }

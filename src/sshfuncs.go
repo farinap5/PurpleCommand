@@ -4,9 +4,6 @@ import (
 	"io/ioutil"
 	"net"
 	"os"
-	"syscall"
-	"unsafe"
-
 	"golang.org/x/crypto/ssh"
 )
 
@@ -26,13 +23,7 @@ func (s Session) NormalizeSockFile() {
 	}
 }
 
-// Configure window size
-func SetWinSize(f *os.File, h, w int) {
-	syscall.Syscall(syscall.SYS_IOCTL, 
-		f.Fd(), 
-		uintptr(syscall.TIOCSWINSZ),
-		uintptr(unsafe.Pointer(&struct{ h, w, x, y uint16 }{uint16(h), uint16(w), 0, 0})))
-}
+
 
 // Hand challeng with publick key
 func (s Session) pubCallBack(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {

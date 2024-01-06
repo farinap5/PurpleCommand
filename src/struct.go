@@ -15,6 +15,13 @@ type Window struct {
 	Height int
 }
 
+type WindowsConf struct {
+	Height uint16
+	Width  uint16
+	x      uint16
+	y      uint16
+}
+
 type Pty struct {
 	Term string
 	Window Window

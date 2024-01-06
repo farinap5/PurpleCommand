@@ -2,6 +2,7 @@ package src
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 
@@ -9,9 +10,8 @@ import (
 )
 
 // WebSocket Server Works with SSH local mirror
-func WSServe() {
+func WSServe(adds string) {
 	addrTCP :=  "0.0.0.0:8080"
-	adds := "0.0.0.0:8081"
 
 	up := websocket.Upgrader{}
 	http.HandleFunc("/",func(w http.ResponseWriter, r *http.Request){
@@ -21,7 +21,7 @@ func WSServe() {
 			return
 		}
 
-		println("TCP Listener: "+addrTCP)
+		log.Printf("TCP Listener up on %s.", addrTCP)
 		ln, err := net.Listen("tcp",addrTCP)
 		if err != nil {
 			panic(err)
@@ -34,12 +34,12 @@ func WSServe() {
 		defer channel.Close()
 
 
-		z := New(conn) // New addapter
-		fmt.Println("proxy connected")
-		go copyIO(channel, z)
-		copyIO(z, channel)
+		webSockConn := New(conn) // New addapter
+		log.Println("Proxy connected.", addrTCP)
+		go copyIO(channel, webSockConn)
+		copyIO(webSockConn, channel)
 	})
 
-	println("Listening Web Sockets on "+adds)
+	log.Printf("Listening Web Sockets on %s.", adds)
 	http.ListenAndServe(adds ,nil)
 }

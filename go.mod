@@ -1,4 +1,4 @@
-module sshtest
+module purpcmd
 
 go 1.18
 

@@ -12,11 +12,11 @@ import (
 )
 
 
-func CallWSServer() {
+func CallWSServer(remoteAdd string) {
 	var t time.Duration = 1
 	var c int = 0
 	for {
-		err := wsclient()
+		err := wsclient(remoteAdd)
 		if err != nil {
 			println(c," sleep:",t)
 			time.Sleep(t * time.Millisecond)
@@ -35,10 +35,10 @@ func CallWSServer() {
 	}
 }
 
-func wsclient() error {
+func wsclient(remoteAdd string) error {
 	fmt.Println("new client")
 
-	wclient, _, err := websocket.DefaultDialer.Dial("ws://0.0.0.0:8081/",nil)
+	wclient, _, err := websocket.DefaultDialer.Dial("ws://"+remoteAdd+"/",nil)
 	if err != nil {
 		return err
 	}
@@ -52,14 +52,15 @@ func wsclient() error {
 	}
 
 	// create new connect file
-	z := New(wclient)
+	// "New" from adapter to use websock as net.Conn
+	webSockConn := New(wclient)
 	fmt.Println("proxy connected")
-	go copyIO(conn, z)
-	copyIO(z, conn)
+	go copyIO(conn, webSockConn)
+	copyIO(webSockConn, conn)
 	return nil
 }
 
-
+// sync io from those connectios
 func copyIO(src, dest net.Conn) {
 	defer src.Close()
 	defer dest.Close()

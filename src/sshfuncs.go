@@ -7,8 +7,6 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-
-
 // Verify if unix socket file exist, if so delete it.
 func (s Session) NormalizeSockFile() {
 	_, err := os.Stat(s.SockName)
@@ -22,8 +20,6 @@ func (s Session) NormalizeSockFile() {
 		}
 	}
 }
-
-
 
 // Hand challeng with publick key
 func (s Session) pubCallBack(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {

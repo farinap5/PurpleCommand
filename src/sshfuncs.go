@@ -1,11 +1,16 @@
 package src
 
 import (
-	"io/ioutil"
+	"embed"
+	"log"
 	"net"
 	"os"
+
 	"golang.org/x/crypto/ssh"
 )
+
+//go:embed key
+var key embed.FS
 
 // Verify if unix socket file exist, if so delete it.
 func (s Session) NormalizeSockFile() {
@@ -15,7 +20,7 @@ func (s Session) NormalizeSockFile() {
 	} else {
 		err := os.Remove(s.SockName)
 		if err != nil {
-			println(err.Error())
+			log.Println(err.Error())
 			os.Exit(1)
 		}
 	}
@@ -24,10 +29,10 @@ func (s Session) NormalizeSockFile() {
 // Hand challeng with publick key
 func (s Session) pubCallBack(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
 	if s.AuthKeys[FingerprintKey(key)] {
-		println("found")
+		log.Printf("Key %s found.",FingerprintKey(key))
 		return &ssh.Permissions{},nil
 	} else {
-		println("not found")
+		log.Printf("Key %s not found.",FingerprintKey(key))
 		return nil, nil
 	}
 }
@@ -51,10 +56,10 @@ func Listen() {
 		PublicKeyCallback: s.pubCallBack, // Challenge with pubkey
 	}
 
-	privkeyB, err := ioutil.ReadFile("./id_ecdsa")
-	Err(err)
+	privKey,_ := key.ReadFile("key/id_ecdsa")
+	
 
-	pkey,err := ssh.ParsePrivateKey(privkeyB)
+	pkey,err := ssh.ParsePrivateKey(privKey)
 	Err(err)
 	config.AddHostKey(pkey)
 

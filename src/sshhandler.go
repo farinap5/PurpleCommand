@@ -3,10 +3,12 @@ package src
 import (
 	"encoding/binary"
 	"io"
+	"log"
+	"os/exec"
 	"sync"
 	"syscall"
 	"unsafe"
-	"os/exec"
+
 	"github.com/creack/pty"
 	"golang.org/x/crypto/ssh"
 )
@@ -36,7 +38,7 @@ func (s Session) HandServerConn(x string, chans <-chan ssh.NewChannel) {
 				switch req.Type {
 				// TODO: exec is not needed. Must be created another case for exec call.
 				case "shell", "exec":
-					println("shell")
+					log.Println("Client got shell")
 
 					// TODO: use a shell existing in the system / default shell
 					cmd := exec.Command("/bin/bash","-i")

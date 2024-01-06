@@ -21,11 +21,12 @@ func WSServe(adds string) {
 			return
 		}
 
-		log.Printf("TCP Listener up on %s.", addrTCP)
+		log.Printf("TCP Listener up on %s", addrTCP)
 		ln, err := net.Listen("tcp",addrTCP)
 		if err != nil {
 			panic(err)
 		}
+		log.Printf("+ Connect to %s with SSH", addrTCP)
 		defer ln.Close()
 		channel, err := ln.Accept()
 		if err != nil {
@@ -35,11 +36,11 @@ func WSServe(adds string) {
 
 
 		webSockConn := New(conn) // New addapter
-		log.Println("Proxy connected.", addrTCP)
+		log.Println("Proxy connected", addrTCP)
 		go copyIO(channel, webSockConn)
 		copyIO(webSockConn, channel)
 	})
 
-	log.Printf("Listening Web Sockets on %s.", adds)
+	log.Printf("Listening on ws://%s/", adds)
 	http.ListenAndServe(adds ,nil)
 }

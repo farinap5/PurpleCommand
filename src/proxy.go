@@ -3,11 +3,12 @@
 package src
 
 import (
-	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"time"
+
 	"github.com/gorilla/websocket"
 )
 
@@ -18,7 +19,7 @@ func CallWSServer(remoteAdd string) {
 	for {
 		err := wsclient(remoteAdd)
 		if err != nil {
-			println(c," sleep:",t)
+			log.Printf("Try %d sleep for %d", c, t)
 			time.Sleep(t * time.Millisecond)
 			if t >= 131072 {
 				continue
@@ -36,7 +37,7 @@ func CallWSServer(remoteAdd string) {
 }
 
 func wsclient(remoteAdd string) error {
-	fmt.Println("new client")
+	log.Printf("Connecting to ws://%s/", remoteAdd)
 
 	wclient, _, err := websocket.DefaultDialer.Dial("ws://"+remoteAdd+"/",nil)
 	if err != nil {
@@ -54,7 +55,7 @@ func wsclient(remoteAdd string) error {
 	// create new connect file
 	// "New" from adapter to use websock as net.Conn
 	webSockConn := New(wclient)
-	fmt.Println("proxy connected")
+	log.Println("+ Proxy connected")
 	go copyIO(conn, webSockConn)
 	copyIO(webSockConn, conn)
 	return nil

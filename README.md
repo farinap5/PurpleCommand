@@ -26,7 +26,7 @@ Connect to the server using SSH:
 
 ```
 $ ssh 0.0.0.0 -p 8080 -i id_ecdsa
-pietro@go:~/go/src/PurpleCommand$ ls
+user@go:~/go/src/PurpleCommand$ ls
 go.mod  go.sum  img  main.go  README.md  src
-pietro@go:~/go/src/PurpleCommand$
+usero@go:~/go/src/PurpleCommand$
 ```

@@ -1,20 +1,15 @@
-package src
+package server
 
 import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/x509"
-	"encoding/base64"
 	"encoding/pem"
 	"golang.org/x/crypto/ssh"
 )
 
-func FingerprintKey(k ssh.PublicKey) string {
-	bytes := sha256.Sum256(k.Marshal())
-	return base64.StdEncoding.EncodeToString(bytes[:])
-}
+
 
 func GeneratePrivKey() []byte {
 	privkey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)

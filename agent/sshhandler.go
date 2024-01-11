@@ -1,4 +1,4 @@
-package src
+package agent
 
 import (
 	"encoding/binary"
@@ -8,6 +8,7 @@ import (
 	"sync"
 	"syscall"
 	"unsafe"
+	"purpcmd/utils"
 
 	"github.com/creack/pty"
 	"golang.org/x/crypto/ssh"
@@ -23,11 +24,11 @@ func (s Session) HandServerConn(x string, chans <-chan ssh.NewChannel) {
 		}
 
 		channel, req, err := newChan.Accept()
-		Err(err)
+		utils.Err(err)
 
 		f, tty, err := pty.Open()
 		if err != nil {
-			Err(err)
+			utils.Err(err)
 		}
 
 
@@ -53,7 +54,7 @@ func (s Session) HandServerConn(x string, chans <-chan ssh.NewChannel) {
 					}
 
 					err = cmd.Start()
-					Err(err)
+					utils.Err(err)
 
 					var once sync.Once
 					close := func() {

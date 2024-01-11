@@ -1,16 +1,24 @@
-package src
+package agent
 
 import (
+	"crypto/sha256"
 	"embed"
+	"encoding/base64"
 	"log"
 	"net"
 	"os"
+	"purpcmd/utils"
 
 	"golang.org/x/crypto/ssh"
 )
 
 //go:embed key
 var key embed.FS
+
+func FingerprintKey(k ssh.PublicKey) string {
+	bytes := sha256.Sum256(k.Marshal())
+	return base64.StdEncoding.EncodeToString(bytes[:])
+}
 
 // Verify if unix socket file exist, if so delete it.
 func (s Session) NormalizeSockFile() {
@@ -47,7 +55,7 @@ func Listen() {
 	var err error
 
 	s.PubKey, _, _, _, err = ssh.ParseAuthorizedKey([]byte("ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBDm7lFJASftWM9Bmw+sQnjNtr48wXhSRDf43XUhbfRBT05j5dZ4+2qUhPt5gugkECSINzOs2nGz0hkCFTGDqPIM="))
-	Err(err)
+	utils.Err(err)
 
 	// Keep the fingerprint for authentication
 	s.AuthKeys[FingerprintKey(s.PubKey)] = true
@@ -60,19 +68,19 @@ func Listen() {
 	
 
 	pkey,err := ssh.ParsePrivateKey(privKey)
-	Err(err)
+	utils.Err(err)
 	config.AddHostKey(pkey)
 
 	s.NormalizeSockFile()
 	listener, err := net.Listen("unix",s.SockName)
-	Err(err)
+	utils.Err(err)
 	defer listener.Close()
 
 	AConn, err := listener.Accept()
-	Err(err)
+	utils.Err(err)
 
 	conn, chans, reqs, err := ssh.NewServerConn(AConn, config)
-	Err(err)
+	utils.Err(err)
 	go ssh.DiscardRequests(reqs)
 	s.HandServerConn(conn.Permissions.Extensions["x"],chans)
 }

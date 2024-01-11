@@ -1,10 +1,11 @@
-package src
+package server
 
 import (
 	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"purpcmd/utils"
 
 	"github.com/gorilla/websocket"
 )
@@ -35,10 +36,10 @@ func WSServe(adds string) {
 		defer channel.Close()
 
 
-		webSockConn := New(conn) // New addapter
+		webSockConn := utils.New(conn) // New addapter
 		log.Println("Proxy connected", addrTCP)
-		go copyIO(channel, webSockConn)
-		copyIO(webSockConn, channel)
+		go utils.CopyIO(channel, webSockConn)
+		utils.CopyIO(webSockConn, channel)
 	})
 
 	log.Printf("Listening on ws://%s/", adds)

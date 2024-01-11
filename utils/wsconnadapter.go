@@ -1,6 +1,6 @@
 // an adapter for representing WebSocket connection as a net.Conn
 // some caveats apply: https://github.com/gorilla/websocket/issues/441
-package src
+package utils
 
 import (
 	"errors"

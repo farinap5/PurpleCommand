@@ -1,4 +1,4 @@
-package src
+package agent
 
 import "golang.org/x/crypto/ssh"
 

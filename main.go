@@ -4,7 +4,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"purpcmd/src"
+
+	"purpcmd/agent"
+	"purpcmd/server"
 )
 
 var Usage = func() {
@@ -21,10 +23,10 @@ func main() {
 	flag.Parse()
 
 	if *c {
-		go src.CallWSServer(*r) // everse connection
-		src.Listen() // Listen ssh
+		go agent.CallWSServer(*r) // everse connection
+		agent.Listen() // Listen ssh
 	} else if *l {
-		src.WSServe(*a) // tcp listener and websocket
+		server.WSServe(*a) // tcp listener and websocket
 	} else {
 		Usage()
 	}

@@ -1,13 +1,13 @@
 // https://groups.google.com/g/gorilla-web/c/VjXmApL1qA8
 
-package src
+package agent
 
 import (
-	"io"
 	"log"
 	"net"
 	"os"
 	"time"
+	"purpcmd/utils"
 
 	"github.com/gorilla/websocket"
 )
@@ -54,16 +54,9 @@ func wsclient(remoteAdd string) error {
 
 	// create new connect file
 	// "New" from adapter to use websock as net.Conn
-	webSockConn := New(wclient)
+	webSockConn := utils.New(wclient)
 	log.Println("+ Proxy connected")
-	go copyIO(conn, webSockConn)
-	copyIO(webSockConn, conn)
+	go utils.CopyIO(conn, webSockConn)
+	utils.CopyIO(webSockConn, conn)
 	return nil
-}
-
-// sync io from those connectios
-func copyIO(src, dest net.Conn) {
-	defer src.Close()
-	defer dest.Close()
-	io.Copy(src, dest)
 }

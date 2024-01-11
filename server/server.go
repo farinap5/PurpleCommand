@@ -10,38 +10,51 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// WebSocket Server Works with SSH local mirror
-func WSServe(adds string) {
-	addrTCP :=  "0.0.0.0:8080"
 
+func (profile *ServerProfile)websockhand(w http.ResponseWriter, r *http.Request) {
 	up := websocket.Upgrader{}
-	http.HandleFunc("/",func(w http.ResponseWriter, r *http.Request){
-		conn,err := up.Upgrade(w,r,nil)
-		if err != nil {
-			fmt.Println(err.Error())
-			return
-		}
+	conn,err := up.Upgrade(w,r,nil)
+	if err != nil {
+		fmt.Println(err.Error())
+		return
+	}
 
-		log.Printf("TCP Listener up on %s", addrTCP)
-		ln, err := net.Listen("tcp",addrTCP)
-		if err != nil {
-			panic(err)
-		}
-		log.Printf("+ Connect to %s with SSH", addrTCP)
-		defer ln.Close()
-		channel, err := ln.Accept()
-		if err != nil {
-			panic(err)
-		}
-		defer channel.Close()
+	log.Printf("TCP Listener up on %s", profile.TCPDefaultAddress)
+	ln, err := net.Listen("tcp", profile.TCPDefaultAddress)
+	if err != nil {
+		panic(err)
+	}
+	log.Printf("+ Connect to %s with SSH", profile.TCPDefaultAddress)
+	defer ln.Close()
+	channel, err := ln.Accept()
+	if err != nil {
+		panic(err)
+	}
+	defer channel.Close()
 
 
-		webSockConn := utils.New(conn) // New addapter
-		log.Println("Proxy connected", addrTCP)
-		go utils.CopyIO(channel, webSockConn)
-		utils.CopyIO(webSockConn, channel)
-	})
+	webSockConn := utils.New(conn) // New addapter
+	log.Println("Proxy connected", profile.TCPDefaultAddress)
+	defer webSockConn.Close()
+	go utils.CopyIO(channel, webSockConn)
+	utils.CopyIO(webSockConn, channel)
+}
+
+// WebSocket Server Works with SSH local mirror
+func WSServe(adds string) error {
+	profile := new(ServerProfile)
+	profile.HTTPAddress = adds
+	profile.TCPDefaultAddress = "0.0.0.0:8080"
+
+	ServerMux := http.NewServeMux()
+
+	ServerMux.HandleFunc("/", profile.websockhand)
 
 	log.Printf("Listening on ws://%s/", adds)
-	http.ListenAndServe(adds ,nil)
+	server := http.Server{
+		Addr: profile.HTTPAddress,
+		Handler: ServerMux,
+	}
+
+	return server.ListenAndServe()
 }

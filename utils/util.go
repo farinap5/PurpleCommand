@@ -2,13 +2,14 @@ package utils
 
 import (
 	"io"
+	"log"
 	"net"
 	"os"
 )
 
 func Err(err error) {
 	if err != nil {
-		println(err.Error())
+		log.Println(err.Error())
 		os.Exit(1)
 	}
 }

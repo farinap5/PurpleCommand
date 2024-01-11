@@ -12,7 +12,6 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-
 func CallWSServer(remoteAdd string) {
 	var t time.Duration = 1
 	var c int = 0
@@ -55,6 +54,7 @@ func wsclient(remoteAdd string) error {
 	// create new connect file
 	// "New" from adapter to use websock as net.Conn
 	webSockConn := utils.New(wclient)
+	defer webSockConn.Close()
 	log.Println("+ Proxy connected")
 	go utils.CopyIO(conn, webSockConn)
 	utils.CopyIO(webSockConn, conn)

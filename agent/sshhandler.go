@@ -59,6 +59,7 @@ func (s Session) HandServerConn(x string, chans <-chan ssh.NewChannel) {
 					var once sync.Once
 					close := func() {
 						channel.Close()
+						log.Printf("session closed")
 					}
 
 					go func() {

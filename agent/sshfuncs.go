@@ -12,8 +12,6 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-//go:embed key
-var key embed.FS
 
 func FingerprintKey(k ssh.PublicKey) string {
 	bytes := sha256.Sum256(k.Marshal())
@@ -46,7 +44,7 @@ func (s Session) pubCallBack(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Per
 }
 
 
-func Listen() {
+func Listen(key embed.FS) {
 	// Basic setup
 	s := Session{
 		SockName: "/tmp/ssh.sock",
@@ -54,6 +52,7 @@ func Listen() {
 	}
 	var err error
 
+	// TODO: Make pubkey embed to the binary
 	s.PubKey, _, _, _, err = ssh.ParseAuthorizedKey([]byte("ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBDm7lFJASftWM9Bmw+sQnjNtr48wXhSRDf43XUhbfRBT05j5dZ4+2qUhPt5gugkECSINzOs2nGz0hkCFTGDqPIM="))
 	utils.Err(err)
 
@@ -64,7 +63,7 @@ func Listen() {
 		PublicKeyCallback: s.pubCallBack, // Challenge with pubkey
 	}
 
-	privKey,_ := key.ReadFile("key/id_ecdsa")
+	privKey,_ := key.ReadFile("utils/key/id_ecdsa")
 	
 
 	pkey,err := ssh.ParsePrivateKey(privKey)
@@ -81,6 +80,7 @@ func Listen() {
 
 	conn, chans, reqs, err := ssh.NewServerConn(AConn, config)
 	utils.Err(err)
+	defer conn.Close()
 	go ssh.DiscardRequests(reqs)
 	s.HandServerConn(conn.Permissions.Extensions["x"],chans)
 }

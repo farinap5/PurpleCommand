@@ -1,15 +1,18 @@
 package server
 
 import (
+	"embed"
 	"fmt"
 	"log"
-	"net"
+
+	//"net"
 	"net/http"
 	"purpcmd/utils"
 
 	"github.com/gorilla/websocket"
 )
 
+var Key embed.FS
 
 func (profile *ServerProfile)websockhand(w http.ResponseWriter, r *http.Request) {
 	up := websocket.Upgrader{}
@@ -19,7 +22,8 @@ func (profile *ServerProfile)websockhand(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	log.Printf("TCP Listener up on %s", profile.TCPDefaultAddress)
+
+	/*log.Printf("TCP Listener up on %s", profile.TCPDefaultAddress)
 	ln, err := net.Listen("tcp", profile.TCPDefaultAddress)
 	if err != nil {
 		panic(err)
@@ -30,18 +34,20 @@ func (profile *ServerProfile)websockhand(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		panic(err)
 	}
-	defer channel.Close()
+	defer channel.Close()*/
 
-
+	
 	webSockConn := utils.New(conn) // New addapter
 	log.Println("Proxy connected", profile.TCPDefaultAddress)
-	defer webSockConn.Close()
+	Connector(webSockConn)
+	/*defer webSockConn.Close()
 	go utils.CopyIO(channel, webSockConn)
-	utils.CopyIO(webSockConn, channel)
+	utils.CopyIO(webSockConn, channel)*/
 }
 
 // WebSocket Server Works with SSH local mirror
-func WSServe(adds string) error {
+func WSServe(adds string, key embed.FS) error {
+	Key = key
 	profile := new(ServerProfile)
 	profile.HTTPAddress = adds
 	profile.TCPDefaultAddress = "0.0.0.0:8080"

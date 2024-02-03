@@ -1,9 +1,9 @@
 package server
 
 import (
-	"embed"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"purpcmd/utils"
 
@@ -12,25 +12,37 @@ import (
 )
 
 
-func Connector(key embed.FS) error {
-	bytes, err := key.ReadFile("utils/key/id_ecdsa")
+func Connector(conn net.Conn) error {
+	bytes, err := Key.ReadFile("utils/key/id_ecdsa")
 	utils.Err(err)
 
 	privKey, err := ssh.ParsePrivateKey(bytes)
 	utils.Err(err)
 
-	/* 
+	sshConfig := &ssh.ClientConfig{
+		Auth: []ssh.AuthMethod{ssh.PublicKeys(privKey)},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+	}
+
+	// https://github.com/golang/go/issues/32990
+	sshConn, channConn, connRequest, err := ssh.NewClientConn(conn, "localhost", sshConfig)
+	utils.Err(err)
+
+	/*
 		TODO: make HostKeyCallback 
 		https://stackoverflow.com/questions/44269142/golang-ssh-getting-must-specify-hoskeycallback-error-despite-setting-it-to-n
 	*/
-	sshConfig := &ssh.ClientConfig{
+	/*sshConfig := &ssh.ClientConfig{
 		Auth: []ssh.AuthMethod{ssh.PublicKeys(privKey)},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 
 	client, err := ssh.Dial("tcp", "0.0.0.0:8080", sshConfig)
 	utils.Err(err)
-	defer client.Close()
+	defer client.Close()*/
+
+	client := ssh.NewClient(sshConn, channConn, connRequest)
+	//client
 
 	session, err := client.NewSession()
 	if err != nil {

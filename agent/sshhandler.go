@@ -31,7 +31,6 @@ func (s Session) HandServerConn(x string, chans <-chan ssh.NewChannel) {
 			utils.Err(err)
 		}
 
-
 		go func(in <-chan *ssh.Request) {
 			defer channel.Close()
 			for req := range in {
@@ -87,6 +86,7 @@ func (s Session) HandServerConn(x string, chans <-chan ssh.NewChannel) {
 					h := binary.BigEndian.Uint32(req.Payload[4:])
 					SetWinsize(f.Fd(), w, h)
 					req.Reply(true, nil)
+					//println("Window")
 				}
 			}
 		} (req)

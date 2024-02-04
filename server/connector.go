@@ -1,16 +1,46 @@
 package server
 
 import (
+	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
 	"os"
+	"os/signal"
 	"purpcmd/utils"
+	"syscall"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/terminal"
 )
 
+func termSize(fd uintptr) []byte {
+	size := make([]byte, 16)
+
+	w,h, err := terminal.GetSize(int(fd))
+	if err != nil {
+		binary.BigEndian.PutUint32(size, uint32(80))
+		binary.BigEndian.PutUint32(size[4:], uint32(24))
+		return size
+	}
+
+	binary.BigEndian.PutUint32(size, uint32(w))
+	binary.BigEndian.PutUint32(size[4:], uint32(h))
+
+	return size
+}
+
+func winChanges(session *ssh.Session, fd uintptr) {
+	print("aaa")
+	signals := make(chan os.Signal, 1)
+
+	signal.Notify(signals, syscall.SIGWINCH)
+	defer signal.Stop(signals)
+
+	for range signals {
+		session.SendRequest("window-change", false, termSize(fd))
+	}
+}
 
 func Connector(conn net.Conn) error {
 	bytes, err := Key.ReadFile("utils/key/id_ecdsa")
@@ -20,7 +50,7 @@ func Connector(conn net.Conn) error {
 	utils.Err(err)
 
 	sshConfig := &ssh.ClientConfig{
-		Auth: []ssh.AuthMethod{ssh.PublicKeys(privKey)},
+		Auth:            []ssh.AuthMethod{ssh.PublicKeys(privKey)},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 
@@ -29,7 +59,7 @@ func Connector(conn net.Conn) error {
 	utils.Err(err)
 
 	/*
-		TODO: make HostKeyCallback 
+		TODO: make HostKeyCallback
 		https://stackoverflow.com/questions/44269142/golang-ssh-getting-must-specify-hoskeycallback-error-despite-setting-it-to-n
 	*/
 	/*sshConfig := &ssh.ClientConfig{
@@ -42,6 +72,7 @@ func Connector(conn net.Conn) error {
 	defer client.Close()*/
 
 	client := ssh.NewClient(sshConn, channConn, connRequest)
+	defer client.Close()
 	//client
 
 	session, err := client.NewSession()
@@ -50,7 +81,6 @@ func Connector(conn net.Conn) error {
 		utils.Err(err)
 	}
 	defer session.Close()
-
 
 	fd := int(os.Stdin.Fd())
 	state, err := terminal.MakeRaw(fd)
@@ -67,7 +97,6 @@ func Connector(conn net.Conn) error {
 	utils.Err(err)
 	err = session.RequestPty("xterm-256color", h, w, modes)
 	utils.Err(err)
-	
 
 	fmt.Println("Setting up STDIN")
 	stdin, err := session.StdinPipe()
@@ -84,6 +113,8 @@ func Connector(conn net.Conn) error {
 	utils.Err(err)
 	go io.Copy(os.Stderr, stderr)
 
+	go winChanges(session, os.Stdout.Fd())
+	print("call shell")
 	err = session.Shell()
 	utils.Err(err)
 
@@ -97,7 +128,6 @@ func Connector(conn net.Conn) error {
 		}
 		return fmt.Errorf("ssh: %s", err)
 	}
-
 
 	return nil
 }

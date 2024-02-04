@@ -27,8 +27,9 @@ func main() {
 	flag.Parse()
 
 	if *c {
-		go agent.CallWSServer(*a) // everse connection
-		agent.Listen(key) // Listen ssh
+		// go agent.CallWSServer(*a) // everse connection
+		// agent.Listen(key) // Listen ssh
+		agent.CallWSServer(*a, key)
 	} else if *l {
 		profile := new(server.ServerProfile)
 		profile.HTTPAddress = *a

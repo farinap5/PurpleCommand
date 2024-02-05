@@ -14,10 +14,15 @@ import (
 	"golang.org/x/crypto/ssh/terminal"
 )
 
+// https://github.com/glinton/ssh/blob/master/client.go#L293
 func termSize(fd uintptr) []byte {
 	size := make([]byte, 16)
 
 	w,h, err := terminal.GetSize(int(fd))
+	/*
+		W        H
+		ffffffff ffffffff ffffffffffffffff 
+	*/
 	if err != nil {
 		binary.BigEndian.PutUint32(size, uint32(80))
 		binary.BigEndian.PutUint32(size[4:], uint32(24))
@@ -31,7 +36,6 @@ func termSize(fd uintptr) []byte {
 }
 
 func winChanges(session *ssh.Session, fd uintptr) {
-	print("aaa")
 	signals := make(chan os.Signal, 1)
 
 	signal.Notify(signals, syscall.SIGWINCH)

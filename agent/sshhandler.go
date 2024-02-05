@@ -27,6 +27,7 @@ func (s Session) HandServerConn(x string, chans <-chan ssh.NewChannel) {
 		utils.Err(err)
 
 		f, tty, err := pty.Open()
+		defer tty.Close()
 		if err != nil {
 			utils.Err(err)
 		}
@@ -34,7 +35,7 @@ func (s Session) HandServerConn(x string, chans <-chan ssh.NewChannel) {
 		go func(in <-chan *ssh.Request) {
 			defer channel.Close()
 			for req := range in {
-
+				//ok := false
 				switch req.Type {
 				// TODO: exec is not needed. Must be created another case for exec call.
 				case "shell", "exec":
@@ -70,14 +71,16 @@ func (s Session) HandServerConn(x string, chans <-chan ssh.NewChannel) {
 						io.Copy(f, channel)
 						once.Do(close)
 					}()
-					
-					channel.SendRequest("exit-status", false, []byte{0, 0, 0, 0})
+
+					//channel.SendRequest("exit-status", false, []byte{0, 0, 0, 0})
+	
 				case "pty-req":
 					newTermLen := req.Payload[3]
 					w := binary.BigEndian.Uint32(req.Payload[newTermLen+4:])
 					h := binary.BigEndian.Uint32(req.Payload[newTermLen+4:][4:])
 					SetWinsize(f.Fd(), w, h)
 					req.Reply(true,nil)
+
 				case "env":
 					req.Reply(true, nil)
 
@@ -88,6 +91,8 @@ func (s Session) HandServerConn(x string, chans <-chan ssh.NewChannel) {
 					req.Reply(true, nil)
 					//println("Window")
 				}
+
+				//req.Reply(ok, nil)
 			}
 		} (req)
 	}

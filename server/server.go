@@ -2,6 +2,7 @@ package server
 
 import (
 	"embed"
+	"flag"
 	"fmt"
 	"log"
 
@@ -46,17 +47,25 @@ func (profile *ServerProfile)websockhand(w http.ResponseWriter, r *http.Request)
 }
 
 // WebSocket Server Works with SSH local mirror
-func WSServe(adds string, key embed.FS) error {
+func WSServe(args []string, key embed.FS) error {
 	Key = key
 	profile := new(ServerProfile)
-	profile.HTTPAddress = adds
 	profile.TCPDefaultAddress = "0.0.0.0:8080"
+
+	flags := flag.NewFlagSet("server", flag.ContinueOnError)
+
+	flags.StringVar(&profile.HTTPAddress, "a", "", "")
+	var uri = flags.String("uri","/","URI")
+
+	flags.Usage = utils.Usage
+	flags.Parse(args)
+
 
 	ServerMux := http.NewServeMux()
 
-	ServerMux.HandleFunc("/", profile.websockhand)
+	ServerMux.HandleFunc(*uri, profile.websockhand)
 
-	log.Printf("Listening on ws://%s/", adds)
+	log.Printf("Listening on ws://%s%s", profile.HTTPAddress, *uri)
 	server := http.Server{
 		Addr: profile.HTTPAddress,
 		Handler: ServerMux,

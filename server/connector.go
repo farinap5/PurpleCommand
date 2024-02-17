@@ -102,23 +102,23 @@ func Connector(conn net.Conn) error {
 	err = session.RequestPty("xterm-256color", h, w, modes)
 	utils.Err(err)
 
-	fmt.Println("Setting up STDIN")
+	fmt.Println("Setting up STDIN\r")
 	stdin, err := session.StdinPipe()
 	utils.Err(err)
 	go io.Copy(stdin, os.Stdin)
 
-	fmt.Println("Setting up STDOUT")
+	fmt.Println("Setting up STDOUT\r")
 	stdout, err := session.StdoutPipe()
 	utils.Err(err)
 	go io.Copy(os.Stdout, stdout)
 
-	fmt.Println("Setting up STDERR")
+	fmt.Println("Setting up STDERR\r")
 	stderr, err := session.StderrPipe()
 	utils.Err(err)
 	go io.Copy(os.Stderr, stderr)
 
 	go winChanges(session, os.Stdout.Fd())
-	print("call shell")
+	print("Call Shell\n\r")
 	err = session.Shell()
 	utils.Err(err)
 

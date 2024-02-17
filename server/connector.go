@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net"
 	"os"
 	"os/signal"
@@ -46,8 +47,14 @@ func winChanges(session *ssh.Session, fd uintptr) {
 	}
 }
 
-func Connector(conn net.Conn) error {
-	bytes, err := Key.ReadFile("utils/key/id_ecdsa")
+func Connector(conn net.Conn, keyPath string) error {
+	var bytes []byte
+	var err error
+	if keyPath == "" {
+		bytes, err = Key.ReadFile("utils/key/id_ecdsa")
+	} else {
+		bytes, err = ioutil.ReadFile(keyPath)
+	}
 	utils.Err(err)
 
 	privKey, err := ssh.ParsePrivateKey(bytes)

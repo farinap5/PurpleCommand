@@ -54,7 +54,7 @@ func WSServe(args []string, key embed.FS) error {
 
 	flags := flag.NewFlagSet("server", flag.ContinueOnError)
 
-	flags.StringVar(&profile.HTTPAddress, "a", "", "")
+	flags.StringVar(&profile.HTTPAddress, "a", "0.0.0.0:8080", "")
 	var uri = flags.String("uri","/","URI")
 
 	flags.Usage = utils.Usage

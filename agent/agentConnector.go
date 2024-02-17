@@ -52,10 +52,11 @@ func CallWSServer(args []string, key embed.FS) {
 func wsclient(ua,uri, remoteAdd string, key embed.FS) error {
 	log.Printf("Connecting to ws://%s%s", remoteAdd, uri)
 
-	var head http.Header
-	head.Set("User-Agent",ua)
+	head := http.Header {
+		"User-Agent": {ua},
+	}
 	
-	wclient, _, err := websocket.DefaultDialer.Dial("ws://"+remoteAdd+uri, nil)
+	wclient, _, err := websocket.DefaultDialer.Dial("ws://"+remoteAdd+uri, head)
 	if err != nil {
 		return err
 	}

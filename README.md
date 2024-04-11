@@ -1,5 +1,7 @@
 # PurpCMD
 
+For the current version the process mey be killed from client (backdoored) side due to error.
+
 Purpcmd operates by initiating a simple SSH server on the client side. Leveraging SSH has many improved features to work with remote terminals, such as enhanced interaction quality, window resizing, full duplex communications, and more. This type of approach tends to work better than using reverse shell, that use system features, synchronized sockets and IO, it will have limited capabilities. Purpcmd employs a reverse WebSocket connection to seamlessly synchronize the SSH connection with the server.
 
 The communication is secure and very malleable. It can be channeled through Content Delivery Network (CDN) to enhance obfuscation and other security measures.

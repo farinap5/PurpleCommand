@@ -14,7 +14,7 @@ var key embed.FS
 func main() {
 	ua  := "Mozilla PurpCMD"
 	uri := "/"
-	remoteAdd := "{{localhost}}"
+	remoteAdd := "LHOST" // Replaced
 	pk := ""
 	ps := ""
 	

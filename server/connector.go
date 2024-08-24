@@ -51,7 +51,7 @@ func Connector(conn net.Conn, keyPath string) error {
 	var bytes []byte
 	var err error
 	if keyPath == "" {
-		bytes, err = Key.ReadFile("utils/key/id_ecdsa")
+		bytes, err = Key.ReadFile("key/id_ecdsa")
 	} else {
 		bytes, err = ioutil.ReadFile(keyPath)
 	}

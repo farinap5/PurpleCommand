@@ -10,7 +10,7 @@ import (
 	"purpcmd/utils"
 )
 
-//go:embed utils/key
+//go:embed key
 var key embed.FS
 
 func main() {

@@ -34,7 +34,7 @@ func CallWSServer(args []string, key embed.FS) {
 	var t time.Duration = 1
 	var c int = 0
 	for {
-		err := wsclient(*ua, *uri, *remoteAdd, key, *pk, *ps)
+		err := Wsclient(*ua, *uri, *remoteAdd, key, *pk, *ps)
 		if err != nil {
 			log.Printf("Try %d sleep for %d", c, t)
 			time.Sleep(t * time.Millisecond)
@@ -53,7 +53,7 @@ func CallWSServer(args []string, key embed.FS) {
 	}
 }
 
-func wsclient(ua,uri, remoteAdd string, key embed.FS, pubKey string, stringKey string) error {
+func Wsclient(ua,uri, remoteAdd string, key embed.FS, pubKey string, stringKey string) error {
 	log.Printf("Connecting to ws://%s%s", remoteAdd, uri)
 
 	head := http.Header {
@@ -83,7 +83,7 @@ func wsclient(ua,uri, remoteAdd string, key embed.FS, pubKey string, stringKey s
 		utils.Err(err)
 		log.Println("Using public key from", pubKey)
 	} else {
-		PubKeyBytes, _ = key.ReadFile("utils/key/id_ecdsa.pub")
+		PubKeyBytes, _ = key.ReadFile("key/id_ecdsa.pub")
 	}
 	s.PubKey, _, _, _, err = ssh.ParseAuthorizedKey(PubKeyBytes)
 	utils.Err(err)
@@ -95,7 +95,7 @@ func wsclient(ua,uri, remoteAdd string, key embed.FS, pubKey string, stringKey s
 		PublicKeyCallback: s.pubCallBack, // Challenge with pubkey
 	}
 
-	privKey, _ := key.ReadFile("utils/key/id_ecdsa")
+	privKey, _ := key.ReadFile("key/id_ecdsa")
 	pkey, err := ssh.ParsePrivateKey(privKey)
 	utils.Err(err)
 	config.AddHostKey(pkey)

@@ -5,10 +5,9 @@ import (
 	"io"
 	"log"
 	"os/exec"
-	"sync"
+	"purpcmd/utils"
 	"syscall"
 	"unsafe"
-	"purpcmd/utils"
 
 	"github.com/creack/pty"
 	"golang.org/x/crypto/ssh"
@@ -19,7 +18,7 @@ func (s Session) HandServerConn(x string, chans <-chan ssh.NewChannel) {
 
 	for newChan := range chans {
 		if newChan.ChannelType() != "session" {
-			newChan.Reject(ssh.UnknownChannelType,"unknow channel type")
+			newChan.Reject(ssh.UnknownChannelType, "unknow channel type")
 			continue
 		}
 
@@ -42,7 +41,7 @@ func (s Session) HandServerConn(x string, chans <-chan ssh.NewChannel) {
 					log.Println("Client got shell")
 
 					// TODO: use a shell existing in the system / default shell
-					cmd := exec.Command("/bin/bash","-i")
+					cmd := exec.Command("/bin/bash", "-i")
 
 					cmd.Stdout = tty
 					cmd.Stdin = tty
@@ -56,30 +55,40 @@ func (s Session) HandServerConn(x string, chans <-chan ssh.NewChannel) {
 					err = cmd.Start()
 					utils.Err(err)
 
-					var once sync.Once
+					/*var once sync.Once
 					close := func() {
 						channel.Close()
 						log.Printf("session closed")
-					}
+					}*/
 
 					go func() {
 						io.Copy(channel, f)
-						once.Do(close)
+						//once.Do(close)
 					}()
 
 					go func() {
 						io.Copy(f, channel)
-						once.Do(close)
+						//once.Do(close)
+					}()
+
+					go func() {
+						err := cmd.Wait()
+						if err != nil {
+							log.Printf("Shell exited with error %s", err.Error())
+						} else {
+							log.Println("Shell exited")
+						}
+						channel.Close()
 					}()
 
 					//channel.SendRequest("exit-status", false, []byte{0, 0, 0, 0})
-	
+
 				case "pty-req":
 					newTermLen := req.Payload[3]
 					w := binary.BigEndian.Uint32(req.Payload[newTermLen+4:])
 					h := binary.BigEndian.Uint32(req.Payload[newTermLen+4:][4:])
 					SetWinsize(f.Fd(), w, h)
-					req.Reply(true,nil)
+					req.Reply(true, nil)
 
 				case "env":
 					req.Reply(true, nil)
@@ -94,10 +103,9 @@ func (s Session) HandServerConn(x string, chans <-chan ssh.NewChannel) {
 
 				//req.Reply(ok, nil)
 			}
-		} (req)
+		}(req)
 	}
 }
-
 
 func parseString(in []byte) (out string, rest []byte, ok bool) {
 	if len(in) < 4 {
@@ -112,7 +120,6 @@ func parseString(in []byte) (out string, rest []byte, ok bool) {
 	ok = true
 	return
 }
-
 
 func SetWinsize(fd uintptr, w, h uint32) {
 	ws := &WindowsConf{Width: uint16(w), Height: uint16(h)}

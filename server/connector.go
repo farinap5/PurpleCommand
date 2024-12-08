@@ -19,10 +19,10 @@ import (
 func termSize(fd uintptr) []byte {
 	size := make([]byte, 16)
 
-	w,h, err := terminal.GetSize(int(fd))
+	w, h, err := terminal.GetSize(int(fd))
 	/*
 		W        H
-		ffffffff ffffffff ffffffffffffffff 
+		ffffffff ffffffff ffffffffffffffff
 	*/
 	if err != nil {
 		binary.BigEndian.PutUint32(size, uint32(80))
@@ -91,6 +91,7 @@ func Connector(conn net.Conn, keyPath string) error {
 		client.Close()
 		utils.Err(err)
 	}
+
 	defer session.Close()
 
 	fd := int(os.Stdin.Fd())
@@ -109,19 +110,16 @@ func Connector(conn net.Conn, keyPath string) error {
 	err = session.RequestPty("xterm-256color", h, w, modes)
 	utils.Err(err)
 
-	fmt.Println("Setting up STDIN\r")
+	///fmt.Println("Setting up STDIN\r")
 	stdin, err := session.StdinPipe()
 	utils.Err(err)
-	go io.Copy(stdin, os.Stdin)
-
-	fmt.Println("Setting up STDOUT\r")
 	stdout, err := session.StdoutPipe()
 	utils.Err(err)
-	go io.Copy(os.Stdout, stdout)
-
-	fmt.Println("Setting up STDERR\r")
 	stderr, err := session.StderrPipe()
 	utils.Err(err)
+
+	go io.Copy(stdin, os.Stdin)
+	go io.Copy(os.Stdout, stdout)
 	go io.Copy(os.Stderr, stderr)
 
 	go winChanges(session, os.Stdout.Fd())

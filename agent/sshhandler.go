@@ -23,12 +23,12 @@ func (s Session) HandServerConn(x string, chans <-chan ssh.NewChannel) {
 		}
 
 		channel, req, err := newChan.Accept()
-		utils.Err(err)
+		utils.Err(err, 1)
 
 		f, tty, err := pty.Open()
 		defer tty.Close()
 		if err != nil {
-			utils.Err(err)
+			utils.Err(err, 2)
 		}
 
 		go func(in <-chan *ssh.Request) {
@@ -53,7 +53,7 @@ func (s Session) HandServerConn(x string, chans <-chan ssh.NewChannel) {
 					}
 
 					err = cmd.Start()
-					utils.Err(err)
+					utils.Err(err, 3)
 
 					/*var once sync.Once
 					close := func() {
@@ -74,10 +74,11 @@ func (s Session) HandServerConn(x string, chans <-chan ssh.NewChannel) {
 					go func() {
 						err := cmd.Wait()
 						if err != nil {
-							log.Printf("Shell exited with error %s", err.Error())
+							utils.Err(err, 4)
 						} else {
 							log.Println("Shell exited")
 						}
+
 						channel.Close()
 					}()
 

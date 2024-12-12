@@ -55,10 +55,10 @@ func Connector(conn net.Conn, keyPath string) error {
 	} else {
 		bytes, err = ioutil.ReadFile(keyPath)
 	}
-	utils.Err(err)
+	utils.Err(err, 5)
 
 	privKey, err := ssh.ParsePrivateKey(bytes)
-	utils.Err(err)
+	utils.Err(err, 6)
 
 	sshConfig := &ssh.ClientConfig{
 		Auth:            []ssh.AuthMethod{ssh.PublicKeys(privKey)},
@@ -67,7 +67,7 @@ func Connector(conn net.Conn, keyPath string) error {
 
 	// https://github.com/golang/go/issues/32990
 	sshConn, channConn, connRequest, err := ssh.NewClientConn(conn, "localhost", sshConfig)
-	utils.Err(err)
+	utils.Err(err, 7)
 
 	/*
 		TODO: make HostKeyCallback
@@ -89,14 +89,14 @@ func Connector(conn net.Conn, keyPath string) error {
 	session, err := client.NewSession()
 	if err != nil {
 		client.Close()
-		utils.Err(err)
+		utils.Err(err, 8)
 	}
 
 	defer session.Close()
 
 	fd := int(os.Stdin.Fd())
 	state, err := terminal.MakeRaw(fd)
-	utils.Err(err)
+	utils.Err(err, 9)
 	defer terminal.Restore(fd, state)
 
 	modes := ssh.TerminalModes{
@@ -106,17 +106,16 @@ func Connector(conn net.Conn, keyPath string) error {
 	}
 
 	w, h, err := terminal.GetSize(fd)
-	utils.Err(err)
+	utils.Err(err, 10)
 	err = session.RequestPty("xterm-256color", h, w, modes)
-	utils.Err(err)
+	utils.Err(err, 11)
 
-	///fmt.Println("Setting up STDIN\r")
 	stdin, err := session.StdinPipe()
-	utils.Err(err)
+	utils.Err(err, 12)
 	stdout, err := session.StdoutPipe()
-	utils.Err(err)
+	utils.Err(err, 13)
 	stderr, err := session.StderrPipe()
-	utils.Err(err)
+	utils.Err(err, 14)
 
 	go io.Copy(stdin, os.Stdin)
 	go io.Copy(os.Stdout, stdout)
@@ -125,18 +124,24 @@ func Connector(conn net.Conn, keyPath string) error {
 	go winChanges(session, os.Stdout.Fd())
 	print("Call Shell\n\r")
 	err = session.Shell()
-	utils.Err(err)
+	//utils.Err(err, 15)
 
 	// https://gist.github.com/atotto/ba19155295d95c8d75881e145c751372
-	if err := session.Wait(); err != nil {
-		if e, ok := err.(*ssh.ExitError); ok {
-			switch e.ExitStatus() {
-			case 130:
-				return nil
-			}
-		}
-		return fmt.Errorf("ssh: %s", err)
-	}
+	/*
+		From tests, it was seen that the session.shell() keeps waiting until the shell process exit
+		and the channel is over so it jumps to the following Wait without even need this. So I will
+		keep it commented.
+
+			if err := session.Wait(); err != nil {
+				if e, ok := err.(*ssh.ExitError); ok {
+					switch e.ExitStatus() {
+					case 130:
+						return nil
+					}
+				}
+				return fmt.Errorf("ssh: %s", err)
+			}*/
+	fmt.Println("aaa")
 
 	return nil
 }

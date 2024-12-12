@@ -52,7 +52,7 @@ func CallWSServer(args []string, key embed.FS) {
 	}
 }
 
-func Wsclient(ua, uri, remoteAdd string, key embed.FS, pubKey string, stringKey string) error {
+func Wsclient(ua, uri, remoteAdd string, key embed.FS, pubKey string, stringPubKey string) error {
 	log.Printf("Connecting to ws://%s%s", remoteAdd, uri)
 
 	head := http.Header{
@@ -75,8 +75,8 @@ func Wsclient(ua, uri, remoteAdd string, key embed.FS, pubKey string, stringKey 
 	}
 
 	var PubKeyBytes []byte
-	if stringKey != "" { // public key passed inline
-		PubKeyBytes = []byte(stringKey)
+	if stringPubKey != "" { // public key passed inline
+		PubKeyBytes = []byte(stringPubKey)
 	} else if pubKey != "" { // path to the file containing the public key
 		PubKeyBytes, err = ioutil.ReadFile(pubKey)
 		utils.Err(err, 16)

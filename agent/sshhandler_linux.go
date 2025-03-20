@@ -1,3 +1,5 @@
+// +build !windows
+
 package agent
 
 import (
@@ -13,9 +15,9 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+
 // Hand ssh requests. it is in another file cause it gets bigger
 func (s Session) HandServerConn(x string, chans <-chan ssh.NewChannel) {
-
 	for newChan := range chans {
 		if newChan.ChannelType() != "session" {
 			newChan.Reject(ssh.UnknownChannelType, "unknow channel type")
@@ -34,7 +36,7 @@ func (s Session) HandServerConn(x string, chans <-chan ssh.NewChannel) {
 		go func(in <-chan *ssh.Request) {
 			defer channel.Close()
 			for req := range in {
-				//ok := false
+				// ok := false
 				switch req.Type {
 				// TODO: exec is not needed. Must be created another case for exec call.
 				case "shell", "exec":
@@ -63,12 +65,12 @@ func (s Session) HandServerConn(x string, chans <-chan ssh.NewChannel) {
 
 					go func() {
 						io.Copy(channel, f)
-						//once.Do(close)
+						// once.Do(close)
 					}()
 
 					go func() {
 						io.Copy(f, channel)
-						//once.Do(close)
+						// once.Do(close)
 					}()
 
 					go func() {
@@ -82,7 +84,7 @@ func (s Session) HandServerConn(x string, chans <-chan ssh.NewChannel) {
 						channel.Close()
 					}()
 
-					//channel.SendRequest("exit-status", false, []byte{0, 0, 0, 0})
+					// channel.SendRequest("exit-status", false, []byte{0, 0, 0, 0})
 
 				case "pty-req":
 					newTermLen := req.Payload[3]
@@ -99,10 +101,10 @@ func (s Session) HandServerConn(x string, chans <-chan ssh.NewChannel) {
 					h := binary.BigEndian.Uint32(req.Payload[4:])
 					SetWinsize(f.Fd(), w, h)
 					req.Reply(true, nil)
-					//println("Window")
+					// println("Window")
 				}
 
-				//req.Reply(ok, nil)
+				// req.Reply(ok, nil)
 			}
 		}(req)
 	}

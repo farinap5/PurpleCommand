@@ -30,6 +30,7 @@ func main() {
 	switch action {
 		case "server":
 			server.WSServe(args, key) // tcp listener and websocket
+			//print("aaa")
 		case "client":
 			// go agent.CallWSServer(*a) // everse connection
 			// agent.Listen(key) // Listen ssh

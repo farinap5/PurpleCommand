@@ -15,35 +15,17 @@ import (
 
 var Key embed.FS
 
-func (profile *ServerProfile)websockhand(w http.ResponseWriter, r *http.Request) {
+func (profile *ServerProfile) websockhand(w http.ResponseWriter, r *http.Request) {
 	up := websocket.Upgrader{}
-	conn,err := up.Upgrade(w,r,nil)
+	conn, err := up.Upgrade(w, r, nil)
 	if err != nil {
 		fmt.Println(err.Error())
 		return
 	}
 
-
-	/*log.Printf("TCP Listener up on %s", profile.TCPDefaultAddress)
-	ln, err := net.Listen("tcp", profile.TCPDefaultAddress)
-	if err != nil {
-		panic(err)
-	}
-	log.Printf("+ Connect to %s with SSH", profile.TCPDefaultAddress)
-	defer ln.Close()
-	channel, err := ln.Accept()
-	if err != nil {
-		panic(err)
-	}
-	defer channel.Close()*/
-
-	
 	webSockConn := utils.New(conn) // New addapter
 	log.Println("Proxy connected", profile.TCPDefaultAddress)
 	Connector(webSockConn, profile.PrivKey)
-	/*defer webSockConn.Close()
-	go utils.CopyIO(channel, webSockConn)
-	utils.CopyIO(webSockConn, channel)*/
 }
 
 // WebSocket Server Works with SSH local mirror
@@ -56,11 +38,10 @@ func WSServe(args []string, key embed.FS) error {
 
 	flags.StringVar(&profile.HTTPAddress, "a", "0.0.0.0:8080", "")
 	flags.StringVar(&profile.PrivKey, "k", "", "")
-	var uri = flags.String("uri","/","URI")
+	var uri = flags.String("uri", "/", "URI")
 
 	flags.Usage = utils.Usage
 	flags.Parse(args)
-
 
 	ServerMux := http.NewServeMux()
 
@@ -72,7 +53,7 @@ func WSServe(args []string, key embed.FS) error {
 
 	log.Printf("Listening on ws://%s%s", profile.HTTPAddress, *uri)
 	server := http.Server{
-		Addr: profile.HTTPAddress,
+		Addr:    profile.HTTPAddress,
 		Handler: ServerMux,
 	}
 

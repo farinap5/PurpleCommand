@@ -102,6 +102,8 @@ func Wsclient(ua, uri, remoteAdd string, key embed.FS, pubKey string, stringPubK
 	conn, chans, reqs, err := ssh.NewServerConn(webSockConn, config)
 	utils.Err(err, 19)
 	go ssh.DiscardRequests(reqs)
+
 	s.HandServerConn(conn.Permissions.Extensions["x"], chans)
+	
 	return nil
 }

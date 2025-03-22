@@ -51,10 +51,72 @@ func loadFunctions() {
 		Prompt: nil,
 	}
 
+	Mapping["back"] = &types.Command{
+		Call:   runBack,
+		Usage:  nil,
+		Desc:   "Exit from resource.",
+		Prompt: nil,
+	}
+
 	Mapping["listener"] = &types.Command{
 		Call:   runListener,
 		Usage:  nil,
 		Desc:   "Listener.",
+		Prompt: nil,
+	}
+
+	Mapping["new"] = &types.Command{
+		Call:   runNew,
+		Usage:  nil,
+		Desc:   "",
+		Prompt: nil,
+	}
+	Mapping["list"] = &types.Command{
+		Call:   runList,
+		Usage:  nil,
+		Desc:   "",
+		Prompt: nil,
+	}
+	Mapping["options"] = &types.Command{
+		Call:   runOptions,
+		Usage:  nil,
+		Desc:   "",
+		Prompt: nil,
+	}
+	Mapping["set"] = &types.Command{
+		Call:   runSet,
+		Usage:  nil,
+		Desc:   "",
+		Prompt: nil,
+	}
+	Mapping["run"] = &types.Command{
+		Call:   runRun,
+		Usage:  nil,
+		Desc:   "",
+		Prompt: nil,
+	}
+	Mapping["start"] = &types.Command{
+		Call:   runRun,
+		Usage:  nil,
+		Desc:   "",
+		Prompt: nil,
+	}
+	Mapping["stop"] = &types.Command{
+		Call:   runStop,
+		Usage:  nil,
+		Desc:   "",
+		Prompt: nil,
+	}
+	Mapping["interact"] = &types.Command{
+		Call:   runInteract,
+		Usage:  nil,
+		Desc:   "",
+		Prompt: nil,
+	}
+	Mapping["delete"] = &types.Command{
+		Call:   runDelete,
+		Usage:  nil,
+		Desc:   "",
 		Prompt: nil,
 	}
 }

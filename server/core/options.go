@@ -1,19 +1,38 @@
 package core
 
-import "github.com/cheynewallace/tabby"
+import (
+	"purpcmd/server/types"
 
-func CmdHelp() {
-	print("\n")
+	"github.com/cheynewallace/tabby"
+)
+
+func CmdHelp(p *types.Profile) {
 	t := tabby.New()
 	t.AddHeader("GENERIC COMMAND", "DESCRIPTION")
 	t.AddLine("help", "Show help menu. Use `help <cmd>`.") //
-	t.AddLine("listener", "Show help menu. Use `help <cmd>`.") //
-	t.AddLine("exit", "Show help menu. Use `help <cmd>`.") //
+	t.AddLine("exit", "Exit from purpcmd.") //
+
+	if p.Listener {
+		t.AddLine("new", "Create new listener. Use `new <name>`.") //
+		t.AddLine("delete", "Delete listener.") //
+		t.AddLine("options", "Show options.") //
+		t.AddLine("set", "Set option. Use `set <key> <value>`.") //
+		t.AddLine("run/start", "Start listener.") //
+		t.AddLine("stop", "Stop a listener.") //
+		t.AddLine("list", "List listeners.") //
+		t.AddLine("interact", "Interact with a listener. Use `interact <name>`.") //
+		t.AddLine("back", "Exit listener mode.") //
+	} else {
+		t.AddLine("listener", "Enter listener mode. Use `help <cmd>`.") //
+	}
+
+	print("\n")
 	t.Print()
 	print("\n")
 }
 
 func usageHelp(cmds []string) {
+	print("\n")
 	println("HELP:")
 	println("    `help` Show help menu.")
 	println("    `help <cmd>` Show help menu for that command.")

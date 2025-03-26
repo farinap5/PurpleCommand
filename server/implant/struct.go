@@ -1,5 +1,6 @@
 package implant
 
+import "time"
 
 /*
 	ImplantMetadata has 15bytes of fixed size
@@ -16,6 +17,22 @@ type ImplantMetadata struct {
 	Proc		string
 }
 
-type ImplantData struct {
+type Implant struct {
+	Name string
+	UUID string
+	key  	string
 	Metadata ImplantMetadata
+
+	Alive 		bool
+	LastSeen 	time.Time
+	FirstSeen 	time.Time
+
+	Task []*Task
+}
+
+type Task struct {
+	ID 			string
+	Registered 	time.Time
+	Code 		uint16
+	Payload 	[]byte
 }

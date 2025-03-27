@@ -70,9 +70,17 @@ func (paux *ProfileAux) completer(d prompt.Document) []prompt.Suggest {
 			prompt.Suggest {Text: "interact", Description: "Interact with listener"},
 			prompt.Suggest {Text: "delete",   Description: "Delete listener"},
 		)
+	} else if paux.Profile.Session {
+		promptSuggestions = append(promptSuggestions,
+			prompt.Suggest {Text: "back",     Description: "Exit from session menu"},
+			prompt.Suggest {Text: "list",     Description: "List session"},
+			prompt.Suggest {Text: "interact", Description: "Interact with session"},
+			prompt.Suggest {Text: "delete",   Description: "Delete session"},
+		)
 	} else {	// Options only valid when there is no selected script.
 		promptSuggestions = append(promptSuggestions,
 			prompt.Suggest {Text: "listener", Description: "Interact with listeners"},
+			prompt.Suggest {Text: "session", Description: "Interact with session"},
 		) 
 	}
 

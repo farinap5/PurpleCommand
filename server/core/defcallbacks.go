@@ -137,6 +137,12 @@ func runInteract(cmds []string,profile *types.Profile) int {
 			profile.Prompt = "(listener - " + listener.CurrentListener + ")>> "
 			LivePrefixState.LivePrefix = profile.Prompt
 			LivePrefixState.IsEnable = true
+		} else if profile.Session {
+			implant.ImplantInteract(cmds[1])
+
+			profile.Prompt = "(session - " + implant.CurrentImplant + ")>> "
+			LivePrefixState.LivePrefix = profile.Prompt
+			LivePrefixState.IsEnable = true
 		} else {
 			println("error")
 		}

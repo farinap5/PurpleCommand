@@ -15,7 +15,7 @@ func (l *Listener)root(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("Page Not Found"))
 		return
 	} else if a == implant.REG {
-		
+		l.Association = l.Association + 1
 	}
 
 	w.WriteHeader(200)

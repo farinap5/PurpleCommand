@@ -3,6 +3,7 @@ package implant
 import (
 	"errors"
 	"fmt"
+	"purpcmd/server/log"
 	"time"
 
 	"github.com/cheynewallace/tabby"
@@ -19,8 +20,8 @@ var (
 )
 
 func (i *Implant)ImplantAddImplant() {
-	fmt.Printf("New implant %s - %s %s\n", i.Name, i.Metadata.Hostname, i.Metadata.User)
-	fmt.Println(i)
+	log.AsyncWriteStdout(fmt.Sprintf("New implant %s - %s %s\n", i.Name, i.Metadata.Hostname, i.Metadata.User))
+	//fmt.Println(i)
 	ImplantMAP[i.Name] = i
 }
 

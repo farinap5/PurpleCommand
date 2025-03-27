@@ -91,9 +91,9 @@ func ListenerList() {
 
 	t := tabby.New()
 	c := 1
-	t.AddHeader("ID", "NAME", "UUID", "SOCKET", "RUNNING", "PERSISTENT")
+	t.AddHeader("ID", "NAME", "UUID", "SOCKET", "RUNNING", "PERSISTENT", "ASSOCIATION")
 	for k,v := range ListenerMAP {
-		t.AddLine(c ,k, v.UUID[24:], v.Host+":"+v.Port, fmt.Sprintf("%t", ListenerMAP[CurrentListener].SC.running), fmt.Sprintf("%t", ListenerMAP[CurrentListener].Persistent))
+		t.AddLine(c ,k, v.UUID[24:], v.Host+":"+v.Port, fmt.Sprintf("%t", ListenerMAP[CurrentListener].SC.running), fmt.Sprintf("%t", ListenerMAP[CurrentListener].Persistent), v.Association)
 		c+=1
 	}
 	print("\n")

@@ -10,6 +10,7 @@ type Listener struct {
 	UUID	string
 	Host 	string
 	Port 	string
+	Association int
 
 	Proto 	string
 	Persistent bool

@@ -5,43 +5,15 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
-	"io"
 	"purpcmd/server"
 	"time"
 )
 
 const (
-	NIL = iota
-	REG
+	NIL = iota // Nothing
+	REG // Register - Used by the implant to register itself
+	CHK // Check - Used by the implant to check for new tasks
 )
-
-func ParseCallback(d io.ReadCloser) int {
-	r := base64.NewDecoder(base64.StdEncoding, d)
-	var messageType uint16
-
-	err := binary.Read(r, binary.BigEndian, &messageType)
-	if err != nil {
-		if err == io.EOF {
-			return NIL
-		}
-	}
-
-
-	if messageType == REG {
-		println("registration request")
-		i := new(ImplantMetadata)
-
-		binary.Read(r, binary.BigEndian, &i.PID)
-		binary.Read(r, binary.BigEndian, &i.SessionID)
-		binary.Read(r, binary.BigEndian, &i.IP)
-		binary.Read(r, binary.BigEndian, &i.Port)
-
-		println("Pid: ", i.PID)
-		return REG
-	}
-
-	return NIL
-}
 
 func (i *Implant)TaskGet() (*Task, error) {
 	tasks := i.Task
@@ -59,7 +31,6 @@ func (i *Implant)TaskGet() (*Task, error) {
 
 	return t, nil
 }
-
 
 func (t Task)TaskMarshal() []byte {
 	b := new(bytes.Buffer)

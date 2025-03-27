@@ -64,6 +64,12 @@ func loadFunctions() {
 		Desc:   "Listener.",
 		Prompt: nil,
 	}
+	Mapping["session"] = &types.Command{
+		Call:   runSession,
+		Usage:  nil,
+		Desc:   "session.",
+		Prompt: nil,
+	}
 
 	Mapping["new"] = &types.Command{
 		Call:   runNew,

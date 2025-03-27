@@ -15,7 +15,7 @@ func (l *Listener) StartHTTP() {
 	}
 
 	serverMux := http.NewServeMux()
-	serverMux.HandleFunc("/", root)
+	serverMux.HandleFunc("/", l.root)
 
 	l.SC.server = &http.Server{
 		Addr:    l.Host + ":" + l.Port,

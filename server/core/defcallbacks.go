@@ -2,6 +2,7 @@ package core
 
 import (
 	"os"
+	"purpcmd/server/implant"
 	"purpcmd/server/listener"
 	"purpcmd/server/types"
 )
@@ -36,9 +37,29 @@ func runExit(cmds []string,profile *types.Profile) int {
 
 
 func runListener(cmds []string,profile *types.Profile) int {
+	if profile.Session {
+		println("session is in use")
+		return 0
+	}
+
 	if !profile.Listener {
 		profile.Listener = true
 		profile.Prompt = "(listener - " + listener.CurrentListener + ")>> "
+		LivePrefixState.LivePrefix = profile.Prompt
+		LivePrefixState.IsEnable = true
+	}
+	return 0
+}
+
+func runSession(cmds []string,profile *types.Profile) int {
+	if profile.Listener {
+		println("listener is in use")
+		return 0
+	}
+
+	if !profile.Session {
+		profile.Session = true
+		profile.Prompt = "(session - " + implant.CurrentImplant + ")>> "
 		LivePrefixState.LivePrefix = profile.Prompt
 		LivePrefixState.IsEnable = true
 	}
@@ -73,6 +94,8 @@ func runOptions(cmds []string,profile *types.Profile) int {
 func runList(cmds []string,profile *types.Profile) int {
 	if profile.Listener {
 		listener.ListenerList()
+	} else if profile.Session {
+		implant.ImplantList()
 	}
 
 	return 0
@@ -140,6 +163,8 @@ func runDelete(cmds []string,profile *types.Profile) int {
 func runBack(cmds []string,profile *types.Profile) int {
 	if profile.Listener {
 		profile.Listener = false
+	} else if profile.Session {
+		profile.Session = false
 	}
 
 	profile.Prompt = "[prc]>> "

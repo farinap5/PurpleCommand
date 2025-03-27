@@ -18,12 +18,13 @@ type ImplantMetadata struct {
 }
 
 type Implant struct {
-	Name string
-	UUID string
+	Name 	string
+	UUID 	string
 	key  	string
 	Metadata ImplantMetadata
 
 	Alive 		bool
+	Sleep		int
 	LastSeen 	time.Time
 	FirstSeen 	time.Time
 

@@ -22,8 +22,17 @@ func CmdHelp(p *types.Profile) {
 		t.AddLine("list", "List listeners.") //
 		t.AddLine("interact", "Interact with a listener. Use `interact <name>`.") //
 		t.AddLine("back", "Exit listener mode.") //
+	} else if p.Session {
+		t.AddLine("delete", "Delete session.") //
+		t.AddLine("options", "Show options.") //
+		t.AddLine("set", "Set option. Use `set <key> <value>`.") //
+		t.AddLine("stop", "Stop a listener.") //
+		t.AddLine("list", "List sessions.") //
+		t.AddLine("interact", "Interact with a session. Use `interact <name>`.") //
+		t.AddLine("back", "Exit session mode.") //
 	} else {
-		t.AddLine("listener", "Enter listener mode. Use `help <cmd>`.") //
+		t.AddLine("listener", "Enter listener mode. Use `help <cmd>`.")
+		t.AddLine("session", "Enter session mode. Use `help <cmd>`.")
 	}
 
 	print("\n")

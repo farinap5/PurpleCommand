@@ -4,10 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"purpcmd/server/log"
 	"time"
 )
-
-
 
 func (l *Listener) StartHTTP() {
 	if l.SC.running {
@@ -27,7 +26,7 @@ func (l *Listener) StartHTTP() {
 
 	go func() {
 		defer l.SC.wg.Done()
-		fmt.Printf("Starting server at %s\n", l.Host + ":" + l.Port)
+		log.AsyncWriteStdout(fmt.Sprintf("Starting server at %s\n", l.Host + ":" + l.Port))
 
 		if err := l.SC.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			fmt.Printf("HTTP server error: %v\n", err)

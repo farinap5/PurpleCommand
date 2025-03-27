@@ -47,7 +47,7 @@ func ImplantList() {
 
 	t := tabby.New()
 	c := 1
-	t.AddHeader("N", "NAME", "USERNAME", "MACHINE","UUID", "SOCKET", "PID", "SLEEP", "LAST SEEN", "STATUS")
+	t.AddHeader("N", "NAME", "USERNAME", "MACHINE", "UUID", "SOCKET", "PID", "SLEEP", "LAST SEEN", "STATUS")
 	for k, v := range ImplantMAP {
 
 		lastS := int(time.Since(v.LastSeen).Seconds())
@@ -102,6 +102,19 @@ func (i *Implant) ImplantSetAlive() {
 	}
 }
 
-func (i *Implant) ImplantSetRemoteIP(ip string) {
-	i.Metadata.Socket = ip
+func (i *Implant) ImplantSetRemoteSocket(socket string) {
+	i.Metadata.Socket = socket
+}
+
+func ImplantVerifyName(name string) bool {
+	if ImplantMAP[name] == nil {
+		return false
+	} else {
+		return true
+	}
+}
+
+
+func ImplantUpdateLastseen(name string) {
+	ImplantMAP[name].LastSeen = time.Now()
 }

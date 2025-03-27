@@ -38,5 +38,5 @@ func processPayload(r *http.Request) int {
 		stringReadCloser = r.Body
 	}
 
-	return implant.ParseCallback(stringReadCloser)
+	return implant.ParseCallback(stringReadCloser, r)
 }

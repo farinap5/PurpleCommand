@@ -15,41 +15,40 @@ var (
 )
 
 var (
-	ImplantMAP = make(map[string]*Implant)
+	ImplantMAP            = make(map[string]*Implant)
 	CurrentImplant string = "none"
 )
 
-func (i *Implant)ImplantAddImplant() {
-	log.AsyncWriteStdout(fmt.Sprintf("New implant %s - %s %s\n", i.Name, i.Metadata.Hostname, i.Metadata.User))
-	//fmt.Println(i)
+func (i *Implant) ImplantAddImplant() {
+	log.AsyncWriteStdout(fmt.Sprintf("[\u001B[1;32m!\u001B[0;0m]- New implant %s - SOCK:%s HOSTNAME:%s USERNAME:%s\n", i.Name, i.Metadata.Socket, i.Metadata.Hostname, i.Metadata.User))
 	ImplantMAP[i.Name] = i
 }
 
 func ImplantNew(name, key string) *Implant {
 	n := time.Now()
 	return &Implant{
-		Name: name,
-		UUID: uuid.NewString(),
-		key: key,
-		Alive: true,
-		LastSeen: n,
+		Name:      name,
+		UUID:      uuid.NewString(),
+		key:       key,
+		Alive:     true,
+		LastSeen:  n,
 		FirstSeen: n,
 	}
 }
 
-func (i *Implant)ImplantSetMetadata(m *ImplantMetadata) {
+func (i *Implant) ImplantSetMetadata(m *ImplantMetadata) {
 	i.Metadata = *m
 }
 
 func ImplantList() {
 	if len(ImplantMAP) == 0 {
-		println("no session")
+		log.PrintAlert("no session")
 	}
 
 	t := tabby.New()
 	c := 1
-	t.AddHeader("N", "NAME", "UUID", "PID", "LAST SEEN", "STATUS")
-	for k,v := range ImplantMAP {
+	t.AddHeader("N", "NAME", "USERNAME", "MACHINE","UUID", "SOCKET", "PID", "SLEEP", "LAST SEEN", "STATUS")
+	for k, v := range ImplantMAP {
 
 		lastS := int(time.Since(v.LastSeen).Seconds())
 		aux := "s"
@@ -61,13 +60,13 @@ func ImplantList() {
 				aux = "h"
 			}
 		}
-		status := "healthy"
-		if time.Since(v.LastSeen).Seconds() > float64(v.Sleep) {
-			status = "dead"
+		status := "\u001B[1;32mhealthy\u001B[0;0m"
+		if time.Since(v.LastSeen).Seconds() > float64(v.Metadata.Sleep) {
+			status = "\u001B[1;31mdead\u001B[0;0m"
 		}
 
-		t.AddLine(c ,k, v.UUID[24:], v.Metadata.PID, fmt.Sprintf("%d%s ago", lastS, aux), status)
-		c+=1
+		t.AddLine(c, k, v.Metadata.User, v.Metadata.Hostname, v.UUID[24:], v.Metadata.Socket, v.Metadata.PID, v.Metadata.Sleep, fmt.Sprintf("%d%s ago", lastS, aux), status)
+		c += 1
 	}
 	print("\n")
 	t.Print()
@@ -77,11 +76,11 @@ func ImplantList() {
 func ImplantDelete() error {
 	if ImplantMAP[CurrentImplant] != nil {
 		if ImplantMAP[CurrentImplant].Alive {
-			return errors.New("listener is running")	
+			return errors.New("listener is running")
 		}
 
 		delete(ImplantMAP, CurrentImplant)
-		println("Session " + CurrentImplant + " deleted")
+		log.PrintSuccs("Session " + CurrentImplant + " deleted")
 		CurrentImplant = "none"
 	} else {
 		return errors.New("no listener")
@@ -97,9 +96,12 @@ func ImplantInteract(name string) error {
 	return nil
 }
 
-func (i *Implant)ImplantSetAlive() {
+func (i *Implant) ImplantSetAlive() {
 	if !i.Alive {
 		i.Alive = true
 	}
 }
 
+func (i *Implant) ImplantSetRemoteIP(ip string) {
+	i.Metadata.Socket = ip
+}

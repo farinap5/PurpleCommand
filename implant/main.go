@@ -11,10 +11,11 @@ import (
 
 func Do() {
 	// === Example Data ===
-	messageType := uint16(0x01)      // 2 bytes
+	messageType := uint16(0x01)        // 2 bytes
 	pid := uint32(1000)                // 4 bytes
 	sessionID := uint32(0x12345678)    // 4 bytes
 	ip := [4]byte{192, 168, 1, 100}    // 4 bytes
+	sleep := uint32(10)				   // 4 bytes
 	port := uint16(8080)               // 2 bytes
 	arch := byte(1)                    // 1 byte
 	procName := "procname"
@@ -47,6 +48,7 @@ func Do() {
 	binary.Write(buf, binary.BigEndian, sessionID)
 	binary.Write(buf, binary.BigEndian, ip)
 	binary.Write(buf, binary.BigEndian, port)
+	binary.Write(buf, binary.BigEndian, sleep)
 	buf.WriteByte(arch)
 	binary.Write(buf, binary.BigEndian, dataLen)
 	buf.Write(dataSection)

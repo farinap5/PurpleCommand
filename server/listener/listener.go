@@ -3,6 +3,7 @@ package listener
 import (
 	"errors"
 	"fmt"
+	"purpcmd/server/log"
 
 	"github.com/cheynewallace/tabby"
 	"github.com/google/uuid"
@@ -34,7 +35,7 @@ func ListenerNew(name string) error {
 	ListenerMAP[name] = l
 	CurrentListener = name
 
-	println("New listener "+CurrentListener)
+	log.PrintSuccs("New listener "+CurrentListener)
 
 	return nil
 }
@@ -86,7 +87,7 @@ func ListenerShowOptions() error {
 
 func ListenerList() {
 	if len(ListenerMAP) == 0 {
-		println("No listener")
+		log.PrintErr("No listener")
 	}
 
 	t := tabby.New()
@@ -124,7 +125,7 @@ func ListenerDelete() error {
 		}
 		
 		delete(ListenerMAP, CurrentListener)
-		println("Listener "+CurrentListener+" deleted")
+		log.PrintSuccs("Listener "+CurrentListener+" deleted")
 		CurrentListener = "none"
 	} else {
 		return errors.New("no listener")

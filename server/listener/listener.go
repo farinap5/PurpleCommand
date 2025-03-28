@@ -136,3 +136,7 @@ func ListenerDelete() error {
 func ListenerGetCurrentListener() string {
 	return CurrentListener
 }
+
+func ListenerCount() int {
+	return len(ListenerMAP)
+}

@@ -1,8 +1,11 @@
 package core
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
+	"purpcmd/server/implant"
+	"purpcmd/server/listener"
 	"strings"
 
 	"github.com/c-bata/go-prompt"
@@ -35,12 +38,16 @@ func changeLivePrefix() (string, bool) {
 	return LivePrefixState.LivePrefix, LivePrefixState.IsEnable
 }
 
+func CreateDefaultPrompt() string {
+	return fmt.Sprintf("[PURPC L:%d S:%d]>> ", listener.ListenerCount(), implant.ImplantCount())
+}
+
 func InitCLI() {
 	paux := new(ProfileAux)
 	prom := prompt.New(
 		paux.Execute,
 		paux.completer,
-		prompt.OptionPrefix("[prc]>> "),
+		prompt.OptionPrefix(CreateDefaultPrompt()),
 		prompt.OptionLivePrefix(changeLivePrefix),
 		prompt.OptionCompletionOnDown(),
 		prompt.OptionMaxSuggestion(3),

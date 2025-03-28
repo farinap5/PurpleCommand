@@ -4,6 +4,7 @@ import (
 	"os"
 	"purpcmd/server/implant"
 	"purpcmd/server/listener"
+	"purpcmd/server/log"
 	"purpcmd/server/types"
 )
 
@@ -130,22 +131,31 @@ func runStop(cmds []string,profile *types.Profile) int {
 func runInteract(cmds []string,profile *types.Profile) int {
 	if profile.Listener {
 		if len(cmds) == 2 {
-			listener.ListenerInteract(cmds[1])
+			err := listener.ListenerInteract(cmds[1])
+			if err != nil {
+				log.PrintErr(err.Error())
+				return 1
+			}
 
 			profile.Prompt = "(listener - " + listener.CurrentListener + ")>> "
 			LivePrefixState.LivePrefix = profile.Prompt
 			LivePrefixState.IsEnable = true
-		} else if profile.Session {
-			implant.ImplantInteract(cmds[1])
+		}
+	} else if profile.Session {
+		if len(cmds) == 2 {
+			err := implant.ImplantInteract(cmds[1])
+			if err != nil {
+				log.PrintErr(err.Error())
+				return 1
+			}
 
 			profile.Prompt = "(session - " + implant.CurrentImplant + ")>> "
 			LivePrefixState.LivePrefix = profile.Prompt
 			LivePrefixState.IsEnable = true
-		} else {
-			println("error")
 		}
+	} else {
+		println("error")
 	}
-
 	return 0
 }
 
@@ -171,7 +181,7 @@ func runBack(cmds []string,profile *types.Profile) int {
 		profile.Session = false
 	}
 
-	profile.Prompt = "[prc]>> "
+	profile.Prompt = CreateDefaultPrompt()
 	LivePrefixState.LivePrefix = profile.Prompt
 	LivePrefixState.IsEnable = true
 

@@ -118,3 +118,7 @@ func ImplantVerifyName(name string) bool {
 func ImplantUpdateLastseen(name string) {
 	ImplantMAP[name].LastSeen = time.Now()
 }
+
+func ImplantCount() int {
+	return len(ImplantMAP)
+}

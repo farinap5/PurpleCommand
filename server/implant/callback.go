@@ -26,7 +26,10 @@ func ParseCallback(d io.ReadCloser, req *http.Request) int {
 		ParseAndReg(r, req)
 		return REG
 	} else if messageType == CHK {
-		ParseCheck(r, req)
+		err = ParseCheck(r, req)
+		if err != nil {
+			return NIL
+		}
 		return CHK
 	}
 
@@ -88,4 +91,5 @@ func ParseCheck(r io.Reader, req *http.Request) error {
 	} else {
 		return errors.New("no session with name")
 	}
+	return nil
 }

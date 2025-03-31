@@ -28,14 +28,14 @@ func runHelp(cmds []string, p *types.Profile) int {
 	return 0
 }
 
-func runExit(cmds []string,profile *types.Profile) int {
+func runExit(cmds []string, profile *types.Profile) int {
 	// Exits the program
 	HandleExit()
 	os.Exit(0)
 	return 0 // wont run
 }
 
-func runListener(cmds []string,profile *types.Profile) int {
+func runListener(cmds []string, profile *types.Profile) int {
 	if profile.Session {
 		println("session is in use")
 		return 0
@@ -50,7 +50,7 @@ func runListener(cmds []string,profile *types.Profile) int {
 	return 0
 }
 
-func runSession(cmds []string,profile *types.Profile) int {
+func runSession(cmds []string, profile *types.Profile) int {
 	if profile.Listener {
 		println("listener is in use")
 		return 0
@@ -65,7 +65,7 @@ func runSession(cmds []string,profile *types.Profile) int {
 	return 0
 }
 
-func runNew(cmds []string,profile *types.Profile) int {
+func runNew(cmds []string, profile *types.Profile) int {
 	if profile.Listener {
 		if len(cmds) == 2 {
 			listener.ListenerNew(cmds[1])
@@ -81,8 +81,9 @@ func runNew(cmds []string,profile *types.Profile) int {
 	return 0
 }
 
-func runOptions(cmds []string,profile *types.Profile) int {
-	if profile.Listener {{
+func runOptions(cmds []string, profile *types.Profile) int {
+	if profile.Listener {
+		{
 			listener.ListenerShowOptions()
 		}
 	}
@@ -90,7 +91,7 @@ func runOptions(cmds []string,profile *types.Profile) int {
 	return 0
 }
 
-func runList(cmds []string,profile *types.Profile) int {
+func runList(cmds []string, profile *types.Profile) int {
 	if profile.Listener {
 		listener.ListenerList()
 	} else if profile.Session {
@@ -100,7 +101,7 @@ func runList(cmds []string,profile *types.Profile) int {
 	return 0
 }
 
-func runSet(cmds []string,profile *types.Profile) int {
+func runSet(cmds []string, profile *types.Profile) int {
 	if profile.Listener {
 		if len(cmds) == 3 {
 			listener.ListenerSetOptions(cmds[1], cmds[2])
@@ -112,7 +113,7 @@ func runSet(cmds []string,profile *types.Profile) int {
 	return 0
 }
 
-func runRun(cmds []string,profile *types.Profile) int {
+func runRun(cmds []string, profile *types.Profile) int {
 	if profile.Listener {
 		listener.ListenerStart()
 	}
@@ -120,7 +121,7 @@ func runRun(cmds []string,profile *types.Profile) int {
 	return 0
 }
 
-func runStop(cmds []string,profile *types.Profile) int {
+func runStop(cmds []string, profile *types.Profile) int {
 	if profile.Listener {
 		listener.ListenerStop()
 	}
@@ -128,7 +129,7 @@ func runStop(cmds []string,profile *types.Profile) int {
 	return 0
 }
 
-func runInteract(cmds []string,profile *types.Profile) int {
+func runInteract(cmds []string, profile *types.Profile) int {
 	if profile.Listener {
 		if len(cmds) == 2 {
 			err := listener.ListenerInteract(cmds[1])
@@ -159,7 +160,7 @@ func runInteract(cmds []string,profile *types.Profile) int {
 	return 0
 }
 
-func runDelete(cmds []string,profile *types.Profile) int {
+func runDelete(cmds []string, profile *types.Profile) int {
 	if profile.Listener {
 		err := listener.ListenerDelete()
 		if err != nil {
@@ -174,7 +175,7 @@ func runDelete(cmds []string,profile *types.Profile) int {
 	return 0
 }
 
-func runBack(cmds []string,profile *types.Profile) int {
+func runBack(cmds []string, profile *types.Profile) int {
 	if profile.Listener {
 		profile.Listener = false
 	} else if profile.Session {
@@ -188,7 +189,7 @@ func runBack(cmds []string,profile *types.Profile) int {
 	return 0
 }
 
-func runElf(cmds []string,profile *types.Profile) int {
+func runPing(cmds []string, profile *types.Profile) int {
 	if !profile.Session {
 		return 1
 	}

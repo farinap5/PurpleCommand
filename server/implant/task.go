@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	NIL = iota // Nothing
+	NIL = uint16(iota) // Nothing
 	REG // Register - Used by the implant to register itself
 	CHK // Check (Health check) - Used by the implant to check for new tasks
 	RSP // Response - Used by the implant to post a response
@@ -48,7 +48,7 @@ func (t Task)TaskMarshal() []byte {
 
 	binary.Write(b, binary.BigEndian, t.Code)
 	binary.Write(b, binary.BigEndian, t.ID)
-	binary.Write(b, binary.BigEndian, len(t.Payload))
+	binary.Write(b, binary.BigEndian, uint32(len(t.Payload)))
 	binary.Write(b, binary.BigEndian, t.Payload)
 
 	return b.Bytes()
@@ -56,6 +56,12 @@ func (t Task)TaskMarshal() []byte {
 
 func TaskEncode(data []byte) string {
 	return base64.StdEncoding.EncodeToString(data)
+}
+
+func (t *Task)TaskSetResponsePayload(payload []byte) {
+	t.ResponseTime = time.Now()
+	t.Done = true
+	t.Response = payload
 }
 
 func TaskNew(code uint16, payload []byte) *Task {

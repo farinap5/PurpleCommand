@@ -126,9 +126,8 @@ func loadFunctions() {
 		Prompt: nil,
 	}
 
-
-	Mapping["elf"] = &types.Command{
-		Call:   runElf,
+	Mapping["ping"] = &types.Command{
+		Call:   runPing,
 		Usage:  nil,
 		Desc:   "",
 		Prompt: nil,

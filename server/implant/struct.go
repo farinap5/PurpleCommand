@@ -42,5 +42,5 @@ type Task struct {
 	Payload    []byte
 
 	ResponseTime time.Time
-	Response   []byte
+	Response   []byte // response payload
 }

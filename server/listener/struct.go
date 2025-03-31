@@ -14,6 +14,7 @@ type Listener struct {
 
 	Proto 	string
 	Persistent bool
+	TustXFF bool
 
 	SC *ServerController
 }

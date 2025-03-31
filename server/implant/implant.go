@@ -123,7 +123,7 @@ func ImplantAddTask() {
 	if CurrentImplant == "none" {
 		return
 	}
-	t := TaskNew(0x01, []byte("aaa bbbb"))
+	t := TaskNew(0x01, []byte("ping"))
 	ImplantMAP[CurrentImplant].ImplantAddTask(t)
 }
 

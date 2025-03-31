@@ -26,7 +26,7 @@ func (l *Listener) StartHTTP() {
 
 	go func() {
 		defer l.SC.wg.Done()
-		log.AsyncWriteStdout(fmt.Sprintf("Starting server at %s\n", l.Host + ":" + l.Port))
+		log.AsyncWriteStdoutInfo(fmt.Sprintf("Starting server at %s\n", l.Host + ":" + l.Port))
 
 		if err := l.SC.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			fmt.Printf("HTTP server error: %v\n", err)

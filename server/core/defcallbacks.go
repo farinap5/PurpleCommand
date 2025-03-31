@@ -187,3 +187,13 @@ func runBack(cmds []string,profile *types.Profile) int {
 
 	return 0
 }
+
+func runElf(cmds []string,profile *types.Profile) int {
+	if !profile.Session {
+		return 1
+	}
+
+	implant.ImplantAddTask()
+
+	return 0
+}

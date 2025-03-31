@@ -30,11 +30,17 @@ type Implant struct {
 	FirstSeen time.Time
 
 	Task []*Task
+	TaskMap map[[8]byte]*Task
 }
 
 type Task struct {
-	ID         string
+	ID         [8]byte
+	Sent 	   bool
+	Done	   bool
 	Registered time.Time
 	Code       uint16
 	Payload    []byte
+
+	ResponseTime time.Time
+	Response   []byte
 }

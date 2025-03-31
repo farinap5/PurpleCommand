@@ -125,4 +125,12 @@ func loadFunctions() {
 		Desc:   "",
 		Prompt: nil,
 	}
+
+
+	Mapping["elf"] = &types.Command{
+		Call:   runElf,
+		Usage:  nil,
+		Desc:   "",
+		Prompt: nil,
+	}
 }

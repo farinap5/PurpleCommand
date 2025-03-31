@@ -12,7 +12,8 @@ import (
 const (
 	NIL = iota // Nothing
 	REG // Register - Used by the implant to register itself
-	CHK // Check - Used by the implant to check for new tasks
+	CHK // Check (Health check) - Used by the implant to check for new tasks
+	RSP // Response - Used by the implant to post a response
 )
 
 func (i *Implant)TaskGet() (*Task, error) {
@@ -21,6 +22,10 @@ func (i *Implant)TaskGet() (*Task, error) {
 		return nil, errors.New("no task")
 	}
 
+	/*
+		The following logic is wrong cuz it will get just the last task.
+		And if I have two tasks undone? Just the last is taken.
+	*/
 	var t *Task
 	if len(tasks) == 1 {
 		t = tasks[0]
@@ -28,8 +33,14 @@ func (i *Implant)TaskGet() (*Task, error) {
 		t = tasks[len(tasks)-1]
 	}
 
-
+	if t.Sent || t.Done {
+		return nil, errors.New("no task")
+	}
 	return t, nil
+}
+
+func TaskGetPtrById(ImplantName string, TaskID [8]byte) *Task {
+	return ImplantMAP[ImplantName].TaskMap[TaskID]
 }
 
 func (t Task)TaskMarshal() []byte {
@@ -49,7 +60,7 @@ func TaskEncode(data []byte) string {
 
 func TaskNew(code uint16, payload []byte) *Task {
 	return &Task{
-		ID: string(server.RandomString(16)),
+		ID: server.RandomBytes8(),
 		Code: code,
 		Registered: time.Now(),
 		Payload: payload,

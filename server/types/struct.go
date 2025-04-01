@@ -5,6 +5,7 @@ type Profile struct {
 
 	Listener 	bool
 	Session		bool
+	Script		bool
 }
 
 type Command struct {

@@ -145,7 +145,6 @@ func ParseResponse(r io.Reader, req *http.Request) error {
 	binary.Read(r, binary.BigEndian, &respLen)
 	respPayload := make([]byte, respLen)
 	binary.Read(r, binary.BigEndian, &respPayload)
-
 	
 
 	log.AsyncWriteStdoutInfo(fmt.Sprintf("Response - session:%s task:%s\n\n%s\n\n", name, TaskIDStr, respPayload))

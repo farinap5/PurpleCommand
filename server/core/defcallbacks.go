@@ -5,6 +5,7 @@ import (
 	"purpcmd/server/implant"
 	"purpcmd/server/listener"
 	"purpcmd/server/log"
+	"purpcmd/server/lua"
 	"purpcmd/server/types"
 )
 
@@ -39,6 +40,9 @@ func runListener(cmds []string, profile *types.Profile) int {
 	if profile.Session {
 		println("session is in use")
 		return 0
+	} else if profile.Script {
+		println("script is in use")
+		return 0
 	}
 
 	if !profile.Listener {
@@ -54,11 +58,32 @@ func runSession(cmds []string, profile *types.Profile) int {
 	if profile.Listener {
 		println("listener is in use")
 		return 0
+	} else if profile.Script {
+		println("script is in use")
+		return 0
 	}
 
 	if !profile.Session {
 		profile.Session = true
 		profile.Prompt = "(session - " + implant.CurrentImplant + ")>> "
+		LivePrefixState.LivePrefix = profile.Prompt
+		LivePrefixState.IsEnable = true
+	}
+	return 0
+}
+
+func runScript(cmds []string, profile *types.Profile) int {
+	if profile.Listener {
+		println("listener is in use")
+		return 0
+	} else if profile.Session {
+		println("session is in use")
+		return 0
+	}
+
+	if !profile.Script {
+		profile.Script = true
+		profile.Prompt = "(script)>> "
 		LivePrefixState.LivePrefix = profile.Prompt
 		LivePrefixState.IsEnable = true
 	}
@@ -83,9 +108,7 @@ func runNew(cmds []string, profile *types.Profile) int {
 
 func runOptions(cmds []string, profile *types.Profile) int {
 	if profile.Listener {
-		{
 			listener.ListenerShowOptions()
-		}
 	}
 
 	return 0
@@ -96,6 +119,8 @@ func runList(cmds []string, profile *types.Profile) int {
 		listener.ListenerList()
 	} else if profile.Session {
 		implant.ImplantList()
+	} else if profile.Script {
+		lua.ScriptList()
 	}
 
 	return 0
@@ -195,6 +220,19 @@ func runPing(cmds []string, profile *types.Profile) int {
 	}
 
 	implant.ImplantAddTask()
+
+	return 0
+}
+
+
+func runLoad(cmds []string, profile *types.Profile) int {
+	if !profile.Script {
+		return 1
+	}
+
+	if len(cmds) == 2 {
+		lua.LuaLoad(cmds[1])
+	}
 
 	return 0
 }

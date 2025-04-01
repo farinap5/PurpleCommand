@@ -70,6 +70,12 @@ func loadFunctions() {
 		Desc:   "session.",
 		Prompt: nil,
 	}
+	Mapping["script"] = &types.Command{
+		Call:   runScript,
+		Usage:  nil,
+		Desc:   "script.",
+		Prompt: nil,
+	}
 
 	Mapping["new"] = &types.Command{
 		Call:   runNew,
@@ -128,6 +134,13 @@ func loadFunctions() {
 
 	Mapping["ping"] = &types.Command{
 		Call:   runPing,
+		Usage:  nil,
+		Desc:   "",
+		Prompt: nil,
+	}
+
+	Mapping["load"] = &types.Command{
+		Call:   runLoad,
 		Usage:  nil,
 		Desc:   "",
 		Prompt: nil,

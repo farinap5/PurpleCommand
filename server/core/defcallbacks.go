@@ -11,7 +11,7 @@ import (
 
 func runHelp(cmds []string, p *types.Profile) int {
 	if len(cmds) >= 2 {
-		cmdPtr := Mapping[cmds[1]]
+		cmdPtr := commandMap[cmds[1]]
 		if cmdPtr != nil {
 			functionP := *cmdPtr
 			if functionP.Usage == nil {
@@ -108,7 +108,7 @@ func runNew(cmds []string, profile *types.Profile) int {
 
 func runOptions(cmds []string, profile *types.Profile) int {
 	if profile.Listener {
-			listener.ListenerShowOptions()
+		listener.ListenerShowOptions()
 	}
 
 	return 0
@@ -223,7 +223,6 @@ func runPing(cmds []string, profile *types.Profile) int {
 
 	return 0
 }
-
 
 func runLoad(cmds []string, profile *types.Profile) int {
 	if !profile.Script {

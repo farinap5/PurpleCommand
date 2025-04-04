@@ -1,7 +1,9 @@
 package main
 
-import "purpcmd/implant"
+import (
+	"purpcmd/implant/core"
+)
 
 func main() {
-	implant.Do()
+	core.Start()
 }

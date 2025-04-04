@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-var Mapping = make(map[string]*types.Command)
+var commandMap = make(map[string]*types.Command)
 
 func init() {
 	loadFunctions()
@@ -27,7 +27,7 @@ func (paux *ProfileAux) Execute(cmd string) {
 		return
 	}
 
-	cmdPtr := Mapping[cmds[0]]
+	cmdPtr := commandMap[cmds[0]]
 	if cmdPtr != nil {
 		functionP := *cmdPtr
 		functionP.Call(cmds, &paux.Profile) // paux.p = types.Profile
@@ -37,109 +37,109 @@ func (paux *ProfileAux) Execute(cmd string) {
 }
 
 func loadFunctions() {
-	Mapping["help"] = &types.Command{
+	commandMap["help"] = &types.Command{
 		Call:   runHelp,
 		Usage:  usageHelp,
 		Desc:   "Show help menu.",
 		Prompt: nil,
 	}
 
-	Mapping["exit"] = &types.Command{
+	commandMap["exit"] = &types.Command{
 		Call:   runExit,
 		Usage:  nil,
 		Desc:   "Properly exit the tool.",
 		Prompt: nil,
 	}
 
-	Mapping["back"] = &types.Command{
+	commandMap["back"] = &types.Command{
 		Call:   runBack,
 		Usage:  nil,
 		Desc:   "Exit from resource.",
 		Prompt: nil,
 	}
 
-	Mapping["listener"] = &types.Command{
+	commandMap["listener"] = &types.Command{
 		Call:   runListener,
 		Usage:  nil,
 		Desc:   "Listener.",
 		Prompt: nil,
 	}
-	Mapping["session"] = &types.Command{
+	commandMap["session"] = &types.Command{
 		Call:   runSession,
 		Usage:  nil,
 		Desc:   "session.",
 		Prompt: nil,
 	}
-	Mapping["script"] = &types.Command{
+	commandMap["script"] = &types.Command{
 		Call:   runScript,
 		Usage:  nil,
 		Desc:   "script.",
 		Prompt: nil,
 	}
 
-	Mapping["new"] = &types.Command{
+	commandMap["new"] = &types.Command{
 		Call:   runNew,
 		Usage:  nil,
 		Desc:   "",
 		Prompt: nil,
 	}
-	Mapping["list"] = &types.Command{
+	commandMap["list"] = &types.Command{
 		Call:   runList,
 		Usage:  nil,
 		Desc:   "",
 		Prompt: nil,
 	}
-	Mapping["options"] = &types.Command{
+	commandMap["options"] = &types.Command{
 		Call:   runOptions,
 		Usage:  nil,
 		Desc:   "",
 		Prompt: nil,
 	}
-	Mapping["set"] = &types.Command{
+	commandMap["set"] = &types.Command{
 		Call:   runSet,
 		Usage:  nil,
 		Desc:   "",
 		Prompt: nil,
 	}
-	Mapping["run"] = &types.Command{
+	commandMap["run"] = &types.Command{
 		Call:   runRun,
 		Usage:  nil,
 		Desc:   "",
 		Prompt: nil,
 	}
-	Mapping["start"] = &types.Command{
+	commandMap["start"] = &types.Command{
 		Call:   runRun,
 		Usage:  nil,
 		Desc:   "",
 		Prompt: nil,
 	}
-	Mapping["stop"] = &types.Command{
+	commandMap["stop"] = &types.Command{
 		Call:   runStop,
 		Usage:  nil,
 		Desc:   "",
 		Prompt: nil,
 	}
-	Mapping["interact"] = &types.Command{
+	commandMap["interact"] = &types.Command{
 		Call:   runInteract,
 		Usage:  nil,
 		Desc:   "",
 		Prompt: nil,
 	}
-	Mapping["delete"] = &types.Command{
+	commandMap["delete"] = &types.Command{
 		Call:   runDelete,
 		Usage:  nil,
 		Desc:   "",
 		Prompt: nil,
 	}
 
-	Mapping["ping"] = &types.Command{
+	commandMap["ping"] = &types.Command{
 		Call:   runPing,
 		Usage:  nil,
 		Desc:   "",
 		Prompt: nil,
 	}
 
-	Mapping["load"] = &types.Command{
+	commandMap["load"] = &types.Command{
 		Call:   runLoad,
 		Usage:  nil,
 		Desc:   "",

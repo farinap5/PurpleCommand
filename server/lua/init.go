@@ -16,6 +16,10 @@ func LuaNew(path string) (*LuaProfile, error) {
 	l.script = path
 	l.state = lua.NewState()
 
+	l.state.OpenLibs()
+	l.state.SetGlobal("command", l.state.NewFunction(l.command))
+	l.state.DoFile(path)
+
 	err := l.state.DoFile(path)
 	return l, err
 }
@@ -40,12 +44,12 @@ func (l *LuaProfile)LuaRunMain() {
 		return
 	}
 }
-/*
 
-function ping()
-	return "pong"
-end
+func (l *LuaProfile) command(L *lua.LState) int {
+	name := L.CheckString(1)
+	desc := L.CheckString(2)
+	//fn := L.CheckFunction(2)  // Get function reference
 
-command("ping", ping)
-
-*/
+	println(name,desc)
+	return 0
+}

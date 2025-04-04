@@ -3,6 +3,7 @@ package implant
 import (
 	"errors"
 	"fmt"
+	"purpcmd/implant"
 	"purpcmd/server/log"
 	"time"
 
@@ -37,7 +38,7 @@ func ImplantNew(name, key string) *Implant {
 	}
 }
 
-func (i *Implant) ImplantSetMetadata(m *ImplantMetadata) {
+func (i *Implant) ImplantSetMetadata(m *implant.ImplantMetadata) {
 	i.Metadata = *m
 }
 

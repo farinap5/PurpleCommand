@@ -1,5 +1,7 @@
 package internal
 
+
+// default commands
 const (
 	NILCMD = uint16(iota)
 	PING

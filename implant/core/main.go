@@ -3,6 +3,7 @@ package core
 import (
 	"encoding/base64"
 	"purpcmd/internal"
+	"purpcmd/internal/encrypt"
 	"time"
 )
 
@@ -13,7 +14,9 @@ func Start() {
 	h.HTTPSetSocket("0.0.0.0:4444")
 	h.HTTPSetURL(false, "/")
 
-	r := PackRegistration(i)
+	enc := encrypt.EncryptInit()
+	key, iv := enc.EncryptGetKeys()
+	r := PackRegistration(i, key, iv)
 
 	p := base64.StdEncoding.EncodeToString(r)
 	println(p)

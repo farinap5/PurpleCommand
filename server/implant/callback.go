@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"purpcmd/implant"
 	"purpcmd/internal"
+	"purpcmd/internal/encrypt"
 	"purpcmd/server/log"
 )
 
@@ -42,6 +43,7 @@ func ParseCallback(d io.ReadCloser, req *http.Request) (uint16, []byte) {
 func ParseMetadata(r io.Reader, i *implant.ImplantMetadata) {
 	binary.Read(r, binary.BigEndian, &i.PID)
 	binary.Read(r, binary.BigEndian, &i.SessionID)
+	binary.Read(r, binary.BigEndian, &i.OTS)
 	binary.Read(r, binary.BigEndian, &i.IP)
 	binary.Read(r, binary.BigEndian, &i.Port)
 	binary.Read(r, binary.BigEndian, &i.Sleep)
@@ -52,9 +54,13 @@ func ParseAndReg(r io.Reader, req *http.Request) error {
 	i := new(implant.ImplantMetadata)
 	ParseMetadata(r, i)
 
+	var aedkey [16]byte
+	var aesiv [16]byte
+	binary.Read(r, binary.BigEndian, &aedkey)
+	binary.Read(r, binary.BigEndian, &aesiv)
+
 	var dataLen uint16
 	binary.Read(r, binary.BigEndian, &dataLen)
-
 	data := make([]byte, dataLen)
 	binary.Read(r, binary.BigEndian, &data)
 
@@ -72,8 +78,11 @@ func ParseAndReg(r io.Reader, req *http.Request) error {
 		return errors.New("session/implant exists. can't register another with same name")
 	}
 
-	imp := ImplantNew(name, "123")
+	aesEnc := encrypt.EncryptImport(aedkey, aesiv)
+
+	imp := ImplantNew(name)
 	imp.ImplantSetMetadata(i)
+	imp.ImplantSetEncryption(aesEnc)
 	imp.ImplantSetRemoteSocket(req.RemoteAddr)
 	imp.ImplantAddImplant()
 	return nil
@@ -87,13 +96,13 @@ func ParseCheck(r io.Reader, req *http.Request) ([]byte, error) {
 	name := fmt.Sprintf("%d", i.SessionID)
 	imp := ImplantPtrByName(name)
 	if imp == nil {
-		return []byte{},errors.New("no session with name")
+		return []byte{}, errors.New("no session with name")
 	}
 	imp.ImplantUpdateLastseen()
 
 	data, tid, err := imp.ImplantGetTaskStr()
 	if err != nil {
-		return []byte{},nil
+		return []byte{}, nil
 	}
 
 	log.AsyncWriteStdoutInfo(fmt.Sprintf("Sending task %s of %d bytes to %s\n", string(tid[:]), len(data), imp.Name))
@@ -125,7 +134,6 @@ func ParseResponse(r io.Reader, req *http.Request) error {
 	respPayload := make([]byte, respLen)
 	binary.Read(r, binary.BigEndian, &respPayload)
 	taskPtr.TaskSetResponsePayload(respPayload)
-	
 
 	log.AsyncWriteStdoutInfo(fmt.Sprintf("Response - session:%s task:%s length%d\n\n%s\n\n", name, TaskIDStr, respLen, respPayload))
 	return nil

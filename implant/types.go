@@ -13,6 +13,9 @@ type ImplantMetadata struct {
 	Socket    string
 	Port      uint16
 	Arch      byte
+	
+	// One time secret
+	OTS		  [12]byte
 
 	User     string
 	Hostname string

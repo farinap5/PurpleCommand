@@ -2,13 +2,14 @@ package implant
 
 import (
 	"purpcmd/implant"
+	"purpcmd/internal/encrypt"
 	"time"
 )
 
 type Implant struct {
 	Name     string
 	UUID     string
-	key      string
+	enc 	 encrypt.Encrypt
 	Metadata implant.ImplantMetadata
 
 	Alive     bool

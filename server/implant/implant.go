@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"purpcmd/implant"
+	"purpcmd/internal/encrypt"
 	"purpcmd/server/log"
 	"time"
 
@@ -25,17 +26,20 @@ func (i *Implant) ImplantAddImplant() {
 	ImplantMAP[i.Name] = i
 }
 
-func ImplantNew(name, key string) *Implant {
+func ImplantNew(name string) *Implant {
 	n := time.Now()
 	return &Implant{
 		Name:      name,
 		UUID:      uuid.NewString(),
-		key:       key,
 		Alive:     true,
 		LastSeen:  n,
 		FirstSeen: n,
-		TaskMap: make(map[[8]byte]*Task),
+		TaskMap:   make(map[[8]byte]*Task),
 	}
+}
+
+func (i *Implant) ImplantSetEncryption(enc encrypt.Encrypt) {
+	i.enc = enc
 }
 
 func (i *Implant) ImplantSetMetadata(m *implant.ImplantMetadata) {
@@ -135,7 +139,7 @@ func (i *Implant) ImplantAddTask(task *Task) {
 }
 
 func (i *Implant) ImplantGetTaskStr() (string, [8]byte, error) {
-	t,err := i.TaskGet()
+	t, err := i.TaskGet()
 	if err != nil {
 		return "", [8]byte{}, err
 	}

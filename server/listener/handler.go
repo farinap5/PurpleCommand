@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"purpcmd/internal"
 	imp "purpcmd/server/implant"
-	"strings"
+	"purpcmd/server/log"
 )
 
 func (l *Listener)root(w http.ResponseWriter, r *http.Request) {
@@ -30,19 +30,25 @@ func (l *Listener)root(w http.ResponseWriter, r *http.Request) {
 
 
 func processPayload(r *http.Request) (uint16, []byte) {
-	var stringReadCloser io.ReadCloser
+	var data []byte
+	var err error
+
+	name := r.URL.Query().Get("a")
 	
 	if r.Method == "GET" {
 		cookies := r.Cookies()
 		if len(cookies) == 0 {
 			return internal.NIL, []byte{}
 		} else {
-			stringReader := strings.NewReader(cookies[0].Value)
-			stringReadCloser = io.NopCloser(stringReader)
+			data = []byte(cookies[0].Value)
 		}
 	} else if r.Method == "POST" {
-		stringReadCloser = r.Body
+		data, err = io.ReadAll(r.Body)
+		if err != nil {
+			log.AsyncWriteStdout(err.Error())
+			return internal.NIL, []byte{}
+		}
 	}
 
-	return imp.ParseCallback(stringReadCloser, r)
+	return imp.ParseCallback(data, r, name)
 }

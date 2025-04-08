@@ -39,11 +39,11 @@ func (e Encrypt) RSADecode(data []byte) ([]byte, error) {
 		return nil, fmt.Errorf("invalid decrypted key length")
 	}
 
-	var a, b [16]byte
-	copy(a[:], decodedKeys[:16])
-	copy(b[:], decodedKeys[16:32])
+	var key, iv [16]byte
+	copy(key[:], decodedKeys[:16])
+	copy(iv[:], decodedKeys[16:32])
 
-	auxEnc := EncryptImport(a, b)
+	auxEnc := EncryptImport(key, iv)
 	decPayload, err := auxEnc.AESCbcDecrypt(data[rsaKeyLen:])
 	if err != nil {
 		return nil, err

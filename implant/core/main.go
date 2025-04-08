@@ -21,10 +21,15 @@ func Start() {
 	key, iv := enc.EncryptGetKeys()
 
 	r := PackRegistration(i, key, iv)
+	aux, err := enc.RSAEncode(r)
+	if err != nil {
+		println(err.Error())
+		return
+	}
 
 	fmt.Println("key", base64.StdEncoding.EncodeToString(key[:]), "iv", base64.StdEncoding.EncodeToString(iv[:]))
 
-	p := base64.StdEncoding.EncodeToString(r)
+	p := base64.StdEncoding.EncodeToString(aux)
 	println(p)
 	h.PostRegistering([]byte(p))
 

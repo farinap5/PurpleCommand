@@ -24,14 +24,22 @@ func ParseCallback(d []byte, req *http.Request, name string) (uint16, []byte) {
 	} else {
 		imp := ImplantPtrByName(name)
 		if imp == nil {
+			// error no session for given ID
 			return internal.NIL,[]byte{}
 		}
 
 		dataB64 := make([]byte, base64.StdEncoding.DecodedLen(len(d)))
 		n, _ := base64.StdEncoding.Decode(dataB64, d)
 
-		data, err := imp.enc.AESCbcDecrypt(dataB64[:n])
+		if !imp.enc.HMACVerifyHash(dataB64[:n]) {
+			// error HMAC do not match
+			return internal.NIL, []byte{}
+		}
+
+		dataOrig := dataB64[:n][:len(dataB64[:n])-16]
+		data, err := imp.enc.AESCbcDecrypt(dataOrig)
 		if err != nil {
+			// error problem with enc
 			panic(err)
 		}
 

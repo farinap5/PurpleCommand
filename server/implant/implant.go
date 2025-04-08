@@ -147,5 +147,6 @@ func (i *Implant) ImplantGetTaskStr() (string, [8]byte, error) {
 	t.Sent = true
 	tb := t.TaskMarshal()
 	tbe := i.enc.AESCbcEncrypt(tb)
+	i.enc.HMACPackAddHmac(&tbe)
 	return TaskEncode(tbe), t.ID, nil
 }

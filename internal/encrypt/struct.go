@@ -1,6 +1,9 @@
 package encrypt
 
-import "crypto/cipher"
+import (
+	"crypto/cipher"
+	"crypto/rsa"
+)
 
 type Encrypt struct {
 	hmackey [16]byte
@@ -8,4 +11,7 @@ type Encrypt struct {
 	iv      [16]byte
 
 	block cipher.Block
+
+	RSAPublic 	*rsa.PublicKey
+	RSAPrivate 	*rsa.PrivateKey
 }

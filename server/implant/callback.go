@@ -21,17 +21,14 @@ func ParseCallback(d []byte, req *http.Request, name string) (uint16, []byte) {
 		dataB64 := make([]byte, base64.StdEncoding.DecodedLen(len(d)))
 		n, _ := base64.StdEncoding.Decode(dataB64, d)
 		r = bytes.NewReader(dataB64[:n])
-
 	} else {
 		imp := ImplantPtrByName(name)
 		if imp == nil {
 			return internal.NIL,[]byte{}
 		}
 
-
 		dataB64 := make([]byte, base64.StdEncoding.DecodedLen(len(d)))
 		n, _ := base64.StdEncoding.Decode(dataB64, d)
-
 
 		data, err := imp.enc.AESCbcDecrypt(dataB64[:n])
 		if err != nil {
@@ -44,7 +41,6 @@ func ParseCallback(d []byte, req *http.Request, name string) (uint16, []byte) {
 
 
 	var messageType uint16
-
 	err := binary.Read(r, binary.BigEndian, &messageType)
 	if err != nil {
 		if err == io.EOF {
@@ -57,6 +53,7 @@ func ParseCallback(d []byte, req *http.Request, name string) (uint16, []byte) {
 	case internal.REG:
 		err = ParseAndReg(r, req)
 	case internal.CHK:
+
 		task, err = ParseCheck(r, req)
 	case internal.RSP:
 		err = ParseResponse(r, req)
@@ -161,6 +158,6 @@ func ParseResponse(r io.Reader, req *http.Request) error {
 	binary.Read(r, binary.BigEndian, &respPayload)
 	taskPtr.TaskSetResponsePayload(respPayload)
 
-	log.AsyncWriteStdoutInfo(fmt.Sprintf("Response - session:%s task:%s length%d\n\n%s\n\n", name, TaskIDStr, respLen, respPayload))
+	log.AsyncWriteStdoutInfo(fmt.Sprintf("Response - session:%s task:%s length:%d\n\n%s\n\n", name, TaskIDStr, respLen, respPayload))
 	return nil
 }

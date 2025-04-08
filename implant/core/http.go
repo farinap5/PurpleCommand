@@ -33,8 +33,23 @@ func (r *Request) HTTPSetURL(secureconn bool, path string) {
 	r.URL = scm + r.Socket + path
 }
 
-func (r *Request) Post(data []byte) error {
+func (r *Request) PostRegistering(data []byte) error {
 	req, err := http.NewRequest("POST", r.URL, bytes.NewBuffer(data))
+	if err != nil {
+		return err
+	}
+
+	res, err := r.Client.Do(req)
+	if err != nil {
+		panic(err)
+	}
+
+	defer res.Body.Close()
+	return nil
+}
+
+func (r *Request) Post(data []byte) error {
+	req, err := http.NewRequest("POST", r.URL + "?a=" + fmt.Sprintf("%d", r.sessionName), bytes.NewBuffer(data))
 	if err != nil {
 		return err
 	}

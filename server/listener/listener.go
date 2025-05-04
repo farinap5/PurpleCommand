@@ -3,6 +3,7 @@ package listener
 import (
 	"errors"
 	"fmt"
+	"purpcmd/server/db"
 	"purpcmd/server/log"
 
 	"github.com/cheynewallace/tabby"
@@ -10,7 +11,7 @@ import (
 )
 
 var (
-	ListenerMAP = make(map[string]*Listener)
+	ListenerMAP            = make(map[string]*Listener)
 	CurrentListener string = "none"
 )
 
@@ -28,14 +29,14 @@ func ListenerNew(name string) error {
 		Port: "4444",
 		SC: &ServerController{
 			stopChan: make(chan struct{}),
-			running: false,
+			running:  false,
 		},
 	}
-	
+
 	ListenerMAP[name] = l
 	CurrentListener = name
 
-	log.PrintSuccs("New listener "+CurrentListener)
+	log.PrintSuccs("New listener " + CurrentListener)
 
 	return nil
 }
@@ -46,6 +47,8 @@ func ListenerSetOptions(key, value string) error {
 	}
 
 	switch key {
+	case "uuid":
+		ListenerMAP[CurrentListener].UUID = value
 	case "host":
 		ListenerMAP[CurrentListener].Host = value
 	case "port":
@@ -93,9 +96,9 @@ func ListenerList() {
 	t := tabby.New()
 	c := 1
 	t.AddHeader("ID", "NAME", "UUID", "SOCKET", "RUNNING", "PERSISTENT", "ASSOCIATION")
-	for k,v := range ListenerMAP {
-		t.AddLine(c ,k, v.UUID[24:], v.Host+":"+v.Port, fmt.Sprintf("%t", ListenerMAP[CurrentListener].SC.running), fmt.Sprintf("%t", ListenerMAP[CurrentListener].Persistent), v.Association)
-		c+=1
+	for k, v := range ListenerMAP {
+		t.AddLine(c, k, v.UUID[24:], v.Host+":"+v.Port, fmt.Sprintf("%t", ListenerMAP[CurrentListener].SC.running), fmt.Sprintf("%t", ListenerMAP[CurrentListener].Persistent), v.Association)
+		c += 1
 	}
 	print("\n")
 	t.Print()
@@ -121,11 +124,11 @@ func ListenerInteract(name string) error {
 func ListenerDelete() error {
 	if ListenerMAP[CurrentListener] != nil {
 		if ListenerMAP[CurrentListener].SC.running {
-			return errors.New("listener is running")	
+			return errors.New("listener is running")
 		}
-		
+
 		delete(ListenerMAP, CurrentListener)
-		log.PrintSuccs("Listener "+CurrentListener+" deleted")
+		log.PrintSuccs("Listener " + CurrentListener + " deleted")
 		CurrentListener = "none"
 	} else {
 		return errors.New("no listener")
@@ -139,4 +142,24 @@ func ListenerGetCurrentListener() string {
 
 func ListenerCount() int {
 	return len(ListenerMAP)
+}
+
+func ListenerInitFromDB() {
+	list, err := db.DBListenerGetAll()
+	if err != nil {
+		log.PrintErr(err.Error())
+		return
+	}
+
+	for i := range(list) {
+		ListenerNew(list[i].Name)
+		ListenerSetOptions("host", list[i].Host)
+		ListenerSetOptions("port", list[i].Port)
+		ListenerSetOptions("uuid", list[i].UUID)
+		ListenerMAP[list[i].Name].Persistent = list[i].Persistent
+
+		if list[i].Running {
+			ListenerMAP[list[i].Name].StartHTTP()
+		}
+	}
 }

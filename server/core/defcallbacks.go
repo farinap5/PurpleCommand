@@ -93,7 +93,11 @@ func runScript(cmds []string, profile *types.Profile) int {
 func runNew(cmds []string, profile *types.Profile) int {
 	if profile.Listener {
 		if len(cmds) == 2 {
-			listener.ListenerNew(cmds[1])
+			err := listener.ListenerNew(cmds[1])
+			if err != nil {
+				log.PrintErr(err.Error())
+				return 1
+			}
 
 			profile.Prompt = "(listener - " + listener.CurrentListener + ")>> "
 			LivePrefixState.LivePrefix = profile.Prompt
@@ -129,7 +133,11 @@ func runList(cmds []string, profile *types.Profile) int {
 func runSet(cmds []string, profile *types.Profile) int {
 	if profile.Listener {
 		if len(cmds) == 3 {
-			listener.ListenerSetOptions(cmds[1], cmds[2])
+			err := listener.ListenerSetOptions(cmds[1], cmds[2])
+			if err != nil {
+				log.PrintErr(err.Error())
+				return 1
+			}
 		} else {
 			println("error")
 		}

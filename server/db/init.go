@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"os"
 	"purpcmd/server/log"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 var DBMS DBDef

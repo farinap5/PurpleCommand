@@ -19,6 +19,7 @@ require (
 	github.com/c-bata/go-prompt v0.2.6
 	github.com/cheynewallace/tabby v1.1.1
 	github.com/google/uuid v1.6.0
+	github.com/mattn/go-sqlite3 v1.14.28
 	github.com/yuin/gopher-lua v1.1.1
 	golang.org/x/crypto v0.18.0 // indirect
 	golang.org/x/sys v0.16.0 // indirect

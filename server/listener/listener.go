@@ -27,6 +27,7 @@ func ListenerNew(name string) error {
 		UUID: u.String(),
 		Host: "0.0.0.0",
 		Port: "4444",
+		Persistent: true,
 		SC: &ServerController{
 			stopChan: make(chan struct{}),
 			running:  false,
@@ -35,6 +36,11 @@ func ListenerNew(name string) error {
 
 	ListenerMAP[name] = l
 	CurrentListener = name
+
+	err := db.DBListenerInsert(name, l.UUID, l.Host, l.Port, true, false)
+	if err != nil {
+		return err
+	}
 
 	log.PrintSuccs("New listener " + CurrentListener)
 
@@ -64,7 +70,8 @@ func ListenerSetOptions(key, value string) error {
 		}
 		ListenerMAP[CurrentListener].Persistent = v
 	}
-	return nil
+
+	return db.DBListenerUpdateOption(CurrentListener, key, value)
 }
 
 func ListenerShowOptions() error {
@@ -144,14 +151,14 @@ func ListenerCount() int {
 	return len(ListenerMAP)
 }
 
-func ListenerInitFromDB() {
+func ListenerInitFromDB() error {
 	list, err := db.DBListenerGetAll()
 	if err != nil {
-		log.PrintErr(err.Error())
-		return
+		return err
 	}
 
 	for i := range(list) {
+		log.PrintInfo("Setting up listener ", list[i].Name)
 		ListenerNew(list[i].Name)
 		ListenerSetOptions("host", list[i].Host)
 		ListenerSetOptions("port", list[i].Port)
@@ -162,4 +169,6 @@ func ListenerInitFromDB() {
 			ListenerMAP[list[i].Name].StartHTTP()
 		}
 	}
+
+	return nil
 }

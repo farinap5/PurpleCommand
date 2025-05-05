@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"purpcmd/server/db"
 	"purpcmd/server/log"
 	"time"
 )
@@ -22,6 +23,7 @@ func (l *Listener) StartHTTP() {
 	}
 
 	l.SC.running = true
+	db.DBListenerUpdateOption(l.Name, "running", "true")
 	l.SC.wg.Add(1)
 
 	go func() {
@@ -30,8 +32,10 @@ func (l *Listener) StartHTTP() {
 
 		if err := l.SC.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			fmt.Printf("HTTP server error: %v\n", err)
+			db.DBListenerUpdateOption(l.Name, "running", "false")
 		}
 		fmt.Println("Server stopped.")
+		db.DBListenerUpdateOption(l.Name, "running", "false")
 	}()
 }
 
@@ -52,5 +56,6 @@ func (l *Listener) StopHTTP() {
 	}
 
 	l.SC.running = false
+	db.DBListenerUpdateOption(l.Name, "running", "false")
 	l.SC.wg.Wait()
 }

@@ -17,14 +17,19 @@ func LuaNew(path string) (*LuaProfile, error) {
 	l.state = lua.NewState()
 
 	l.state.OpenLibs()
-	l.state.SetGlobal("command", l.state.NewFunction(l.command))
-	l.state.DoFile(path)
-
+	l.state.SetGlobal("command", l.state.NewFunction(command))
 	err := l.state.DoFile(path)
+
 	return l, err
 }
 
 func LuaLoad(path string) {
+	if ScriptMAP[path] != nil {
+		log.PrintAlert("Script ", path, " already loaded")
+		return
+	}
+	log.PrintInfo("Loading script ", path)
+
 	l, err := LuaNew(path)
 	if err != nil {
 		println(err.Error())
@@ -33,7 +38,6 @@ func LuaLoad(path string) {
 	l.Running = true
 	ScriptMAP[path] = l
 
-	log.PrintInfo("Loading script ", path)
 	go ScriptMAP[path].LuaRunMain()
 }
 
@@ -43,13 +47,4 @@ func (l *LuaProfile)LuaRunMain() {
 		println(err.Error())
 		return
 	}
-}
-
-func (l *LuaProfile) command(L *lua.LState) int {
-	name := L.CheckString(1)
-	desc := L.CheckString(2)
-	//fn := L.CheckFunction(2)  // Get function reference
-
-	println(name,desc)
-	return 0
 }

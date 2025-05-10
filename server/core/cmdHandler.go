@@ -119,6 +119,12 @@ func loadFunctions() {
 		Desc:   "",
 		Prompt: nil,
 	}
+	commandMap["restart"] = &types.Command{
+		Call:   runRestart,
+		Usage:  nil,
+		Desc:   "",
+		Prompt: nil,
+	}
 	commandMap["interact"] = &types.Command{
 		Call:   runInteract,
 		Usage:  nil,

@@ -162,6 +162,14 @@ func runStop(cmds []string, profile *types.Profile) int {
 	return 0
 }
 
+func runRestart(cmds []string, profile *types.Profile) int {
+	if profile.Listener {
+		listener.ListenerRestart()
+	}
+
+	return 0
+}
+
 func runInteract(cmds []string, profile *types.Profile) int {
 	if profile.Listener {
 		if len(cmds) == 2 {

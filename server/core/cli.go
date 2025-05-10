@@ -93,6 +93,7 @@ func (paux *ProfileAux) completer(d prompt.Document) []prompt.Suggest {
 			prompt.Suggest {Text: "new",      Description: "new listener"},
 			prompt.Suggest {Text: "interact", Description: "Interact with listener"},
 			prompt.Suggest {Text: "delete",   Description: "Delete listener"},
+			prompt.Suggest {Text: "restart",  Description: "Restart listener"},
 		)
 	} else if paux.Profile.Session {
 		promptSuggestions = append(promptSuggestions,

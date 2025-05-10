@@ -91,3 +91,16 @@ func DBListenerUpdateOption(Name, Key, Value string) error {
 	_, err := DBMS.DBConn.Exec(updateQuery, Value, Name)
 	return err
 }
+
+func DBListenerDelete(Name string) error {
+	if DBListenerExist(Name) {
+		return errors.New("listener exists")
+	}
+
+	insertQuery := `
+	DELETE FROM listeners WHERE Name = ?;
+	`
+	_, err := DBMS.DBConn.Exec(insertQuery, Name)
+
+	return err
+}

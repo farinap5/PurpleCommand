@@ -221,6 +221,8 @@ func runBack(cmds []string, profile *types.Profile) int {
 		profile.Listener = false
 	} else if profile.Session {
 		profile.Session = false
+	} else if profile.Script {
+		profile.Script = false
 	}
 
 	profile.Prompt = CreateDefaultPrompt()
@@ -230,7 +232,7 @@ func runBack(cmds []string, profile *types.Profile) int {
 	return 0
 }
 
-func runPing(cmds []string, profile *types.Profile) int {
+/*func runPing(cmds []string, profile *types.Profile) int {
 	if !profile.Session {
 		return 1
 	}
@@ -238,7 +240,7 @@ func runPing(cmds []string, profile *types.Profile) int {
 	implant.ImplantAddTask()
 
 	return 0
-}
+}*/
 
 func runLoad(cmds []string, profile *types.Profile) int {
 	if !profile.Script {
@@ -250,4 +252,11 @@ func runLoad(cmds []string, profile *types.Profile) int {
 	}
 
 	return 0
+}
+
+func runTaskCall(cmds []string) {
+	_, err := lua.CallCommand(cmds[0], "impl")
+	if err != nil {
+		log.PrintErr(err.Error())
+	}
 }

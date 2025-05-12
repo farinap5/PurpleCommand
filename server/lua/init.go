@@ -17,7 +17,8 @@ func LuaNew(path string) (*LuaProfile, error) {
 	l.state = lua.NewState()
 
 	l.state.OpenLibs()
-	l.state.SetGlobal("command", l.state.NewFunction(command))
+	l.state.SetGlobal("command", l.state.NewFunction(l.command))
+	l.state.SetGlobal("addtask", l.state.NewFunction(ImplantAddGenericCommand))
 	err := l.state.DoFile(path)
 
 	return l, err

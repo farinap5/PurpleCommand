@@ -2,6 +2,7 @@ package lua
 
 import (
 	"fmt"
+	"purpcmd/server/implant"
 
 	lua "github.com/yuin/gopher-lua"
 )
@@ -10,7 +11,7 @@ var (
 	CMDMAP = make(map[string]*command_def)
 )
 
-func command(L *lua.LState) int {
+func (l LuaProfile)command(L *lua.LState) int {
 	impl := L.CheckString(1)
 	name := L.CheckString(2)
 	desc := L.CheckString(3)
@@ -21,7 +22,23 @@ func command(L *lua.LState) int {
 		Name: name,
 		Description: desc,
 		ptr: fn,
+		ScriptName: l.script,
 	}
+
+	return 0
+}
+
+func ImplantAddGenericCommand(L *lua.LState) int {
+	code := L.CheckInt(1)
+	payload := L.CheckString(2)
+
+	errInt := implant.ImplantAddGenericTask(code,payload)
+	if errInt != 0 {
+		//L.Push(lua.LNil)
+		L.Push(lua.LString("could not create task"))
+		return 0
+	}
+	L.Push(lua.LNil)
 
 	return 0
 }
@@ -32,9 +49,8 @@ func CallCommand(name, impl string) (string, error) {
 		return "", fmt.Errorf("command %s for %s not found", name, impl)
 	}
 
-
 	L := ScriptMAP[cmdStr.ScriptName].state
-	L.Push(*cmdStr.ptr)
+	L.Push(cmdStr.ptr)
 	err := L.PCall(0, 1, nil)
 	if err != nil {
 		return "", err

@@ -132,6 +132,15 @@ func ImplantAddTask() {
 	ImplantMAP[CurrentImplant].ImplantAddTask(t)
 }
 
+func ImplantAddGenericTask(code int, payload string) int {
+	if CurrentImplant == "none" {
+		return 1
+	}
+	t := TaskNew(uint16(code), []byte(payload))
+	ImplantMAP[CurrentImplant].ImplantAddTask(t)
+	return 0
+}
+
 func (i *Implant) ImplantAddTask(task *Task) {
 	i.Task = append(i.Task, task)
 	i.TaskMap[task.ID] = task

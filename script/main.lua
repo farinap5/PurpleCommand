@@ -3,6 +3,7 @@ CODE = {
 }
 
 function ping()
+    print("command from script")
     local err = addtask(CODE.PING,"ping")
     if err then
         print("Error")
@@ -10,7 +11,7 @@ function ping()
 end
 
 -- impl, name, desc, func
-command("impl","pits","ccc", ping)
+command("impl","ping","ccc", ping)
 
 function Main()
 end

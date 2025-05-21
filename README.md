@@ -1,3 +1,7 @@
+## !!!The following README data refers to the version found under "old" branch. Use "old" branch!!!
+
+The tool is being refactored to become a better c2, with support for multiple connections, scripting and more. If you want to use the regular version, compile the "old" branch. The "main" is instable.
+
 # PurpCMD
 
 For the current version the process mey be killed from client (backdoored) side due to error.

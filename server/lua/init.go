@@ -1,6 +1,7 @@
 package lua
 
 import (
+	"purpcmd/server/db"
 	"purpcmd/server/log"
 
 	"github.com/yuin/gopher-lua"
@@ -10,6 +11,18 @@ var (
 	ScriptMAP = make(map[string]*LuaProfile)
 	CurrentScript string = "none"
 )
+
+func ScriptsReloadFromDB() {
+	scripts, err := db.DBScriptGetAll()
+	if err != nil {
+		log.PrintErr(err.Error())
+		return
+	}
+	for i := range scripts {
+		log.PrintInfo("load script " + scripts[i])
+		LuaLoad(scripts[i])
+	}
+}
 
 func LuaNew(path string) (*LuaProfile, error) {
 	l := new(LuaProfile)
@@ -33,11 +46,13 @@ func LuaLoad(path string) {
 
 	l, err := LuaNew(path)
 	if err != nil {
-		println(err.Error())
+		log.PrintErr(err.Error())
 		return
 	}
 	l.Running = true
 	ScriptMAP[path] = l
+
+	db.DBScriptInsert(path)
 
 	go ScriptMAP[path].LuaRunMain()
 }

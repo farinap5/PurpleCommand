@@ -1,4 +1,4 @@
-package agent
+package ssh
 
 import (
 	"crypto/sha256"
@@ -14,7 +14,7 @@ func FingerprintKey(k ssh.PublicKey) string {
 	return base64.StdEncoding.EncodeToString(bytes[:])
 }
 
-// Hand challeng with publick key
+// Hand challenge with publick key
 func (s Session) pubCallBack(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
 	if s.AuthKeys[FingerprintKey(key)] {
 		log.Printf("Key %s found.",FingerprintKey(key))

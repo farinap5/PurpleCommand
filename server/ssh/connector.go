@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"purpcmd/server/utils"
 	"syscall"
+	_ "unsafe"
 
 	"github.com/c-bata/go-prompt"
 	"golang.org/x/crypto/ssh"

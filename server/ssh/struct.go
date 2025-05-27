@@ -1,4 +1,4 @@
-package server
+package ssh
 
 type ServerProfile struct {
 	HTTPAddress 		string

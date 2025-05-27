@@ -1,19 +1,15 @@
-package server
+package ssh
 
 import (
-	"embed"
-	"flag"
 	"fmt"
 	"log"
 
-	//"net"
 	"net/http"
-	"purpcmd/utils"
+	"purpcmd/server/utils"
 
 	"github.com/gorilla/websocket"
 )
 
-var Key embed.FS
 
 func (profile *ServerProfile) websockhand(w http.ResponseWriter, r *http.Request) {
 	up := websocket.Upgrader{}
@@ -25,11 +21,11 @@ func (profile *ServerProfile) websockhand(w http.ResponseWriter, r *http.Request
 
 	webSockConn := utils.New(conn) // New addapter
 	log.Println("Proxy connected", profile.TCPDefaultAddress)
-	Connector(webSockConn, profile.PrivKey)
+	Connector(webSockConn)
 }
 
 // WebSocket Server Works with SSH local mirror
-func WSServe(args []string, key embed.FS) error {
+/*func WSServe(args []string, key embed.FS) error {
 	Key = key
 	profile := new(ServerProfile)
 	profile.TCPDefaultAddress = "0.0.0.0:8080"
@@ -58,4 +54,4 @@ func WSServe(args []string, key embed.FS) error {
 	}
 
 	return server.ListenAndServe()
-}
+}*/

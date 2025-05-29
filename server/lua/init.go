@@ -19,7 +19,6 @@ func ScriptsReloadFromDB() {
 		return
 	}
 	for i := range scripts {
-		log.PrintInfo("load script " + scripts[i])
 		LuaLoad(scripts[i])
 	}
 }

@@ -2,13 +2,13 @@ package ssh
 
 import (
 	"encoding/binary"
-	"fmt"
 	"io"
 	"net"
 	"os"
 	"os/signal"
 	"purpcmd/server/utils"
 	"syscall"
+	"time"
 	_ "unsafe"
 
 	"github.com/c-bata/go-prompt"
@@ -57,12 +57,13 @@ func winChanges(session *ssh.Session, fd uintptr) {
 func Connector(conn net.Conn) {
 	consoleWriter.EraseLine() // Erase current line
 	consoleWriter.EraseDown() // Required to remove the completions menu
+	consoleWriter.EraseScreen()
+	time.Sleep(1 * time.Second)
 	tunnel(conn)
 	syscall.Kill(syscall.Getpid(), syscall.SIGWINCH) // Required to force the re-render of the prompt
 }
 
 func tunnel(conn net.Conn) error {
-
 	id_ecdsa := `-----BEGIN OPENSSH PRIVATE KEY-----
 b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAaAAAABNlY2RzYS
 1zaGEyLW5pc3RwMjU2AAAACG5pc3RwMjU2AAAAQQQ5u5RSQEn7VjPQZsPrEJ4zba+PMF4U
@@ -85,19 +86,6 @@ AgMEBQ==
 	// https://github.com/golang/go/issues/32990
 	sshConn, channConn, connRequest, err := ssh.NewClientConn(conn, "localhost", sshConfig)
 	utils.Err(err, 7)
-
-	/*
-		TODO: make HostKeyCallback
-		https://stackoverflow.com/questions/44269142/golang-ssh-getting-must-specify-hoskeycallback-error-despite-setting-it-to-n
-	*/
-	/*sshConfig := &ssh.ClientConfig{
-		Auth: []ssh.AuthMethod{ssh.PublicKeys(privKey)},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-	}
-
-	client, err := ssh.Dial("tcp", "0.0.0.0:8080", sshConfig)
-	utils.Err(err)
-	defer client.Close()*/
 
 	client := ssh.NewClient(sshConn, channConn, connRequest)
 	defer client.Close()
@@ -156,7 +144,6 @@ AgMEBQ==
 				}
 				return fmt.Errorf("ssh: %s", err)
 			}*/
-	fmt.Println("aaa")
 
 	return nil
 }

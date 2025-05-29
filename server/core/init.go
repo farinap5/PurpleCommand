@@ -13,12 +13,12 @@ func Start() {
 		log.PrintAlert(err.Error())
 		return
 	}
+	lua.ScriptsReloadFromDB()
 	err = listener.ListenerInitFromDB()
 	if err != nil {
 		log.PrintAlert(err.Error())
 		return
 	}
-	lua.ScriptsReloadFromDB()
 
 	InitCLI()
 }

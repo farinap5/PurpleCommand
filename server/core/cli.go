@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"purpcmd/server/implant"
 	"purpcmd/server/listener"
+	"purpcmd/server/lua"
 	"strings"
 
 	"github.com/c-bata/go-prompt"
@@ -102,6 +103,14 @@ func (paux *ProfileAux) completer(d prompt.Document) []prompt.Suggest {
 			prompt.Suggest {Text: "interact", Description: "Interact with session"},
 			prompt.Suggest {Text: "delete",   Description: "Delete session"},
 		)
+
+		cmdList := lua.LuaGetCommandDesc("a","a")
+		for _,j := range cmdList {
+			promptSuggestions = append(promptSuggestions,
+				prompt.Suggest {Text: j[0], Description: j[1]},
+			)
+		}
+
 	} else if paux.Profile.Script {
 		promptSuggestions = append(promptSuggestions,
 			prompt.Suggest {Text: "back",     Description: "Exit from session menu"},

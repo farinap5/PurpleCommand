@@ -53,7 +53,7 @@ func ImplantAddGenericCommand(L *lua.LState) int {
 	return 0
 }
 
-func CallCommand(name, impl string) (string, error) {
+func CallCommand(name, impl, payload string) (string, error) {
 	cmdStr, exists := CMDMAP[impl + "." + name]
 	if !exists {
 		return "", fmt.Errorf("command %s for %s not found", name, impl)
@@ -61,7 +61,10 @@ func CallCommand(name, impl string) (string, error) {
 
 	L := ScriptMAP[cmdStr.ScriptName].state
 	L.Push(cmdStr.ptr)
-	err := L.PCall(0, 1, nil)
+
+	L.Push(lua.LString(payload))
+
+	err := L.PCall(1, 1, nil)
 	if err != nil {
 		return "", err
 	}

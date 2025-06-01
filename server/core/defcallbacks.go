@@ -7,6 +7,7 @@ import (
 	"purpcmd/server/log"
 	"purpcmd/server/lua"
 	"purpcmd/server/types"
+	"strings"
 )
 
 func runHelp(cmds []string, p *types.Profile) int {
@@ -255,7 +256,7 @@ func runLoad(cmds []string, profile *types.Profile) int {
 }
 
 func runTaskCall(cmds []string) {
-	_, err := lua.CallCommand(cmds[0], "impl")
+	_, err := lua.CallCommand(cmds[0], "impl", strings.Join(cmds[1:], " "))
 	if err != nil {
 		log.PrintErr(err.Error())
 	}

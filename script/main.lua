@@ -3,17 +3,17 @@ CODE = {
     SSH = 2
 }
 
-function ping()
-    -- print("command ping from script")
-    local err = addtask(CODE.PING, "ping")
+function ping(payload)
+    print("command ping from script args", payload)
+    local err = addtask(CODE.PING, payload)
     if err then
         print("Error")
     end
 end
 
-function ssh()
-    -- print("command ssh from script")
-    local err = addtask(CODE.SSH, "ssh")
+function ssh(payload)
+    print("command ssh from script with args", payload)
+    local err = addtask(CODE.SSH, payload)
     if err then
         print("Error")
     end

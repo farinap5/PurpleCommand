@@ -11,6 +11,16 @@ var (
 	CMDMAP = make(map[string]*command_def)
 )
 
+func LuaGetCommandDesc(impl, command string) [][]string {
+	var aux [][]string
+	for _, v := range CMDMAP {
+		aux = append(aux, []string{
+			v.Name, v.Description,
+		})
+	}
+	return aux
+}
+
 func (l LuaProfile)command(L *lua.LState) int {
 	impl := L.CheckString(1)
 	name := L.CheckString(2)

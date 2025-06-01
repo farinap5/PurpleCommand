@@ -68,7 +68,6 @@ func ParseCallback(d []byte, req *http.Request, name string) (uint16, []byte) {
 	case internal.REG:
 		err = ParseAndReg(r, req)
 	case internal.CHK:
-
 		task, err = ParseCheck(r, req)
 	case internal.RSP:
 		err = ParseResponse(r, req)

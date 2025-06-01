@@ -4,7 +4,7 @@ CODE = {
 }
 
 function ping()
-    print("command ping from script")
+    -- print("command ping from script")
     local err = addtask(CODE.PING, "ping")
     if err then
         print("Error")
@@ -12,7 +12,7 @@ function ping()
 end
 
 function ssh()
-    print("command ssh from script")
+    -- print("command ssh from script")
     local err = addtask(CODE.SSH, "ssh")
     if err then
         print("Error")
@@ -20,8 +20,8 @@ function ssh()
 end
 
 -- impl, name, desc, func
-command("impl","ping","ccc", ping)
-command("impl","ssh","ccc", ssh)
+command("impl","ping","Ping the implant", ping)
+command("impl","ssh","Get an interactive session", ssh)
 
 function Main()
 end

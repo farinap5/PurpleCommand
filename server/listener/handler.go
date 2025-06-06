@@ -4,7 +4,8 @@ import (
 	"io"
 	"net/http"
 	"purpcmd/internal"
-	imp "purpcmd/server/implant"
+	"purpcmd/server/callback"
+	//imp "purpcmd/server/implant"
 	"purpcmd/server/log"
 	"purpcmd/server/ssh"
 	"purpcmd/server/utils"
@@ -71,5 +72,6 @@ func processPayload(r *http.Request) (uint16, []byte) {
 		}
 	}
 
-	return imp.ParseCallback(data, r, name)
+	
+	return callback.ParseCallback(data, r, name)
 }

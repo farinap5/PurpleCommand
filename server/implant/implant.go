@@ -43,7 +43,7 @@ func ImplantNew(name string) *Implant {
 }
 
 func (i *Implant) ImplantSetEncryption(enc encrypt.Encrypt) {
-	i.enc = enc
+	i.Enc = enc
 }
 
 func (i *Implant) ImplantSetMetadata(m *implant.ImplantMetadata) {
@@ -159,7 +159,7 @@ func (i *Implant) ImplantGetTaskStr() (string, [8]byte, error) {
 
 	t.Sent = true
 	tb := t.TaskMarshal()
-	tbe := i.enc.AESCbcEncrypt(tb)
-	i.enc.HMACPackAddHmac(&tbe)
+	tbe := i.Enc.AESCbcEncrypt(tb)
+	i.Enc.HMACPackAddHmac(&tbe)
 	return TaskEncode(tbe), t.ID, nil
 }

@@ -42,5 +42,15 @@ function OnCheck(...)
     print("task:", args[6])
 end
 
+function OnResponse(...)
+    local args = {...}
+    print("Name:", args[1])
+    print("UUID:", args[2])
+    print("Hostname:", args[3])
+    print("User:", args[4])
+    print("response:", args[5])
+    print("task:", args[6])
+end
+
 function Main()
 end

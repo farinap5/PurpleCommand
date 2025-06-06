@@ -175,6 +175,8 @@ func ParseResponse(r io.Reader, req *http.Request) error {
 	binary.Read(r, binary.BigEndian, &respPayload)
 	taskPtr.TaskSetResponsePayload(respPayload)
 
+	lua.LuaOnResponse(TaskID, string(respPayload), imp.Metadata,imp.Name, imp.UUID)
+
 	log.AsyncWriteStdoutInfo(fmt.Sprintf("Response - session:%s task:%s length:%d\n\n%s\n\n", name, TaskIDStr, respLen, respPayload))
 	return nil
 }

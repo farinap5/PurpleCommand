@@ -55,3 +55,28 @@ func LuaOnCheck(tid [8]byte, data string, i impx.ImplantMetadata, Name, UUID str
 		go v.state.PCall(6, 0, nil)
 	}
 }
+
+func LuaOnResponse(tid [8]byte, data string, i impx.ImplantMetadata, Name, UUID string) {
+	for _, v := range ScriptMAP {
+		fn := v.state.GetGlobal("OnResponse")
+		if fn.Type() != lua.LTFunction {
+			continue
+		}
+
+		v.state.Push(fn)
+
+		v.state.Push(lua.LString(Name))
+		v.state.Push(lua.LString(UUID))
+		v.state.Push(lua.LString(i.Hostname))
+		v.state.Push(lua.LString(i.User))
+		v.state.Push(lua.LString(data))
+		v.state.Push(lua.LString(string(tid[:])))
+		//v.state.Push(lua.LString(i.Metadata.IP))
+		//v.state.Push(lua.LString(i.Metadata.SessionID))
+		//v.state.Push(lua.LString(i.Metadata.Sleep))
+		//v.state.Push(lua.LString(i.Metadata.PID))
+		//v.state.Push(lua.LString(i.Metadata.Arch))
+
+		go v.state.PCall(6, 0, nil)
+	}
+}

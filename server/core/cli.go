@@ -97,6 +97,17 @@ func (paux *ProfileAux) completer(d prompt.Document) []prompt.Suggest {
 			prompt.Suggest {Text: "restart",  Description: "Restart listener"},
 		)
 	} else if paux.Profile.Session {
+		if inputs[0] == "interact" && len(inputs) > 1 {
+			promptSuggestions = []prompt.Suggest{}
+			implList := implant.ImplantListForSuggestions()
+			for _, j := range implList {
+				promptSuggestions = append(promptSuggestions,
+					prompt.Suggest {Text: j[0], Description: j[1]},
+				)
+			}
+			return prompt.FilterHasPrefix(promptSuggestions, inputs[1], true)
+		}
+
 		promptSuggestions = append(promptSuggestions,
 			prompt.Suggest {Text: "back",     Description: "Exit from session menu"},
 			prompt.Suggest {Text: "list",     Description: "List session"},

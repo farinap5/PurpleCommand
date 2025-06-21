@@ -163,3 +163,11 @@ func (i *Implant) ImplantGetTaskStr() (string, [8]byte, error) {
 	i.Enc.HMACPackAddHmac(&tbe)
 	return TaskEncode(tbe), t.ID, nil
 }
+
+func ImplantListForSuggestions() [][]string {
+	var suggestions [][]string
+	for k, v := range ImplantMAP {
+		suggestions = append(suggestions, []string{k, v.Metadata.Hostname+"@"+v.Metadata.User})
+	}
+	return suggestions
+}

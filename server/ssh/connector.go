@@ -1,19 +1,25 @@
-package server
+package ssh
 
 import (
 	"encoding/binary"
-	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"os"
 	"os/signal"
-	"purpcmd/utils"
+	"purpcmd/server/utils"
 	"syscall"
+	"time"
+	_ "unsafe"
 
+	"github.com/c-bata/go-prompt"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/terminal"
 )
+
+// Map the local variable "consoleWriter" to the one of go-prompt
+//go:linkname consoleWriter github.com/c-bata/go-prompt.consoleWriter
+var consoleWriter prompt.ConsoleWriter
+
 
 // https://github.com/glinton/ssh/blob/master/client.go#L293
 func termSize(fd uintptr) []byte {
@@ -47,17 +53,29 @@ func winChanges(session *ssh.Session, fd uintptr) {
 	}
 }
 
-func Connector(conn net.Conn, keyPath string) error {
-	var bytes []byte
-	var err error
-	if keyPath == "" {
-		bytes, err = Key.ReadFile("key/id_ecdsa")
-	} else {
-		bytes, err = ioutil.ReadFile(keyPath)
-	}
-	utils.Err(err, 5)
 
-	privKey, err := ssh.ParsePrivateKey(bytes)
+func Connector(conn net.Conn) {
+	consoleWriter.EraseScreen()
+	consoleWriter.EraseLine() // Erase current line
+	consoleWriter.EraseDown() // Required to remove the completions menu
+	time.Sleep(1 * time.Second)
+	tunnel(conn)
+	syscall.Kill(syscall.Getpid(), syscall.SIGWINCH) // Required to force the re-render of the prompt
+}
+
+func tunnel(conn net.Conn) error {
+	id_ecdsa := `-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAaAAAABNlY2RzYS
+1zaGEyLW5pc3RwMjU2AAAACG5pc3RwMjU2AAAAQQQ5u5RSQEn7VjPQZsPrEJ4zba+PMF4U
+kQ3+N11IW30QU9OY+XWePtqlIT7eYLoJBAkiDczrNpxs9IZAhUxg6jyDAAAAqC+nArwvpw
+K8AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBDm7lFJASftWM9Bm
+w+sQnjNtr48wXhSRDf43XUhbfRBT05j5dZ4+2qUhPt5gugkECSINzOs2nGz0hkCFTGDqPI
+MAAAAgUnybP9gbz6kYON6APaQXd+MVK1jXVSVkMJ+fnUSGq+oAAAALZmFyaW5hcEB4eXoB
+AgMEBQ==
+-----END OPENSSH PRIVATE KEY-----`
+	
+	keuBytes := []byte(id_ecdsa)
+	privKey, err := ssh.ParsePrivateKey(keuBytes)
 	utils.Err(err, 6)
 
 	sshConfig := &ssh.ClientConfig{
@@ -69,22 +87,8 @@ func Connector(conn net.Conn, keyPath string) error {
 	sshConn, channConn, connRequest, err := ssh.NewClientConn(conn, "localhost", sshConfig)
 	utils.Err(err, 7)
 
-	/*
-		TODO: make HostKeyCallback
-		https://stackoverflow.com/questions/44269142/golang-ssh-getting-must-specify-hoskeycallback-error-despite-setting-it-to-n
-	*/
-	/*sshConfig := &ssh.ClientConfig{
-		Auth: []ssh.AuthMethod{ssh.PublicKeys(privKey)},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-	}
-
-	client, err := ssh.Dial("tcp", "0.0.0.0:8080", sshConfig)
-	utils.Err(err)
-	defer client.Close()*/
-
 	client := ssh.NewClient(sshConn, channConn, connRequest)
 	defer client.Close()
-	//client
 
 	session, err := client.NewSession()
 	if err != nil {
@@ -122,7 +126,6 @@ func Connector(conn net.Conn, keyPath string) error {
 	go io.Copy(os.Stderr, stderr)
 
 	go winChanges(session, os.Stdout.Fd())
-	print("Call Shell\n\r")
 	err = session.Shell()
 	//utils.Err(err, 15)
 
@@ -141,7 +144,6 @@ func Connector(conn net.Conn, keyPath string) error {
 				}
 				return fmt.Errorf("ssh: %s", err)
 			}*/
-	fmt.Println("aaa")
 
 	return nil
 }

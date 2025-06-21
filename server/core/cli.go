@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"purpcmd/server/implant"
 	"purpcmd/server/listener"
+	"purpcmd/server/lua"
 	"strings"
 
 	"github.com/c-bata/go-prompt"
@@ -93,14 +94,34 @@ func (paux *ProfileAux) completer(d prompt.Document) []prompt.Suggest {
 			prompt.Suggest {Text: "new",      Description: "new listener"},
 			prompt.Suggest {Text: "interact", Description: "Interact with listener"},
 			prompt.Suggest {Text: "delete",   Description: "Delete listener"},
+			prompt.Suggest {Text: "restart",  Description: "Restart listener"},
 		)
 	} else if paux.Profile.Session {
+		if inputs[0] == "interact" && len(inputs) > 1 {
+			promptSuggestions = []prompt.Suggest{}
+			implList := implant.ImplantListForSuggestions()
+			for _, j := range implList {
+				promptSuggestions = append(promptSuggestions,
+					prompt.Suggest {Text: j[0], Description: j[1]},
+				)
+			}
+			return prompt.FilterHasPrefix(promptSuggestions, inputs[1], true)
+		}
+
 		promptSuggestions = append(promptSuggestions,
 			prompt.Suggest {Text: "back",     Description: "Exit from session menu"},
 			prompt.Suggest {Text: "list",     Description: "List session"},
 			prompt.Suggest {Text: "interact", Description: "Interact with session"},
 			prompt.Suggest {Text: "delete",   Description: "Delete session"},
 		)
+
+		cmdList := lua.LuaGetCommandDesc("a","a")
+		for _,j := range cmdList {
+			promptSuggestions = append(promptSuggestions,
+				prompt.Suggest {Text: j[0], Description: j[1]},
+			)
+		}
+
 	} else if paux.Profile.Script {
 		promptSuggestions = append(promptSuggestions,
 			prompt.Suggest {Text: "back",     Description: "Exit from session menu"},

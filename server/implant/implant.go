@@ -22,6 +22,10 @@ var (
 )
 
 func (i *Implant) ImplantAddImplant() {
+	/*if CurrentImplant == "none" {
+		CurrentImplant = i.Name
+	}*/
+
 	log.AsyncWriteStdout(fmt.Sprintf("[\u001B[1;32m!\u001B[0;0m]- New implant %s - SOCK:%s HOSTNAME:%s USERNAME:%s\n", i.Name, i.Metadata.Socket, i.Metadata.Hostname, i.Metadata.User))
 	ImplantMAP[i.Name] = i
 }
@@ -39,7 +43,7 @@ func ImplantNew(name string) *Implant {
 }
 
 func (i *Implant) ImplantSetEncryption(enc encrypt.Encrypt) {
-	i.enc = enc
+	i.Enc = enc
 }
 
 func (i *Implant) ImplantSetMetadata(m *implant.ImplantMetadata) {
@@ -132,6 +136,15 @@ func ImplantAddTask() {
 	ImplantMAP[CurrentImplant].ImplantAddTask(t)
 }
 
+func ImplantAddGenericTask(code int, payload string) int {
+	if CurrentImplant == "none" {
+		return 1
+	}
+	t := TaskNew(uint16(code), []byte(payload))
+	ImplantMAP[CurrentImplant].ImplantAddTask(t)
+	return 0
+}
+
 func (i *Implant) ImplantAddTask(task *Task) {
 	i.Task = append(i.Task, task)
 	i.TaskMap[task.ID] = task
@@ -146,7 +159,15 @@ func (i *Implant) ImplantGetTaskStr() (string, [8]byte, error) {
 
 	t.Sent = true
 	tb := t.TaskMarshal()
-	tbe := i.enc.AESCbcEncrypt(tb)
-	i.enc.HMACPackAddHmac(&tbe)
+	tbe := i.Enc.AESCbcEncrypt(tb)
+	i.Enc.HMACPackAddHmac(&tbe)
 	return TaskEncode(tbe), t.ID, nil
+}
+
+func ImplantListForSuggestions() [][]string {
+	var suggestions [][]string
+	for k, v := range ImplantMAP {
+		suggestions = append(suggestions, []string{k, v.Metadata.Hostname+"@"+v.Metadata.User})
+	}
+	return suggestions
 }

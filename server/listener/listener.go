@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"purpcmd/server/db"
 	"purpcmd/server/log"
+	"strings"
 
 	"github.com/cheynewallace/tabby"
 	"github.com/google/uuid"
@@ -52,6 +53,8 @@ func ListenerSetOptions(key, value string) error {
 		return errors.New("no listener")
 	}
 
+	key = strings.ToLower(key)
+
 	switch key {
 	case "uuid":
 		ListenerMAP[CurrentListener].UUID = value
@@ -63,8 +66,17 @@ func ListenerSetOptions(key, value string) error {
 		var v bool
 		if value == "t" || value == "true" || value == "on" {
 			v = true
+			db.DBListenerInsert(
+				ListenerMAP[CurrentListener].Name, 
+				ListenerMAP[CurrentListener].UUID, 
+				ListenerMAP[CurrentListener].Host, 
+				ListenerMAP[CurrentListener].Port, 
+				true, 
+				false,
+			)
 		} else if value == "f" || value == "false" || value == "off" {
 			v = false
+			db.DBListenerDelete(ListenerMAP[CurrentListener].Name)
 		} else {
 			return errors.New("what?")
 		}
@@ -104,7 +116,7 @@ func ListenerList() {
 	c := 1
 	t.AddHeader("ID", "NAME", "UUID", "SOCKET", "RUNNING", "PERSISTENT", "ASSOCIATION")
 	for k, v := range ListenerMAP {
-		t.AddLine(c, k, v.UUID[24:], v.Host+":"+v.Port, fmt.Sprintf("%t", ListenerMAP[CurrentListener].SC.running), fmt.Sprintf("%t", ListenerMAP[CurrentListener].Persistent), v.Association)
+		t.AddLine(c, k, v.UUID[24:], v.Host+":"+v.Port, fmt.Sprintf("%t", ListenerMAP[k].SC.running), fmt.Sprintf("%t", ListenerMAP[k].Persistent), v.Association)
 		c += 1
 	}
 	print("\n")
@@ -113,6 +125,11 @@ func ListenerList() {
 }
 
 func ListenerStart() {
+	ListenerMAP[CurrentListener].StartHTTP()
+}
+
+func ListenerRestart() {
+	ListenerMAP[CurrentListener].StopHTTP()
 	ListenerMAP[CurrentListener].StartHTTP()
 }
 

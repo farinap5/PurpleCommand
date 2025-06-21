@@ -5,6 +5,7 @@ package internal
 const (
 	NILCMD = uint16(iota)
 	PING
+	SSH
 )
 
 const (

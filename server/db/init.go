@@ -63,5 +63,18 @@ func (db *DBDef) dbCreateDs() error {
 		sttm.Exec()
 	}
 
+
+	sttm, err = db.DBConn.Prepare(`
+	CREATE TABLE IF NOT EXISTS Scripts (
+		Sid		INTEGER PRIMARY KEY AUTOINCREMENT,
+		Path	TEXT NOT NULL UNIQUE
+	);
+	`)
+	if err != nil {
+		return err
+	} else {
+		sttm.Exec()
+	}
+
 	return nil
 }

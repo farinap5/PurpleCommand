@@ -19,3 +19,13 @@ type LuaProfile struct {
 	done    chan struct{}
 	closing sync.Once
 }
+
+
+type command_def struct {
+	Impl string
+	Name string
+	Description string
+	ScriptName string
+
+	ptr *lua.LFunction
+}

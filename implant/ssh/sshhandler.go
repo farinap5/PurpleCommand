@@ -1,13 +1,13 @@
 // +build !windows
 
-package agent
+package ssh
 
 import (
 	"encoding/binary"
 	"io"
 	"log"
 	"os/exec"
-	"purpcmd/utils"
+	"purpcmd/server/utils"
 	"syscall"
 	"unsafe"
 

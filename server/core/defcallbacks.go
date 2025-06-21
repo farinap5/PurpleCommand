@@ -7,6 +7,7 @@ import (
 	"purpcmd/server/log"
 	"purpcmd/server/lua"
 	"purpcmd/server/types"
+	"strings"
 )
 
 func runHelp(cmds []string, p *types.Profile) int {
@@ -162,6 +163,14 @@ func runStop(cmds []string, profile *types.Profile) int {
 	return 0
 }
 
+func runRestart(cmds []string, profile *types.Profile) int {
+	if profile.Listener {
+		listener.ListenerRestart()
+	}
+
+	return 0
+}
+
 func runInteract(cmds []string, profile *types.Profile) int {
 	if profile.Listener {
 		if len(cmds) == 2 {
@@ -213,6 +222,8 @@ func runBack(cmds []string, profile *types.Profile) int {
 		profile.Listener = false
 	} else if profile.Session {
 		profile.Session = false
+	} else if profile.Script {
+		profile.Script = false
 	}
 
 	profile.Prompt = CreateDefaultPrompt()
@@ -222,7 +233,7 @@ func runBack(cmds []string, profile *types.Profile) int {
 	return 0
 }
 
-func runPing(cmds []string, profile *types.Profile) int {
+/*func runPing(cmds []string, profile *types.Profile) int {
 	if !profile.Session {
 		return 1
 	}
@@ -230,7 +241,7 @@ func runPing(cmds []string, profile *types.Profile) int {
 	implant.ImplantAddTask()
 
 	return 0
-}
+}*/
 
 func runLoad(cmds []string, profile *types.Profile) int {
 	if !profile.Script {
@@ -242,4 +253,11 @@ func runLoad(cmds []string, profile *types.Profile) int {
 	}
 
 	return 0
+}
+
+func runTaskCall(cmds []string) {
+	_, err := lua.CallCommand(cmds[0], "impl", strings.Join(cmds[1:], " "))
+	if err != nil {
+		log.PrintErr(err.Error())
+	}
 }

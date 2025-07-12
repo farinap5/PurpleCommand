@@ -2,6 +2,7 @@ package lua
 
 import (
 	"fmt"
+	"os"
 	"purpcmd/server/implant"
 
 	lua "github.com/yuin/gopher-lua"
@@ -21,28 +22,35 @@ func LuaGetCommandDesc(impl, command string) [][]string {
 	return aux
 }
 
-func (l LuaProfile)command(L *lua.LState) int {
+func (l LuaProfile) command(L *lua.LState) int {
 	impl := L.CheckString(1)
 	name := L.CheckString(2)
 	desc := L.CheckString(3)
-	fn := L.CheckFunction(4)  // Get function reference
+	fn := L.CheckFunction(4) // Get function reference
 
-	CMDMAP[impl + "." + name] = &command_def{
-		Impl: impl,
-		Name: name,
+	CMDMAP[impl+"."+name] = &command_def{
+		Impl:        impl,
+		Name:        name,
 		Description: desc,
-		ptr: fn,
-		ScriptName: l.script,
+		ptr:         fn,
+		ScriptName:  l.script,
 	}
 
 	return 0
 }
 
-func ImplantAddUploadCommand(L *lua.LState) int {
+func ImplantAddUploadFileCommand(L *lua.LState) int {
 	code := L.CheckInt(1)
-	fileName := L.CheckString(2)
+	fileSrcName := L.CheckString(2)
+	fileDstName := L.CheckString(3)
 
-	errInt := implant.ImplantAddUploadTask(code,fileName, []byte("aaaa"))
+	data, err := os.ReadFile(fileSrcName)
+	if err != nil {
+		L.Push(lua.LString("could not create task: error reading file"))
+		return 0
+	}
+
+	errInt := implant.ImplantAddUploadTask(code, fileDstName, data)
 	if errInt != 0 {
 		//L.Push(lua.LNil)
 		L.Push(lua.LString("could not create task"))
@@ -57,7 +65,7 @@ func ImplantAddGenericCommand(L *lua.LState) int {
 	code := L.CheckInt(1)
 	payload := L.CheckString(2)
 
-	errInt := implant.ImplantAddGenericTask(code,payload)
+	errInt := implant.ImplantAddGenericTask(code, payload)
 	if errInt != 0 {
 		//L.Push(lua.LNil)
 		L.Push(lua.LString("could not create task"))
@@ -69,7 +77,7 @@ func ImplantAddGenericCommand(L *lua.LState) int {
 }
 
 func CallCommand(name, impl, payload string) (string, error) {
-	cmdStr, exists := CMDMAP[impl + "." + name]
+	cmdStr, exists := CMDMAP[impl+"."+name]
 	if !exists {
 		return "", fmt.Errorf("command %s for %s not found", name, impl)
 	}

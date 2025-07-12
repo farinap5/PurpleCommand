@@ -7,6 +7,7 @@ const (
 	PING
 	SSH
 	DOWN
+	UPL
 	KILL
 )
 

@@ -2,7 +2,8 @@ CODE = {
     PING = 1,
     SSH = 2,
     DOWN = 3,
-    KILL = 4
+    UPL = 4,
+    KILL = 5
 }
 
 function ping(payload)
@@ -23,6 +24,14 @@ end
 
 function download(payload)
     print("command download from script with args", payload)
+    local err = addtask(CODE.DOWN, payload)
+    if err then
+        print("Error")
+    end
+end
+
+function upload(payload)
+    print("command upload from script with args", payload)
     local err = addtask(CODE.DOWN, payload)
     if err then
         print("Error")

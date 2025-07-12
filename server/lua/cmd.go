@@ -38,6 +38,21 @@ func (l LuaProfile)command(L *lua.LState) int {
 	return 0
 }
 
+func ImplantAddUploadCommand(L *lua.LState) int {
+	code := L.CheckInt(1)
+	fileName := L.CheckString(2)
+
+	errInt := implant.ImplantAddUploadTask(code,fileName, []byte("aaaa"))
+	if errInt != 0 {
+		//L.Push(lua.LNil)
+		L.Push(lua.LString("could not create task"))
+		return 0
+	}
+	L.Push(lua.LNil)
+
+	return 0
+}
+
 func ImplantAddGenericCommand(L *lua.LState) int {
 	code := L.CheckInt(1)
 	payload := L.CheckString(2)

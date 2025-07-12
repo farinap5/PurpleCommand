@@ -59,6 +59,8 @@ func (t *Task)TaskSetResponsePayload(payload []byte) {
 	t.Response = payload
 }
 
+
+
 func TaskNew(code uint16, payload []byte) *Task {
 	return &Task{
 		ID: server.RandomBytes8(),

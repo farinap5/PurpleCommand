@@ -48,6 +48,24 @@ function upload(payload)
     end
 end
 
+function upload2(payload)
+    opts = {}
+    -- = "s=/tmp/image.png d=Lua"
+    for k, v in string.gmatch(payload, "(%w+)=([%w/.]+)") do
+        opts[k] = v
+    end
+
+    if not t.s or not t.d then
+        print("problem")
+        return
+    end
+
+    local err = addtaskuploadfile(CODE.UPL, opts.s, opts.d)
+    if err then
+        print("Error")
+    end
+end
+
 function kill(payload)
     print("command kill from script with args", payload)
     local err = addtask(CODE.KILL, payload)

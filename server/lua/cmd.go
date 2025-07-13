@@ -61,6 +61,23 @@ func ImplantAddUploadFileCommand(L *lua.LState) int {
 	return 0
 }
 
+
+func ImplantAddUploadCommand(L *lua.LState) int {
+	code := L.CheckInt(1)
+	data := L.CheckString(2)
+	// Lua check string appears to be binary safe, so it must keep even \x00.
+	chunk := L.CheckString(3)
+
+	errInt := implant.ImplantAddUploadTask(code, data, []byte(chunk))
+	if errInt != 0 {
+		L.Push(lua.LString("could not create task"))
+		return 0
+	}
+	L.Push(lua.LNil)
+
+	return 0
+}
+
 func ImplantAddGenericCommand(L *lua.LState) int {
 	code := L.CheckInt(1)
 	payload := L.CheckString(2)

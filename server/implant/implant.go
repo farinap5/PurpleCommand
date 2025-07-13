@@ -1,6 +1,7 @@
 package implant
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"purpcmd/implant"
@@ -10,10 +11,6 @@ import (
 
 	"github.com/cheynewallace/tabby"
 	"github.com/google/uuid"
-)
-
-var (
-	SEP = []byte{0x00} // Separator pattern for data like implant registering metadata
 )
 
 var (
@@ -141,6 +138,32 @@ func ImplantAddGenericTask(code int, payload string) int {
 		return 1
 	}
 	t := TaskNew(uint16(code), []byte(payload))
+	ImplantMAP[CurrentImplant].ImplantAddTask(t)
+	return 0
+}
+
+func ImplantAddUploadTask(code int, name string, data []byte) int {
+	if CurrentImplant == "none" {
+		return 1
+	}
+
+	var Buff []byte
+	nameLen := uint16(len(name))
+	nameLenBytes := make([]byte, 2)
+	binary.BigEndian.PutUint16(nameLenBytes, nameLen)
+	Buff = append(Buff, nameLenBytes...)
+
+	Buff = append(Buff, []byte(name)...)
+
+	dataLen := uint32(len(data))
+	dataLenBytes := make([]byte, 4)
+	binary.BigEndian.PutUint32(dataLenBytes, dataLen)
+	Buff = append(Buff, dataLenBytes...)
+
+	// Write data
+	Buff = append(Buff, data...)
+
+	t := TaskNew(uint16(code), Buff)
 	ImplantMAP[CurrentImplant].ImplantAddTask(t)
 	return 0
 }

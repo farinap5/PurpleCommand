@@ -55,9 +55,9 @@ func winChanges(session *ssh.Session, fd uintptr) {
 
 
 func Connector(conn net.Conn) {
-	consoleWriter.EraseScreen()
 	consoleWriter.EraseLine() // Erase current line
 	consoleWriter.EraseDown() // Required to remove the completions menu
+	consoleWriter.EraseScreen()
 	time.Sleep(1 * time.Second)
 	tunnel(conn)
 	syscall.Kill(syscall.Getpid(), syscall.SIGWINCH) // Required to force the re-render of the prompt

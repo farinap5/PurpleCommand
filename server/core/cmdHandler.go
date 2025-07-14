@@ -32,7 +32,7 @@ func (paux *ProfileAux) Execute(cmd string) {
 		functionP := *cmdPtr
 		functionP.Call(cmds, &paux.Profile) // paux.p = types.Profile
 	} else {
-		if paux.Profile.Session  {
+		if paux.Profile.STATE == types.SESSION  {
 			runTaskCall(cmds)
 		} else {
 			println("Not a valid command. Type `help`.")
@@ -78,6 +78,12 @@ func loadFunctions() {
 		Call:   runScript,
 		Usage:  nil,
 		Desc:   "script.",
+		Prompt: nil,
+	}
+	commandMap["loot"] = &types.Command{
+		Call:   runLoot,
+		Usage:  nil,
+		Desc:   "loot.",
 		Prompt: nil,
 	}
 

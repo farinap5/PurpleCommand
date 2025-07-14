@@ -5,9 +5,15 @@ import (
 	"purpcmd/server/implant"
 	"purpcmd/server/listener"
 	"purpcmd/server/log"
+	"purpcmd/server/loot"
 	"purpcmd/server/lua"
 	"purpcmd/server/types"
 	"strings"
+)
+
+const (
+	ErrStateNotNil = "must back to main menu: type `back` or press `ctrl b`"
+	ErrStateNil = "already in main menu"
 )
 
 func runHelp(cmds []string, p *types.Profile) int {
@@ -38,61 +44,55 @@ func runExit(cmds []string, profile *types.Profile) int {
 }
 
 func runListener(cmds []string, profile *types.Profile) int {
-	if profile.Session {
-		println("session is in use")
-		return 0
-	} else if profile.Script {
-		println("script is in use")
-		return 0
-	}
-
-	if !profile.Listener {
-		profile.Listener = true
+	if profile.STATE == types.NIL {
+		profile.STATE = types.LISTENER
 		profile.Prompt = "(listener - " + listener.CurrentListener + ")>> "
 		LivePrefixState.LivePrefix = profile.Prompt
 		LivePrefixState.IsEnable = true
+	} else {
+		log.PrintErr(ErrStateNotNil)
 	}
 	return 0
 }
 
 func runSession(cmds []string, profile *types.Profile) int {
-	if profile.Listener {
-		println("listener is in use")
-		return 0
-	} else if profile.Script {
-		println("script is in use")
-		return 0
-	}
-
-	if !profile.Session {
-		profile.Session = true
+	if profile.STATE == types.NIL {
+		profile.STATE = types.SESSION
 		profile.Prompt = "(session - " + implant.CurrentImplant + ")>> "
 		LivePrefixState.LivePrefix = profile.Prompt
 		LivePrefixState.IsEnable = true
+	} else {
+		log.PrintErr(ErrStateNotNil)
 	}
 	return 0
 }
 
 func runScript(cmds []string, profile *types.Profile) int {
-	if profile.Listener {
-		println("listener is in use")
-		return 0
-	} else if profile.Session {
-		println("session is in use")
-		return 0
-	}
-
-	if !profile.Script {
-		profile.Script = true
+	if profile.STATE == types.NIL {
+		profile.STATE = types.SCRIPT
 		profile.Prompt = "(script)>> "
 		LivePrefixState.LivePrefix = profile.Prompt
 		LivePrefixState.IsEnable = true
+	} else {
+		log.PrintErr(ErrStateNotNil)
+	}
+	return 0
+}
+
+func runLoot(cmds []string, profile *types.Profile) int {
+	if profile.STATE == types.NIL {
+		profile.STATE = types.LOOT
+		profile.Prompt = "(loot)>> "
+		LivePrefixState.LivePrefix = profile.Prompt
+		LivePrefixState.IsEnable = true
+	} else {
+		log.PrintErr(ErrStateNotNil)
 	}
 	return 0
 }
 
 func runNew(cmds []string, profile *types.Profile) int {
-	if profile.Listener {
+	if profile.STATE == types.LISTENER {
 		if len(cmds) == 2 {
 			err := listener.ListenerNew(cmds[1])
 			if err != nil {
@@ -112,7 +112,7 @@ func runNew(cmds []string, profile *types.Profile) int {
 }
 
 func runOptions(cmds []string, profile *types.Profile) int {
-	if profile.Listener {
+	if profile.STATE == types.LISTENER {
 		listener.ListenerShowOptions()
 	}
 
@@ -120,19 +120,21 @@ func runOptions(cmds []string, profile *types.Profile) int {
 }
 
 func runList(cmds []string, profile *types.Profile) int {
-	if profile.Listener {
+	if profile.STATE == types.LISTENER {
 		listener.ListenerList()
-	} else if profile.Session {
+	} else if profile.STATE == types.SESSION {
 		implant.ImplantList()
-	} else if profile.Script {
+	} else if profile.STATE == types.SCRIPT {
 		lua.ScriptList()
+	} else if profile.STATE == types.LOOT {
+		loot.List()
 	}
 
 	return 0
 }
 
 func runSet(cmds []string, profile *types.Profile) int {
-	if profile.Listener {
+	if profile.STATE == types.LISTENER {
 		if len(cmds) == 3 {
 			err := listener.ListenerSetOptions(cmds[1], cmds[2])
 			if err != nil {
@@ -148,7 +150,7 @@ func runSet(cmds []string, profile *types.Profile) int {
 }
 
 func runRun(cmds []string, profile *types.Profile) int {
-	if profile.Listener {
+	if profile.STATE == types.LISTENER {
 		listener.ListenerStart()
 	}
 
@@ -156,7 +158,7 @@ func runRun(cmds []string, profile *types.Profile) int {
 }
 
 func runStop(cmds []string, profile *types.Profile) int {
-	if profile.Listener {
+	if profile.STATE == types.LISTENER {
 		listener.ListenerStop()
 	}
 
@@ -164,7 +166,7 @@ func runStop(cmds []string, profile *types.Profile) int {
 }
 
 func runRestart(cmds []string, profile *types.Profile) int {
-	if profile.Listener {
+	if profile.STATE == types.LISTENER {
 		listener.ListenerRestart()
 	}
 
@@ -172,7 +174,7 @@ func runRestart(cmds []string, profile *types.Profile) int {
 }
 
 func runInteract(cmds []string, profile *types.Profile) int {
-	if profile.Listener {
+	if profile.STATE == types.LISTENER {
 		if len(cmds) == 2 {
 			err := listener.ListenerInteract(cmds[1])
 			if err != nil {
@@ -184,7 +186,7 @@ func runInteract(cmds []string, profile *types.Profile) int {
 			LivePrefixState.LivePrefix = profile.Prompt
 			LivePrefixState.IsEnable = true
 		}
-	} else if profile.Session {
+	} else if profile.STATE == types.SESSION {
 		if len(cmds) == 2 {
 			err := implant.ImplantInteract(cmds[1])
 			if err != nil {
@@ -203,7 +205,7 @@ func runInteract(cmds []string, profile *types.Profile) int {
 }
 
 func runDelete(cmds []string, profile *types.Profile) int {
-	if profile.Listener {
+	if profile.STATE == types.LISTENER {
 		err := listener.ListenerDelete()
 		if err != nil {
 			println(err.Error())
@@ -218,14 +220,12 @@ func runDelete(cmds []string, profile *types.Profile) int {
 }
 
 func runBack(cmds []string, profile *types.Profile) int {
-	if profile.Listener {
-		profile.Listener = false
-	} else if profile.Session {
-		profile.Session = false
-	} else if profile.Script {
-		profile.Script = false
+	if profile.STATE == types.NIL {
+		log.PrintErr(ErrStateNil)
+		return 1
 	}
 
+	profile.STATE = types.NIL
 	profile.Prompt = CreateDefaultPrompt()
 	LivePrefixState.LivePrefix = profile.Prompt
 	LivePrefixState.IsEnable = true
@@ -244,7 +244,7 @@ func runBack(cmds []string, profile *types.Profile) int {
 }*/
 
 func runLoad(cmds []string, profile *types.Profile) int {
-	if !profile.Script {
+	if profile.STATE != types.SCRIPT {
 		return 1
 	}
 

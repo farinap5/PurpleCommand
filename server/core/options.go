@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"purpcmd/server/lua"
 	"purpcmd/server/types"
 
@@ -13,7 +14,8 @@ func CmdHelp(p *types.Profile) {
 	t.AddLine("help", "Show help menu. Use `help <cmd>`.") //
 	t.AddLine("exit", "Exit from purpcmd.") //
 
-	if p.Listener {
+	switch p.STATE {
+	case types.LISTENER:
 		t.AddLine("new", "Create new listener. Use `new <name>`.") //
 		t.AddLine("delete", "Delete listener.") //
 		t.AddLine("options", "Show options.") //
@@ -23,26 +25,26 @@ func CmdHelp(p *types.Profile) {
 		t.AddLine("list", "List listeners.") //
 		t.AddLine("interact", "Interact with a listener. Use `interact <name>`.") //
 		t.AddLine("back", "Exit listener mode.") //
-	} else if p.Session {
+	case types.SESSION:
 		t.AddLine("delete", "Delete session.") //
 		t.AddLine("list", "List sessions.") //
 		t.AddLine("interact", "Interact with a session. Use `interact <name>`.") //
 		t.AddLine("back", "Exit session mode.") //
-	} else if p.Script {
+	case types.SCRIPT:
 		t.AddLine("load", "Load script.") //
 		t.AddLine("unload", "Unload script.") //
 		t.AddLine("list", "List scripts.") //
 		t.AddLine("back", "Exit script mode.") //
-	} else {
+	default:
 		t.AddLine("listener", "Enter listener mode. Use `help <cmd>`.")
-		t.AddLine("session", "Enter session mode. Use `help <cmd>`.")
+		t.AddLine("session", "Enter session mode. Use `help <cmd>`.")		
 	}
 
 	print("\n")
 	t.Print()
 	print("\n")
 
-	if p.Session {
+	if p.STATE == types.SESSION {
 		t1 := tabby.New()
 		cmdlist := lua.LuaGetCommandDesc("a","a")
 		t1.AddHeader("IMPL COMMAND", "DESCRIPTION")
@@ -61,4 +63,23 @@ func usageHelp(cmds []string) {
 	println("    `help <cmd>` Show help menu for that command.")
 	println("    `help <cmd> arg1 arg2` Arguments are accepted if implemented for that command.")
 	print("\n")
+}
+
+func Banner() {
+	var b string
+
+	b = `
+     ██▓███   █    ██  ██▀███   ██▓███   ▄████▄  
+    ▓██░  ██▒ ██  ▓██▒▓██ ▒ ██▒▓██░  ██▒▒██▀ ▀█  
+    ▓██░ ██▓▒▓██  ▒██░▓██ ░▄█ ▒▓██░ ██▓▒▒▓█    ▄ 
+    ▒██▄█▓▒ ▒▓▓█  ░██░▒██▀▀█▄  ▒██▄█▓▒ ▒▒▓▓▄ ▄██▒
+    ▒██▒ ░  ░▒▒█████▓ ░██▓ ▒██▒▒██▒ ░  ░▒ ▓███▀ ░
+    ▒▓▒░ ░  ░░▒▓▒ ▒ ▒ ░ ▒▓ ░▒▓░▒▓▒░ ░  ░░ ░▒ ▒  ░
+    ░▒ ░     ░░▒░ ░ ░   ░▒ ░ ▒░░▒ ░       ░  ▒   
+    ░░        ░░░ ░ ░   ░░   ░ ░░       ░        
+                ░        ░              ░ ░      
+                                        ░               	
+
+`
+	fmt.Print(b)
 }

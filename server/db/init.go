@@ -80,8 +80,8 @@ func (db *DBDef) dbCreateDs() error {
 	CREATE TABLE IF NOT EXISTS Loot (
 		lid		INTEGER PRIMARY KEY AUTOINCREMENT,
 		Uuid	TEXT NOT NULL UNIQUE,
-		Session TEXT NOT NULL UNIQUE,
-		FileName TEXT NOT NULL UNIQUE
+		Session TEXT NOT NULL,
+		FileName TEXT NOT NULL
 	);
 	`)
 	if err != nil {

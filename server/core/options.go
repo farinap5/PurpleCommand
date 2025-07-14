@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"purpcmd/server/lua"
 	"purpcmd/server/types"
 
@@ -62,4 +63,23 @@ func usageHelp(cmds []string) {
 	println("    `help <cmd>` Show help menu for that command.")
 	println("    `help <cmd> arg1 arg2` Arguments are accepted if implemented for that command.")
 	print("\n")
+}
+
+func Banner() {
+	var b string
+
+	b = `
+     ██▓███   █    ██  ██▀███   ██▓███   ▄████▄  
+    ▓██░  ██▒ ██  ▓██▒▓██ ▒ ██▒▓██░  ██▒▒██▀ ▀█  
+    ▓██░ ██▓▒▓██  ▒██░▓██ ░▄█ ▒▓██░ ██▓▒▒▓█    ▄ 
+    ▒██▄█▓▒ ▒▓▓█  ░██░▒██▀▀█▄  ▒██▄█▓▒ ▒▒▓▓▄ ▄██▒
+    ▒██▒ ░  ░▒▒█████▓ ░██▓ ▒██▒▒██▒ ░  ░▒ ▓███▀ ░
+    ▒▓▒░ ░  ░░▒▓▒ ▒ ▒ ░ ▒▓ ░▒▓░▒▓▒░ ░  ░░ ░▒ ▒  ░
+    ░▒ ░     ░░▒░ ░ ░   ░▒ ░ ▒░░▒ ░       ░  ▒   
+    ░░        ░░░ ░ ░   ░░   ░ ░░       ░        
+                ░        ░              ░ ░      
+                                        ░               	
+
+`
+	fmt.Print(b)
 }

@@ -1,11 +1,17 @@
 package types
 
+const (
+	NIL = iota
+	LISTENER
+	SESSION
+	SCRIPT
+	LOOT
+)
+
 type Profile struct {
 	Prompt      string
 
-	Listener 	bool
-	Session		bool
-	Script		bool
+	STATE int
 }
 
 type Command struct {

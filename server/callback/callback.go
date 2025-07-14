@@ -73,7 +73,10 @@ func ParseCallback(d []byte, req *http.Request, name string) (uint16, []byte) {
 	case internal.RSP:
 		err = ParseResponse(r, req)
 	case internal.CHU:
-		ParseChunkData(r, req)
+		err = ParseChunkData(r, req)
+		if err != nil {
+			log.AsyncWriteStdoutAlert(err.Error())
+		}
 	default:
 		messageType = internal.NIL
 	}
@@ -206,7 +209,10 @@ func ParseChunkData(r io.Reader, req *http.Request) error {
 	content := make([]byte, contentLen)
 	binary.Read(r, binary.BigEndian, &content)
 
-	loot.New(name, string(fileName), content).SaveData()
+	err := loot.New(name, string(fileName), content).SaveData()
+	if err != nil {
+		return err
+	}
 
 	return nil
 }

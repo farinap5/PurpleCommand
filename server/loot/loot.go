@@ -39,7 +39,7 @@ func List() {
 
 	l, _ := db.DBLootList()
 	for i := range l {
-		t.AddLine(c, l[i][0], l[i][1], l[i][2])
+		t.AddLine(c, l[i][0][24:], l[i][1], l[i][2])
 		c += 1
 	}
 	print("\n")

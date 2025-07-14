@@ -7,6 +7,7 @@ import (
 	"purpcmd/server/implant"
 	"purpcmd/server/listener"
 	"purpcmd/server/lua"
+	"purpcmd/server/types"
 	"strings"
 
 	"github.com/c-bata/go-prompt"
@@ -83,7 +84,7 @@ func (paux *ProfileAux) completer(d prompt.Document) []prompt.Suggest {
 		{Text: "exit", 		Description: "Exit from the prompt"},
 	}
 
-	if paux.Profile.Listener { // Options only valid when there is a selected script.
+	if paux.Profile.STATE == types.LISTENER { // Options only valid when there is a selected script.
 		promptSuggestions = append(promptSuggestions,
 			prompt.Suggest {Text: "set",     Description: "Set listener options"},
 			prompt.Suggest {Text: "run",     Description: "Start Listener"},
@@ -96,7 +97,7 @@ func (paux *ProfileAux) completer(d prompt.Document) []prompt.Suggest {
 			prompt.Suggest {Text: "delete",   Description: "Delete listener"},
 			prompt.Suggest {Text: "restart",  Description: "Restart listener"},
 		)
-	} else if paux.Profile.Session {
+	} else if paux.Profile.STATE == types.SESSION {
 		if inputs[0] == "interact" && len(inputs) > 1 {
 			promptSuggestions = []prompt.Suggest{}
 			implList := implant.ImplantListForSuggestions()
@@ -122,12 +123,12 @@ func (paux *ProfileAux) completer(d prompt.Document) []prompt.Suggest {
 			)
 		}
 
-	} else if paux.Profile.Script {
+	} else if paux.Profile.STATE == types.SCRIPT {
 		promptSuggestions = append(promptSuggestions,
-			prompt.Suggest {Text: "back",     Description: "Exit from session menu"},
-			prompt.Suggest {Text: "list",     Description: "List session"},
-			prompt.Suggest {Text: "load",     Description: "Interact with session"},
-			prompt.Suggest {Text: "unload",   Description: "Delete session"},
+			prompt.Suggest {Text: "back",     Description: "Exit from script menu"},
+			prompt.Suggest {Text: "list",     Description: "List script"},
+			prompt.Suggest {Text: "load",     Description: "Interact with script"},
+			prompt.Suggest {Text: "unload",   Description: "Unload and free script"},
 		)
 	} else {	// Options only valid when there is no selected script.
 		promptSuggestions = append(promptSuggestions,

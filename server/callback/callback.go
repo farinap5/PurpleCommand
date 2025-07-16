@@ -149,7 +149,7 @@ func ParseCheck(r io.Reader, req *http.Request) ([]byte, error) {
 	if err != nil {
 		return []byte{}, nil
 	}
-	lua.LuaOnCheck(tid, data, *i, imp.Name, imp.UUID)
+	lua.LuaOnCheck(tid, data, *imp)
 
 	log.AsyncWriteStdoutInfo(fmt.Sprintf("Sending task %s of %d bytes to %s\n", string(tid[:]), len(data), imp.Name))
 	return []byte(data), nil
@@ -181,7 +181,7 @@ func ParseResponse(r io.Reader, req *http.Request) error {
 	binary.Read(r, binary.BigEndian, &respPayload)
 	taskPtr.TaskSetResponsePayload(respPayload)
 
-	lua.LuaOnResponse(TaskID, string(respPayload), imp.Metadata,imp.Name, imp.UUID)
+	lua.LuaOnResponse(TaskID, string(respPayload), *imp)
 
 	log.AsyncWriteStdoutInfo(fmt.Sprintf("Response - session:%s task:%s length:%d\n\n%s\n\n", name, TaskIDStr, respLen, respPayload))
 	return nil

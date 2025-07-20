@@ -154,4 +154,11 @@ func loadFunctions() {
 		Prompt: nil,
 	}
 
+	commandMap["export"] = &types.Command{
+		Call:   runExport,
+		Usage:  nil,
+		Desc:   "",
+		Prompt: nil,
+	}
+
 }

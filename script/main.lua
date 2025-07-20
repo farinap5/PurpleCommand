@@ -8,7 +8,7 @@ CODE = {
 
 function ping(payload)
     print("command ping from script args", payload)
-    local err = addtask(CODE.PING, payload)
+    local err = add_task(CODE.PING, payload)
     if err then
         print("Error")
     end
@@ -16,7 +16,7 @@ end
 
 function ssh(payload)
     print("command ssh from script with args", payload)
-    local err = addtask(CODE.SSH, payload)
+    local err = add_task(CODE.SSH, payload)
     if err then
         print("Error")
     end
@@ -24,7 +24,7 @@ end
 
 function download(payload)
     print("command download from script with args", payload)
-    local err = addtask(CODE.DOWN, payload)
+    local err = add_task(CODE.DOWN, payload)
     if err then
         print("Error")
     end
@@ -42,7 +42,7 @@ function upload(payload)
         return
     end
 
-    local err = addtaskuploadfile(CODE.UPL, lcs[0], lcs[1])
+    local err = add_task_upload_file(CODE.UPL, lcs[0], lcs[1])
     if err then
         print("Error")
     end

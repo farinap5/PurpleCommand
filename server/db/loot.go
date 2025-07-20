@@ -53,3 +53,11 @@ func DBLootList() ([][3]string, error) {
     }
     return lootList, nil
 }
+
+func DBLootGetByUUID(uuid string) (name string, fuuid string, err error) {
+    query := `SELECT FileName, Uuid FROM Loot WHERE Uuid LIKE ?;`
+    searchPattern := "%" + uuid + "%"
+    row := DBMS.DBConn.QueryRow(query, searchPattern)
+    err = row.Scan(&name, &fuuid)
+    return
+}

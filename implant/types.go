@@ -20,4 +20,5 @@ type ImplantMetadata struct {
 	User     string
 	Hostname string
 	Proc     string
+	Impl 	 string
 }

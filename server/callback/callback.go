@@ -109,12 +109,13 @@ func ParseAndReg(r io.Reader, req *http.Request) error {
 	binary.Read(r, binary.BigEndian, &data)
 
 	dataS := bytes.Split(data, internal.SEP)
-	if len(dataS) != 3 {
-		return errors.New("data must have 3 entities and have")
+	if len(dataS) != 4 {
+		return errors.New("data must have 4 entities and have")
 	}
 	i.Proc = string(dataS[0])
 	i.Hostname = string(dataS[1])
 	i.User = string(dataS[2])
+	i.Impl = string(dataS[3])
 
 	name := fmt.Sprintf("%d", i.SessionID)
 	if implant.ImplantPtrByName(name) != nil {
@@ -130,6 +131,8 @@ func ParseAndReg(r io.Reader, req *http.Request) error {
 	imp.ImplantAddImplant()
 
 	lua.LuaOnRegister(*imp)
+	log.AsyncWriteStdout(fmt.Sprintf("[\u001B[1;32m!\u001B[0;0m]- New implant %s - SOCK:%s HOSTNAME:%s USERNAME:%s TYPE:%s\n", 
+		imp.Name, imp.Metadata.Socket, imp.Metadata.Hostname, imp.Metadata.User, imp.Metadata.Impl))
 	return nil
 }
 
@@ -149,7 +152,7 @@ func ParseCheck(r io.Reader, req *http.Request) ([]byte, error) {
 	if err != nil {
 		return []byte{}, nil
 	}
-	lua.LuaOnCheck(tid, data, *i, imp.Name, imp.UUID)
+	lua.LuaOnCheck(tid, data, *imp)
 
 	log.AsyncWriteStdoutInfo(fmt.Sprintf("Sending task %s of %d bytes to %s\n", string(tid[:]), len(data), imp.Name))
 	return []byte(data), nil
@@ -181,7 +184,7 @@ func ParseResponse(r io.Reader, req *http.Request) error {
 	binary.Read(r, binary.BigEndian, &respPayload)
 	taskPtr.TaskSetResponsePayload(respPayload)
 
-	lua.LuaOnResponse(TaskID, string(respPayload), imp.Metadata,imp.Name, imp.UUID)
+	lua.LuaOnResponse(TaskID, string(respPayload), *imp)
 
 	log.AsyncWriteStdoutInfo(fmt.Sprintf("Response - session:%s task:%s length:%d\n\n%s\n\n", name, TaskIDStr, respLen, respPayload))
 	return nil

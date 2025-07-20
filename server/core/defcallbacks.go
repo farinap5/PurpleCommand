@@ -255,8 +255,23 @@ func runLoad(cmds []string, profile *types.Profile) int {
 	return 0
 }
 
+func runExport(cmds []string, profile *types.Profile) int {
+	if profile.STATE == types.LOOT {
+		if len(cmds) != 3 {
+			log.PrintErr("type: export <uuid> </path/to/save>")
+			return 1
+		}
+		err := loot.Export(cmds[1], cmds[2])
+		if err != nil {
+			log.PrintErr(err.Error())
+			return 1
+		}
+	}
+	return 0
+}
+
 func runTaskCall(cmds []string) {
-	_, err := lua.CallCommand(cmds[0], "impl", strings.Join(cmds[1:], " "))
+	_, err := lua.CallCommand(cmds[0], implant.ImplantGetType(), strings.Join(cmds[1:], " "))
 	if err != nil {
 		log.PrintErr(err.Error())
 	}

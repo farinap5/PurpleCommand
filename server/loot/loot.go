@@ -1,8 +1,10 @@
 package loot
 
 import (
+	"io"
 	"os"
 	"purpcmd/server/db"
+	"purpcmd/server/log"
 
 	"github.com/cheynewallace/tabby"
 	"github.com/google/uuid"
@@ -45,4 +47,31 @@ func List() {
 	print("\n")
 	t.Print()
 	print("\n")
+}
+
+func Export(uuid, path string) error {
+	name,fuuid, err := db.DBLootGetByUUID(uuid)
+	if err != nil {
+		return err
+	}
+
+	src, err := os.Open("loot/" + fuuid)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+
+	dst, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+	if err != nil {
+		return err
+	}
+	defer dst.Close()
+
+	_, err = io.Copy(dst, src)
+	if err != nil {
+		return err
+	}
+
+	log.PrintSuccs("file ", fuuid, " ", name, " saved to ", path)
+	return nil
 }

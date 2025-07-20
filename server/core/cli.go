@@ -130,6 +130,12 @@ func (paux *ProfileAux) completer(d prompt.Document) []prompt.Suggest {
 			prompt.Suggest {Text: "load",     Description: "Interact with script"},
 			prompt.Suggest {Text: "unload",   Description: "Unload and free script"},
 		)
+	}  else if paux.Profile.STATE == types.LOOT {
+		promptSuggestions = append(promptSuggestions,
+			prompt.Suggest {Text: "back",     Description: "Exit from loot menu"},
+			prompt.Suggest {Text: "list",   Description: "List loot"},
+			prompt.Suggest {Text: "export",     Description: "export file"},
+		)
 	} else {	// Options only valid when there is no selected script.
 		promptSuggestions = append(promptSuggestions,
 			prompt.Suggest {Text: "listener", Description: "Interact with listeners"},

@@ -62,7 +62,7 @@ func ImplantAddUploadFileCommand(L *lua.LState) int {
 }
 
 
-func ImplantAddUploadCommand(L *lua.LState) int {
+func ImplantAddSendBuffer(L *lua.LState) int {
 	code := L.CheckInt(1)
 	data := L.CheckString(2)
 	// Lua check string appears to be binary safe, so it must keep even \x00.
@@ -103,6 +103,7 @@ func CallCommand(name, impl, payload string) (string, error) {
 	L.Push(cmdStr.ptr)
 
 	L.Push(lua.LString(payload))
+	//L.Push(lua.LString(im))
 
 	err := L.PCall(1, 1, nil)
 	if err != nil {

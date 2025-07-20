@@ -22,8 +22,6 @@ func (i *Implant) ImplantAddImplant() {
 	/*if CurrentImplant == "none" {
 		CurrentImplant = i.Name
 	}*/
-
-	log.AsyncWriteStdout(fmt.Sprintf("[\u001B[1;32m!\u001B[0;0m]- New implant %s - SOCK:%s HOSTNAME:%s USERNAME:%s\n", i.Name, i.Metadata.Socket, i.Metadata.Hostname, i.Metadata.User))
 	ImplantMAP[i.Name] = i
 }
 
@@ -193,4 +191,8 @@ func ImplantListForSuggestions() [][]string {
 		suggestions = append(suggestions, []string{k, v.Metadata.Hostname+"@"+v.Metadata.User})
 	}
 	return suggestions
+}
+
+func ImplantGetType() string {
+	return ImplantMAP[CurrentImplant].Metadata.Impl
 }

@@ -271,7 +271,7 @@ func runExport(cmds []string, profile *types.Profile) int {
 }
 
 func runTaskCall(cmds []string) {
-	_, err := lua.CallCommand(cmds[0], "impl", strings.Join(cmds[1:], " "))
+	_, err := lua.CallCommand(cmds[0], implant.ImplantGetType(), strings.Join(cmds[1:], " "))
 	if err != nil {
 		log.PrintErr(err.Error())
 	}

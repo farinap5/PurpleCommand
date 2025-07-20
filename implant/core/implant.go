@@ -35,5 +35,6 @@ func ImplantInit() *implant.ImplantMetadata {
 		Proc: "procname",
 		Hostname: "machine",
 		User: "pedro",
+		Impl: "impl",
 	}
 }

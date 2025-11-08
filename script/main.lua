@@ -60,7 +60,7 @@ function upload2(payload)
         return
     end
 
-    local err = addtaskuploadfile(CODE.UPL, opts.s, opts.d)
+    local err = add_task_upload_file(CODE.UPL, opts.s, opts.d)
     if err then
         print("Error")
     end
@@ -68,13 +68,13 @@ end
 
 function kill(payload)
     print("command kill from script with args", payload)
-    local err = addtask(CODE.KILL, payload)
+    local err = add_task(CODE.KILL, payload)
     if err then
         print("Error")
     end
 end
 
--- impl, name, desc, func
+-- type, name, desc, func
 command("impl","ping","Ping the implant", ping)
 command("impl","ssh","Get an interactive session", ssh)
 command("impl","download","Download a file", download)

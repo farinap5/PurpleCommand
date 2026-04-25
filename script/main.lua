@@ -3,7 +3,10 @@ CODE = {
     SSH = 2,
     DOWN = 3,
     UPL = 4,
-    KILL = 5
+    KILL = 5,
+    CD = 6,
+    PWD = 7,
+    LS = 8
 }
 
 function ping(payload)
@@ -74,6 +77,27 @@ function kill(payload)
     end
 end
 
+function pwd(payload)
+    local err = add_task(CODE.PWD, payload)
+    if err then
+        print("Error")
+    end
+end
+
+function cd(payload)
+    local err = add_task(CODE.CD, payload)
+    if err then
+        print("Error")
+    end
+end
+
+function ls(payload)
+    local err = add_task(CODE.LS, payload)
+    if err then
+        print("Error")
+    end
+end
+
 
 --[[
 implant_register_profile("linux-beacon", {
@@ -92,6 +116,9 @@ command("impl","ssh","Get an interactive session", ssh)
 command("impl","download","Download a file", download)
 command("impl","upload","upload a file", upload)
 command("impl","kill","Kill implant", kill)
+command("impl","pwd","Get working dir", pwd)
+command("impl","cd","Change dir", cd)
+command("impl","ls","List dir", ls)
 
 --[[
 function OnRegister(...)

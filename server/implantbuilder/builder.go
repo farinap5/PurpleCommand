@@ -1,45 +1,51 @@
 package implantbuilder
 
 import (
-"errors"
-"fmt"
-"os"
-"os/exec"
-"path/filepath"
-"strings"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 
-"github.com/cheynewallace/tabby"
-"purpcmd/server/log"
+	"purpcmd/server/log"
+
+	"github.com/cheynewallace/tabby"
 )
 
 // Profile holds the build configuration for a single implant binary.
 type Profile struct {
-	LHOST    string
-	OS       string
-	ARCH     string
-	URI      string
-	UA       string
-	Output   string
-	Template string
+	LHOST     string
+	OS        string
+	ARCH      string
+	URI       string
+	UA        string
+	Output    string
+	Template  string
+	PublicKey string // Path to server public key (e.g., server.pub)
 }
 
 var (
-// ProfileMap stores all named implant profiles.
-ProfileMap = make(map[string]*Profile)
-// CurrentName is the name of the currently selected profile.
-CurrentName string = ""
+	// ProfileMap stores all named implant profiles.
+	ProfileMap = make(map[string]*Profile)
+	// CurrentName is the name of the currently selected profile.
+	CurrentName string = ""
 )
 
 // defaultProfile returns a Profile with sensible defaults.
 func defaultProfile() *Profile {
 	return &Profile{
-		LHOST:    "",
-		OS:       "linux",
-		ARCH:     "amd64",
-		URI:      "/",
-		UA:       "Mozilla PurpCMD",
-		Output:   "implant",
-		Template: "./template",
+		LHOST:     "",
+		OS:        "linux",
+		ARCH:      "amd64",
+		URI:       "/",
+		UA:        "Mozilla PurpCMD",
+		Output:    "implant",
+		Template:  "./template",
+		PublicKey: "server.pub",
 	}
 }
 
@@ -128,6 +134,7 @@ func ShowOptions() {
 	t.AddLine("URI", p.URI, "HTTP callback URI path")
 	t.AddLine("UA", p.UA, "HTTP User-Agent string")
 	t.AddLine("OUTPUT", p.Output, "Output binary filename")
+	t.AddLine("PUBLICKEY", p.PublicKey, "Path to server RSA public key file")
 	t.AddLine("TEMPLATE", p.Template, "Path to implant template directory")
 	t.Print()
 	print("\n")
@@ -152,6 +159,8 @@ func SetOption(key, value string) error {
 		p.UA = value
 	case "OUTPUT":
 		p.Output = value
+	case "PUBLICKEY":
+		p.PublicKey = value
 	case "TEMPLATE":
 		p.Template = value
 	default:
@@ -182,6 +191,28 @@ func generate(name string, p *Profile) error {
 		return fmt.Errorf("profile %q: LHOST is not set", name)
 	}
 
+	// Read and validate the public key
+	var pubKeyDER []byte
+	if p.PublicKey != "" {
+		data, err := os.ReadFile(p.PublicKey)
+		if err != nil {
+			return fmt.Errorf("cannot read public key %s: %w", p.PublicKey, err)
+		}
+		block, _ := pem.Decode(data)
+		if block == nil {
+			return fmt.Errorf("no PEM block in public key file %s", p.PublicKey)
+		}
+		// Verify it's actually an RSA public key
+		key, err := x509.ParsePKIXPublicKey(block.Bytes)
+		if err != nil {
+			return fmt.Errorf("cannot parse public key: %w", err)
+		}
+		if _, ok := key.(*rsa.PublicKey); !ok {
+			return fmt.Errorf("public key is not RSA")
+		}
+		pubKeyDER = block.Bytes
+	}
+
 	mainSrc := filepath.Join(p.Template, "main.go")
 	src, err := os.ReadFile(mainSrc)
 	if err != nil {
@@ -193,6 +224,22 @@ func generate(name string, p *Profile) error {
 	modified = strings.Replace(modified, `"LHOST"`, fmt.Sprintf("%q", p.LHOST), 1)
 	modified = strings.Replace(modified, `"/"`, fmt.Sprintf("%q", p.URI), 1)
 	modified = strings.Replace(modified, `"Mozilla PurpCMD"`, fmt.Sprintf("%q", p.UA), 1)
+
+	// Embed the public key as a byte array
+	if len(pubKeyDER) > 0 {
+		pubKeyStr := "[]byte{"
+		for i, b := range pubKeyDER {
+			if i > 0 {
+				pubKeyStr += ","
+			}
+			if i%16 == 0 {
+				pubKeyStr += "\n\t\t"
+			}
+			pubKeyStr += fmt.Sprintf("0x%02x", b)
+		}
+		pubKeyStr += ",\n\t}"
+		modified = strings.Replace(modified, `var publicKeyDER []byte`, "var publicKeyDER = "+pubKeyStr, 1)
+	}
 
 	tmpSrc := filepath.Join(p.Template, "main_build.go")
 	if err := os.WriteFile(tmpSrc, []byte(modified), 0600); err != nil {

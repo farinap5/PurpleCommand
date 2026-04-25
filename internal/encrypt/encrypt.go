@@ -14,8 +14,25 @@ import (
 // serverRSAKey holds the server RSA private key, set at startup via LoadServerRSAKey.
 var serverRSAKey *rsa.PrivateKey
 
-// LoadServerRSAKey reads a PKCS#1 PEM-encoded RSA private key from path and
-// stores it for use by RSADecode.  Call this once during server initialisation.
+// globalPublicKeyDER holds the DER-encoded public key for implants
+var globalPublicKeyDER []byte
+
+// SetGlobalPublicKeyDER stores public key DER bytes for use by EncryptInit in implants.
+func SetGlobalPublicKeyDER(der []byte) error {
+	// Verify it's a valid public key
+	key, err := x509.ParsePKIXPublicKey(der)
+	if err != nil {
+		return fmt.Errorf("SetGlobalPublicKeyDER: %w", err)
+	}
+	if _, ok := key.(*rsa.PublicKey); !ok {
+		return fmt.Errorf("SetGlobalPublicKeyDER: key is not RSA")
+	}
+	globalPublicKeyDER = der
+	return nil
+}
+
+// LoadServerRSAKey reads a PEM-encoded RSA private key from path (PKCS#8 or PKCS#1 format)
+// and stores it for use by RSADecode.  Call this once during server initialization.
 func LoadServerRSAKey(path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -25,9 +42,22 @@ func LoadServerRSAKey(path string) error {
 	if block == nil {
 		return fmt.Errorf("LoadServerRSAKey: no PEM block found in %s", path)
 	}
+
+	// Try PKCS#8 first (modern format)
+	keyInterface, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err == nil {
+		// PKCS#8 succeeded, extract the RSA key
+		if rsaKey, ok := keyInterface.(*rsa.PrivateKey); ok {
+			serverRSAKey = rsaKey
+			return nil
+		}
+		return fmt.Errorf("LoadServerRSAKey: key is not RSA")
+	}
+
+	// Fall back to PKCS#1 (traditional RSA format)
 	key, err := x509.ParsePKCS1PrivateKey(block.Bytes)
 	if err != nil {
-		return fmt.Errorf("LoadServerRSAKey: %w", err)
+		return fmt.Errorf("LoadServerRSAKey: failed to parse key as PKCS#8 or PKCS#1: %w", err)
 	}
 	serverRSAKey = key
 	return nil
@@ -68,12 +98,21 @@ func EncryptInit() Encrypt {
 		panic(err.Error())
 	}
 
-	return Encrypt{
+	enc := Encrypt{
 		iv:      iv,
 		block:   block,
 		aeskey:  key,
 		hmackey: xor(iv, key),
 	}
+
+	// If a global public key has been set (implant usage), load it
+	if len(globalPublicKeyDER) > 0 {
+		if err := enc.SetPublicKeyDER(globalPublicKeyDER); err != nil {
+			panic("failed to load global public key: " + err.Error())
+		}
+	}
+
+	return enc
 }
 
 /*

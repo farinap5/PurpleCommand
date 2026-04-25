@@ -74,6 +74,18 @@ function kill(payload)
     end
 end
 
+
+--[[
+implant_register_profile("linux-beacon", {
+    lhost    = "10.0.0.1:4444",
+    os       = "linux",
+    arch     = "amd64",
+    uri      = "/beacon",
+    output   = "beacon",
+    template = "./template",
+})
+]]
+
 -- type, name, desc, func
 command("impl","ping","Ping the implant", ping)
 command("impl","ssh","Get an interactive session", ssh)

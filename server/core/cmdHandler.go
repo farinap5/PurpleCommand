@@ -179,5 +179,11 @@ func loadFunctions() {
 		Desc:   "",
 		Prompt: nil,
 	}
+	commandMap["select"] = &types.Command{
+		Call:   runSelectProfile,
+		Usage:  nil,
+		Desc:   "Select an implant profile. Use `select <name>`.",
+		Prompt: nil,
+	}
 
 }

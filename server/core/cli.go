@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"purpcmd/server/implant"
+	"purpcmd/server/implantbuilder"
 	"purpcmd/server/listener"
 	"purpcmd/server/lua"
 	"purpcmd/server/types"
@@ -137,12 +138,25 @@ func (paux *ProfileAux) completer(d prompt.Document) []prompt.Suggest {
 			prompt.Suggest{Text: "export", Description: "export"},
 		)
 	} else if paux.Profile.STATE == types.IMPLANT_BUILD {
+		// Dynamic profile completions for select/generate/delete <name>
+		if len(inputs) > 1 && (inputs[0] == "select" || inputs[0] == "generate" || inputs[0] == "delete") {
+			promptSuggestions = []prompt.Suggest{}
+			for _, p := range implantbuilder.ProfileNamesForSuggestions() {
+				promptSuggestions = append(promptSuggestions,
+					prompt.Suggest{Text: p[0], Description: p[1]},
+				)
+			}
+			return prompt.FilterHasPrefix(promptSuggestions, inputs[1], true)
+		}
 		promptSuggestions = append(promptSuggestions,
 			prompt.Suggest{Text: "back", Description: "Exit implant menu"},
-			prompt.Suggest{Text: "new", Description: "Create new implant configuration"},
-			prompt.Suggest{Text: "options", Description: "Show implant options"},
-			prompt.Suggest{Text: "set", Description: "Set implant option"},
-			prompt.Suggest{Text: "generate", Description: "Build the implant binary"},
+			prompt.Suggest{Text: "new", Description: "Create new implant profile: new profile <name>"},
+			prompt.Suggest{Text: "list", Description: "List all profiles"},
+			prompt.Suggest{Text: "select", Description: "Select a profile: select <name>"},
+			prompt.Suggest{Text: "options", Description: "Show current profile options"},
+			prompt.Suggest{Text: "set", Description: "Set option on current profile"},
+			prompt.Suggest{Text: "generate", Description: "Build implant: generate [name]"},
+			prompt.Suggest{Text: "delete", Description: "Delete a profile: delete <name>"},
 		)
 	} else { // Options only valid when there is no selected script.
 		promptSuggestions = append(promptSuggestions,

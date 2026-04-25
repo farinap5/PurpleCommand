@@ -108,7 +108,28 @@ func runGenerate(cmds []string, profile *types.Profile) int {
 	if profile.STATE != types.IMPLANT_BUILD {
 		return 0
 	}
-	err := implantbuilder.Generate()
+	var err error
+	if len(cmds) == 2 {
+		err = implantbuilder.GenerateByName(cmds[1])
+	} else {
+		err = implantbuilder.Generate()
+	}
+	if err != nil {
+		log.PrintErr(err.Error())
+		return 1
+	}
+	return 0
+}
+
+func runSelectProfile(cmds []string, profile *types.Profile) int {
+	if profile.STATE != types.IMPLANT_BUILD {
+		return 0
+	}
+	if len(cmds) != 2 {
+		println("usage: select <profile-name>")
+		return 1
+	}
+	err := implantbuilder.SelectProfile(cmds[1])
 	if err != nil {
 		log.PrintErr(err.Error())
 		return 1
@@ -132,7 +153,16 @@ func runNew(cmds []string, profile *types.Profile) int {
 			println("error")
 		}
 	} else if profile.STATE == types.IMPLANT_BUILD {
-		implantbuilder.New()
+		// syntax: new profile <name>
+		if len(cmds) == 3 && cmds[1] == "profile" {
+			if err := implantbuilder.NewProfile(cmds[2]); err != nil {
+				log.PrintErr(err.Error())
+				return 1
+			}
+		} else {
+			println("usage: new profile <name>")
+			return 1
+		}
 	}
 
 	return 0
@@ -157,6 +187,8 @@ func runList(cmds []string, profile *types.Profile) int {
 		lua.ScriptList()
 	} else if profile.STATE == types.LOOT {
 		loot.List()
+	} else if profile.STATE == types.IMPLANT_BUILD {
+		implantbuilder.ListProfiles()
 	}
 
 	return 0
@@ -252,6 +284,15 @@ func runDelete(cmds []string, profile *types.Profile) int {
 			profile.Prompt = "(listener - " + listener.CurrentListener + ")>> "
 			LivePrefixState.LivePrefix = profile.Prompt
 			LivePrefixState.IsEnable = true
+		}
+	} else if profile.STATE == types.IMPLANT_BUILD {
+		if len(cmds) != 2 {
+			println("usage: delete <profile-name>")
+			return 1
+		}
+		if err := implantbuilder.DeleteProfile(cmds[1]); err != nil {
+			log.PrintErr(err.Error())
+			return 1
 		}
 	}
 

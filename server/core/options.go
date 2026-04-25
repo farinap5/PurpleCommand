@@ -36,10 +36,13 @@ func CmdHelp(p *types.Profile) {
 		t.AddLine("list", "List scripts.")     //
 		t.AddLine("back", "Exit script mode.") //
 	case types.IMPLANT_BUILD:
-		t.AddLine("new", "Create new implant configuration.")
-		t.AddLine("options", "Show current implant options.")
-		t.AddLine("set", "Set implant option. Use `set <key> <value>`.")
-		t.AddLine("generate", "Build the implant binary with current options.")
+		t.AddLine("new", "Create new profile. Use `new profile <name>`.")
+		t.AddLine("list", "List all implant profiles.")
+		t.AddLine("select", "Select a profile. Use `select <name>`.")
+		t.AddLine("options", "Show current profile options.")
+		t.AddLine("set", "Set option on current profile. Use `set <key> <value>`.")
+		t.AddLine("generate", "Build implant. Use `generate [name]` or `generate` for current.")
+		t.AddLine("delete", "Delete a profile. Use `delete <name>`.")
 		t.AddLine("back", "Exit implant builder mode.")
 	default:
 		t.AddLine("listener", "Enter listener mode. Use `help <cmd>`.")

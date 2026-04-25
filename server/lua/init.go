@@ -33,6 +33,7 @@ func LuaNew(path string) (*LuaProfile, error) {
 	l.state.SetGlobal("add_task", l.state.NewFunction(ImplantAddGenericCommand))
 	l.state.SetGlobal("add_task_upload_file", l.state.NewFunction(ImplantAddUploadFileCommand))
 	l.state.SetGlobal("add_task_send_buffer", l.state.NewFunction(ImplantAddSendBuffer))
+	l.state.SetGlobal("implant_register_profile", l.state.NewFunction(LuaRegisterImplantProfile))
 	err := l.state.DoFile(path)
 
 	return l, err

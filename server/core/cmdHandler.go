@@ -32,7 +32,7 @@ func (paux *ProfileAux) Execute(cmd string) {
 		functionP := *cmdPtr
 		functionP.Call(cmds, &paux.Profile) // paux.p = types.Profile
 	} else {
-		if paux.Profile.STATE == types.SESSION  {
+		if paux.Profile.STATE == types.SESSION {
 			runTaskCall(cmds)
 		} else {
 			println("Not a valid command. Type `help`.")
@@ -84,6 +84,18 @@ func loadFunctions() {
 		Call:   runLoot,
 		Usage:  nil,
 		Desc:   "loot.",
+		Prompt: nil,
+	}
+	commandMap["implant"] = &types.Command{
+		Call:   runImplantMenu,
+		Usage:  nil,
+		Desc:   "Enter implant builder menu.",
+		Prompt: nil,
+	}
+	commandMap["generate"] = &types.Command{
+		Call:   runGenerate,
+		Usage:  nil,
+		Desc:   "Build the implant binary with current options.",
 		Prompt: nil,
 	}
 
@@ -149,6 +161,13 @@ func loadFunctions() {
 	}
 	commandMap["load"] = &types.Command{
 		Call:   runLoad,
+		Usage:  nil,
+		Desc:   "",
+		Prompt: nil,
+	}
+
+	commandMap["unload"] = &types.Command{
+		Call:   runUnload,
 		Usage:  nil,
 		Desc:   "",
 		Prompt: nil,

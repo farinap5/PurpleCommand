@@ -21,13 +21,13 @@ func LuaOnRegister(i implant.Implant) {
 		v.state.Push(lua.LString(i.Metadata.Hostname))
 		v.state.Push(lua.LString(i.Metadata.User))
 		v.state.Push(lua.LString(i.Metadata.Socket))
-		v.state.Push(lua.LString(fmt.Sprintf("%d",i.Metadata.SessionID)))
+		v.state.Push(lua.LString(fmt.Sprintf("%d", i.Metadata.SessionID)))
 		//v.state.Push(lua.LString(i.Metadata.IP))
 		//v.state.Push(lua.LString(i.Metadata.Sleep))
 		//v.state.Push(lua.LString(i.Metadata.PID))
 		//v.state.Push(lua.LString(i.Metadata.Arch))
 
-		go v.state.PCall(6, 0, nil)
+		v.state.PCall(6, 0, nil)
 	}
 }
 
@@ -45,11 +45,11 @@ func LuaOnCheck(tid [8]byte, data string, i implant.Implant) {
 		v.state.Push(lua.LString(i.Metadata.Hostname))
 		v.state.Push(lua.LString(i.Metadata.User))
 		v.state.Push(lua.LString(i.Metadata.Socket))
-		v.state.Push(lua.LString(fmt.Sprintf("%d",i.Metadata.SessionID)))
+		v.state.Push(lua.LString(fmt.Sprintf("%d", i.Metadata.SessionID)))
 		v.state.Push(lua.LString(string(tid[:])))
 		v.state.Push(lua.LString(data))
 
-		go v.state.PCall(8, 0, nil)
+		v.state.PCall(8, 0, nil)
 	}
 }
 
@@ -67,11 +67,11 @@ func LuaOnResponse(tid [8]byte, data string, i implant.Implant) {
 		v.state.Push(lua.LString(i.Metadata.Hostname))
 		v.state.Push(lua.LString(i.Metadata.User))
 		v.state.Push(lua.LString(i.Metadata.Socket))
-		v.state.Push(lua.LString(fmt.Sprintf("%d",i.Metadata.SessionID)))
+		v.state.Push(lua.LString(fmt.Sprintf("%d", i.Metadata.SessionID)))
 		v.state.Push(lua.LString(string(tid[:])))
 		v.state.Push(lua.LString(data))
 
-		go v.state.PCall(8, 0, nil)
+		v.state.PCall(8, 0, nil)
 	}
 
 }

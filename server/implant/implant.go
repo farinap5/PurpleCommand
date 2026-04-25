@@ -188,11 +188,15 @@ func (i *Implant) ImplantGetTaskStr() (string, [8]byte, error) {
 func ImplantListForSuggestions() [][]string {
 	var suggestions [][]string
 	for k, v := range ImplantMAP {
-		suggestions = append(suggestions, []string{k, v.Metadata.Hostname+"@"+v.Metadata.User})
+		suggestions = append(suggestions, []string{k, v.Metadata.Hostname + "@" + v.Metadata.User})
 	}
 	return suggestions
 }
 
 func ImplantGetType() string {
-	return ImplantMAP[CurrentImplant].Metadata.Impl
+	imp := ImplantMAP[CurrentImplant]
+	if imp == nil {
+		return ""
+	}
+	return imp.Metadata.Impl
 }

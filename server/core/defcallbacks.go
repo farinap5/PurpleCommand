@@ -3,6 +3,7 @@ package core
 import (
 	"os"
 	"purpcmd/server/implant"
+	"purpcmd/server/implantbuilder"
 	"purpcmd/server/listener"
 	"purpcmd/server/log"
 	"purpcmd/server/loot"
@@ -13,7 +14,7 @@ import (
 
 const (
 	ErrStateNotNil = "must back to main menu: type `back` or press `ctrl b`"
-	ErrStateNil = "already in main menu"
+	ErrStateNil    = "already in main menu"
 )
 
 func runHelp(cmds []string, p *types.Profile) int {
@@ -91,6 +92,30 @@ func runLoot(cmds []string, profile *types.Profile) int {
 	return 0
 }
 
+func runImplantMenu(cmds []string, profile *types.Profile) int {
+	if profile.STATE == types.NIL {
+		profile.STATE = types.IMPLANT_BUILD
+		profile.Prompt = "(implant)>> "
+		LivePrefixState.LivePrefix = profile.Prompt
+		LivePrefixState.IsEnable = true
+	} else {
+		log.PrintErr(ErrStateNotNil)
+	}
+	return 0
+}
+
+func runGenerate(cmds []string, profile *types.Profile) int {
+	if profile.STATE != types.IMPLANT_BUILD {
+		return 0
+	}
+	err := implantbuilder.Generate()
+	if err != nil {
+		log.PrintErr(err.Error())
+		return 1
+	}
+	return 0
+}
+
 func runNew(cmds []string, profile *types.Profile) int {
 	if profile.STATE == types.LISTENER {
 		if len(cmds) == 2 {
@@ -106,6 +131,8 @@ func runNew(cmds []string, profile *types.Profile) int {
 		} else {
 			println("error")
 		}
+	} else if profile.STATE == types.IMPLANT_BUILD {
+		implantbuilder.New()
 	}
 
 	return 0
@@ -114,6 +141,8 @@ func runNew(cmds []string, profile *types.Profile) int {
 func runOptions(cmds []string, profile *types.Profile) int {
 	if profile.STATE == types.LISTENER {
 		listener.ListenerShowOptions()
+	} else if profile.STATE == types.IMPLANT_BUILD {
+		implantbuilder.ShowOptions()
 	}
 
 	return 0
@@ -143,6 +172,16 @@ func runSet(cmds []string, profile *types.Profile) int {
 			}
 		} else {
 			println("error")
+		}
+	} else if profile.STATE == types.IMPLANT_BUILD {
+		if len(cmds) == 3 {
+			err := implantbuilder.SetOption(cmds[1], cmds[2])
+			if err != nil {
+				log.PrintErr(err.Error())
+				return 1
+			}
+		} else {
+			println("usage: set <option> <value>")
 		}
 	}
 
@@ -228,7 +267,7 @@ func runBack(cmds []string, profile *types.Profile) int {
 	profile.STATE = types.NIL
 	profile.Prompt = CreateDefaultPrompt()
 	LivePrefixState.LivePrefix = profile.Prompt
-	LivePrefixState.IsEnable = true
+	LivePrefixState.IsEnable = false
 
 	return 0
 }
@@ -250,6 +289,18 @@ func runLoad(cmds []string, profile *types.Profile) int {
 
 	if len(cmds) == 2 {
 		lua.LuaLoad(cmds[1])
+	}
+
+	return 0
+}
+
+func runUnload(cmds []string, profile *types.Profile) int {
+	if profile.STATE != types.SCRIPT {
+		return 1
+	}
+
+	if len(cmds) == 2 {
+		lua.LuaUnload(cmds[1])
 	}
 
 	return 0

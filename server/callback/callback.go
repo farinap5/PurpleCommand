@@ -24,7 +24,7 @@ func ParseCallback(d []byte, req *http.Request, name string) (uint16, []byte) {
 		dataB64 := make([]byte, base64.StdEncoding.DecodedLen(len(d)))
 		n, _ := base64.StdEncoding.Decode(dataB64, d)
 
-		aux := encrypt.EncryptImport([16]byte{}, [16]byte{})
+		var aux encrypt.Encrypt
 		a, err := aux.RSADecode(dataB64[:n])
 		if err != nil {
 			return internal.NIL, []byte{}
@@ -131,7 +131,7 @@ func ParseAndReg(r io.Reader, req *http.Request) error {
 	imp.ImplantAddImplant()
 
 	lua.LuaOnRegister(*imp)
-	log.AsyncWriteStdout(fmt.Sprintf("[\u001B[1;32m!\u001B[0;0m]- New implant %s - SOCK:%s HOSTNAME:%s USERNAME:%s TYPE:%s\n", 
+	log.AsyncWriteStdout(fmt.Sprintf("[\u001B[1;32m!\u001B[0;0m]- New implant %s - SOCK:%s HOSTNAME:%s USERNAME:%s TYPE:%s\n",
 		imp.Name, imp.Metadata.Socket, imp.Metadata.Hostname, imp.Metadata.User, imp.Metadata.Impl))
 	return nil
 }

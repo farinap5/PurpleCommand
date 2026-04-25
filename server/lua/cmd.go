@@ -22,7 +22,7 @@ func LuaGetCommandDesc(impl, command string) [][]string {
 	return aux
 }
 
-func (l LuaProfile) command(L *lua.LState) int {
+func (l *LuaProfile) command(L *lua.LState) int {
 	impl := L.CheckString(1)
 	name := L.CheckString(2)
 	desc := L.CheckString(3)
@@ -60,7 +60,6 @@ func ImplantAddUploadFileCommand(L *lua.LState) int {
 
 	return 0
 }
-
 
 func ImplantAddSendBuffer(L *lua.LState) int {
 	code := L.CheckInt(1)

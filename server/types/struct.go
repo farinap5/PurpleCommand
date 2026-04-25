@@ -6,10 +6,11 @@ const (
 	SESSION
 	SCRIPT
 	LOOT
+	IMPLANT_BUILD
 )
 
 type Profile struct {
-	Prompt      string
+	Prompt string
 
 	STATE int
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
+	"errors"
 )
 
 func AESPad(src []byte) []byte {
@@ -14,7 +15,13 @@ func AESPad(src []byte) []byte {
 
 func AESUnpad(src []byte) ([]byte, error) {
 	length := len(src)
+	if length == 0 {
+		return nil, errors.New("AESUnpad: empty input")
+	}
 	padding := int(src[length-1])
+	if padding == 0 || padding > aes.BlockSize || padding > length {
+		return nil, errors.New("AESUnpad: invalid padding")
+	}
 	return src[:length-padding], nil
 }
 

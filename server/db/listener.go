@@ -38,7 +38,7 @@ func DBListenerGetAll() ([]Listener, error) {
 	if err == nil {
 		for query.Next() {
 			listenerRow := Listener{}
-			err = query.Scan(&listenerRow.UUID ,&listenerRow.Name, &listenerRow.Host, &listenerRow.Port, &listenerRow.Persistent, &listenerRow.Running)
+			err = query.Scan(&listenerRow.UUID, &listenerRow.Name, &listenerRow.Host, &listenerRow.Port, &listenerRow.Persistent, &listenerRow.Running)
 			if err != nil {
 				continue
 			}
@@ -53,7 +53,6 @@ func DBListenerGetAll() ([]Listener, error) {
 
 	return listeners, nil
 }
-
 
 func DBListenerUpdateOption(Name, Key, Value string) error {
 	var updateQuery string
@@ -93,14 +92,14 @@ func DBListenerUpdateOption(Name, Key, Value string) error {
 }
 
 func DBListenerDelete(Name string) error {
-	if DBListenerExist(Name) {
-		return errors.New("listener exists")
+	if !DBListenerExist(Name) {
+		return errors.New("listener does not exist")
 	}
 
-	insertQuery := `
-	DELETE FROM listeners WHERE Name = ?;
+	delQuery := `
+	DELETE FROM Listeners WHERE Name = ?;
 	`
-	_, err := DBMS.DBConn.Exec(insertQuery, Name)
+	_, err := DBMS.DBConn.Exec(delQuery, Name)
 
 	return err
 }

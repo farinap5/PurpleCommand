@@ -3,10 +3,54 @@ package encrypt
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
+	"os"
 )
 
+// LoadPublicKey reads a PEM-encoded PKIX RSA public key from path and stores
+// it on the Encrypt instance.  Used by the implant to embed the server pubkey.
+func (e *Encrypt) LoadPublicKey(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("LoadPublicKey: %w", err)
+	}
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return fmt.Errorf("LoadPublicKey: no PEM block in %s", path)
+	}
+	key, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		return fmt.Errorf("LoadPublicKey: %w", err)
+	}
+	pub, ok := key.(*rsa.PublicKey)
+	if !ok {
+		return fmt.Errorf("LoadPublicKey: key is not RSA")
+	}
+	e.RSAPublic = pub
+	return nil
+}
+
+// SetPublicKeyDER sets the RSA public key from a raw DER-encoded PKIX block.
+// Intended for use by the implant when the public key is embedded.
+func (e *Encrypt) SetPublicKeyDER(der []byte) error {
+	key, err := x509.ParsePKIXPublicKey(der)
+	if err != nil {
+		return fmt.Errorf("SetPublicKeyDER: %w", err)
+	}
+	pub, ok := key.(*rsa.PublicKey)
+	if !ok {
+		return fmt.Errorf("SetPublicKeyDER: key is not RSA")
+	}
+	e.RSAPublic = pub
+	return nil
+}
+
 func (e Encrypt) RSAEncode(data []byte) ([]byte, error) {
+	if e.RSAPublic == nil {
+		return nil, fmt.Errorf("RSAEncode: no public key set")
+	}
 	auxEnc := EncryptInit()
 	dataEnc := auxEnc.AESCbcEncrypt(data)
 
@@ -25,18 +69,26 @@ func (e Encrypt) RSAEncode(data []byte) ([]byte, error) {
 }
 
 func (e Encrypt) RSADecode(data []byte) ([]byte, error) {
-	rsaKeyLen := e.RSAPrivate.Size()
-	if len(data) < rsaKeyLen {
-		return nil, fmt.Errorf("invalid data length")
+	privKey := serverRSAKey
+	if privKey == nil {
+		if e.RSAPrivate == nil {
+			return nil, fmt.Errorf("RSADecode: no private key loaded; call LoadServerRSAKey first")
+		}
+		privKey = e.RSAPrivate
 	}
 
-	decodedKeys, err := rsa.DecryptPKCS1v15(rand.Reader, e.RSAPrivate, data[:rsaKeyLen])
+	rsaKeyLen := privKey.Size()
+	if len(data) < rsaKeyLen {
+		return nil, fmt.Errorf("RSADecode: data too short (%d < %d)", len(data), rsaKeyLen)
+	}
+
+	decodedKeys, err := rsa.DecryptPKCS1v15(rand.Reader, privKey, data[:rsaKeyLen])
 	if err != nil {
 		return nil, err
 	}
 
 	if len(decodedKeys) < 32 {
-		return nil, fmt.Errorf("invalid decrypted key length")
+		return nil, fmt.Errorf("RSADecode: decrypted key block too short")
 	}
 
 	var key, iv [16]byte

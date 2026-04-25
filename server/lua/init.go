@@ -58,6 +58,17 @@ func LuaLoad(path string) {
 	go ScriptMAP[path].LuaRunMain()
 }
 
+func LuaUnload(path string) {
+	if ScriptMAP[path] == nil {
+		log.PrintAlert("Script ", path, " not loaded")
+		return
+	}
+
+	log.PrintInfo("Unloading script ", path)
+	delete(ScriptMAP, path)
+	db.DBScriptDelete(path)
+}
+
 func (l *LuaProfile) LuaRunMain() {
 	err := l.state.DoString("Main()")
 	if err != nil {

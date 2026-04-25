@@ -7,7 +7,7 @@ import (
 
 func DBScriptExist(Path string) bool {
 	var rowName string
-	if err := DBMS.DBConn.QueryRow("SELECT Path FROM Scripts WHERE Name = ?;", Path).Scan(&rowName); err != nil {
+	if err := DBMS.DBConn.QueryRow("SELECT Path FROM Scripts WHERE Path = ?;", Path).Scan(&rowName); err != nil {
 		if err == sql.ErrNoRows {
 			return false
 		}
@@ -26,6 +26,18 @@ func DBScriptInsert(Path string) error {
 	INSERT INTO Scripts (Path) VALUES (?);
 	`
 	_, err := DBMS.DBConn.Exec(insertQuery, Path)
+	return err
+}
+
+func DBScriptDelete(Path string) error {
+	if !DBScriptExist(Path) {
+		return errors.New("script does not exist")
+	}
+
+	delQuery := `
+	DELETE FROM Scripts WHERE Path = ?;
+	`
+	_, err := DBMS.DBConn.Exec(delQuery, Path)
 	return err
 }
 

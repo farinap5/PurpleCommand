@@ -5,13 +5,48 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
-	"encoding/base64"
+	"encoding/pem"
+	"fmt"
 	"io"
+	"os"
 )
 
+// serverRSAKey holds the server RSA private key, set at startup via LoadServerRSAKey.
+var serverRSAKey *rsa.PrivateKey
+
+// LoadServerRSAKey reads a PKCS#1 PEM-encoded RSA private key from path and
+// stores it for use by RSADecode.  Call this once during server initialisation.
+func LoadServerRSAKey(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("LoadServerRSAKey: %w", err)
+	}
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return fmt.Errorf("LoadServerRSAKey: no PEM block found in %s", path)
+	}
+	key, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err != nil {
+		return fmt.Errorf("LoadServerRSAKey: %w", err)
+	}
+	serverRSAKey = key
+	return nil
+}
+
+// LoadServerRSAKeyBytes parses a PKCS#1 DER-encoded RSA private key from raw
+// bytes (e.g. from an embedded FS) and stores it for use by RSADecode.
+func LoadServerRSAKeyBytes(der []byte) error {
+	key, err := x509.ParsePKCS1PrivateKey(der)
+	if err != nil {
+		return fmt.Errorf("LoadServerRSAKeyBytes: %w", err)
+	}
+	serverRSAKey = key
+	return nil
+}
+
 /*
-	xor function for byte arrays.
-	Both arrays must have the same length.
+xor function for byte arrays.
+Both arrays must have the same length.
 */
 func xor(d1, d2 [16]byte) [16]byte {
 	var r [16]byte
@@ -33,44 +68,30 @@ func EncryptInit() Encrypt {
 		panic(err.Error())
 	}
 
-	data, _ := base64.StdEncoding.DecodeString("MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDWvbIed4UGs3VnQrYXv5SiocdmmHECq7lDPiv8Bf6o0ntDfmEZHAcactFOHyx7NkacjwJZ+lyeXIaRFmRuTDU5Yj8ekV3KSPjZNznwPjppBdA6V5GVXIZUiRYVyliY4dA8Iesn3NKNr52GLD5UxLv7MwIpXFDdl+o62pWTPMzDjQIDAQAB")
-	parseResult, _ := x509.ParsePKIXPublicKey(data)
-
 	return Encrypt{
 		iv:      iv,
 		block:   block,
 		aeskey:  key,
 		hmackey: xor(iv, key),
-
-		RSAPublic: parseResult.(*rsa.PublicKey),
 	}
 }
 
 /*
-	May be used by the server to load config from
-	the implant session.
+EncryptImport creates a symmetric-only Encrypt used for AES-CBC+HMAC
+operations once the session key has been exchanged.  RSA is not available
+on objects created this way; use the package-level serverRSAKey for that.
 */
 func EncryptImport(key, iv [16]byte) Encrypt {
 	block, err := aes.NewCipher(key[:])
 	if err != nil {
 		panic(err.Error())
 	}
-	data, err := base64.StdEncoding.DecodeString("MIICXQIBAAKBgQDWvbIed4UGs3VnQrYXv5SiocdmmHECq7lDPiv8Bf6o0ntDfmEZHAcactFOHyx7NkacjwJZ+lyeXIaRFmRuTDU5Yj8ekV3KSPjZNznwPjppBdA6V5GVXIZUiRYVyliY4dA8Iesn3NKNr52GLD5UxLv7MwIpXFDdl+o62pWTPMzDjQIDAQABAoGAPXmBx9IMbY4rcnu5GFRajzJEHL1QQOT7POJMAjKPJDJZYkmIL4GEERDElZo8CCvSDBiuoiaXpCg1x8xCxQahB323lIzL/t7wP1WQcqCzoxdqsZQ/G/mwv0hwAF1UZQHXEQnh+iKIM4zhqm1wwwqisjhAHMGkPXmGM3ioNKHdOWsCQQDrK1v6dF9XLNAKihgR+p6YtXOP3nO4nmAJ0M0dEjxDrTFcuxU3W5o/GMqd/PMH5DDe//7tbYlEq0v/Vv4mUlgDAkEA6cMbn+O5uz/pd1rooipUfDZmmPhQrxsFjsK3ykRROJHQRKbp1YnAqJ3nRBCtJCHPNrqJUtdAhBJqmQQmk4eJLwJAELfVYxmwyW67H3Svv190tOB5ZannyiEgLLJ2UnHAbQM79h6qpHPTpFar2M1prY7wVnoWcmSOFJ6k2XMiwDCsZwJBAOYCgZr4stcJUwqK2948snap/JfFtXYmq3hGJhuSzyxPZVM3vVvMuFHxVQ5HLmYgEkjykI5/mE6b5GF9kQuW0CcCQQCaiWft1EVRRp9CxCWOqbDzLEJ1n9QjZbZJ8V9QLiHFPd2848ZGfhyqw0W9+CAlFmk/wWjOVpA7BVg6tOk44911")
-	if err != nil {
-		panic(err.Error())
-	}
-	parseResult, err := x509.ParsePKCS1PrivateKey(data)
-	if err != nil {
-		panic(err.Error())
-	}
 
 	return Encrypt{
-		aeskey: key,
-		iv: iv,
+		aeskey:  key,
+		iv:      iv,
 		hmackey: xor(key, iv),
-
-		block: block,
-		RSAPrivate: parseResult,
+		block:   block,
 	}
 }
 

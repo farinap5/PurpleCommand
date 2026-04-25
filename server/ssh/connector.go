@@ -2,11 +2,11 @@ package ssh
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 	"net"
 	"os"
 	"os/signal"
-	"purpcmd/server/utils"
 	"syscall"
 	"time"
 	_ "unsafe"
@@ -17,9 +17,9 @@ import (
 )
 
 // Map the local variable "consoleWriter" to the one of go-prompt
+//
 //go:linkname consoleWriter github.com/c-bata/go-prompt.consoleWriter
 var consoleWriter prompt.ConsoleWriter
-
 
 // https://github.com/glinton/ssh/blob/master/client.go#L293
 func termSize(fd uintptr) []byte {
@@ -53,30 +53,27 @@ func winChanges(session *ssh.Session, fd uintptr) {
 	}
 }
 
-
 func Connector(conn net.Conn) {
 	consoleWriter.EraseLine() // Erase current line
 	consoleWriter.EraseDown() // Required to remove the completions menu
 	consoleWriter.EraseScreen()
 	time.Sleep(1 * time.Second)
-	tunnel(conn)
+	if err := tunnel(conn); err != nil {
+		fmt.Println("SSH tunnel error:", err)
+	}
 	syscall.Kill(syscall.Getpid(), syscall.SIGWINCH) // Required to force the re-render of the prompt
 }
 
 func tunnel(conn net.Conn) error {
-	id_ecdsa := `-----BEGIN OPENSSH PRIVATE KEY-----
-b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAaAAAABNlY2RzYS
-1zaGEyLW5pc3RwMjU2AAAACG5pc3RwMjU2AAAAQQQ5u5RSQEn7VjPQZsPrEJ4zba+PMF4U
-kQ3+N11IW30QU9OY+XWePtqlIT7eYLoJBAkiDczrNpxs9IZAhUxg6jyDAAAAqC+nArwvpw
-K8AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBDm7lFJASftWM9Bm
-w+sQnjNtr48wXhSRDf43XUhbfRBT05j5dZ4+2qUhPt5gugkECSINzOs2nGz0hkCFTGDqPI
-MAAAAgUnybP9gbz6kYON6APaQXd+MVK1jXVSVkMJ+fnUSGq+oAAAALZmFyaW5hcEB4eXoB
-AgMEBQ==
------END OPENSSH PRIVATE KEY-----`
-	
-	keuBytes := []byte(id_ecdsa)
+	keyPath := "cmd/key/id_ecdsa"
+	keuBytes, err := os.ReadFile(keyPath)
+	if err != nil {
+		return fmt.Errorf("tunnel: could not read SSH key from %s: %w", keyPath, err)
+	}
 	privKey, err := ssh.ParsePrivateKey(keuBytes)
-	utils.Err(err, 6)
+	if err != nil {
+		return fmt.Errorf("tunnel: could not parse SSH key: %w", err)
+	}
 
 	sshConfig := &ssh.ClientConfig{
 		Auth:            []ssh.AuthMethod{ssh.PublicKeys(privKey)},
@@ -85,22 +82,24 @@ AgMEBQ==
 
 	// https://github.com/golang/go/issues/32990
 	sshConn, channConn, connRequest, err := ssh.NewClientConn(conn, "localhost", sshConfig)
-	utils.Err(err, 7)
+	if err != nil {
+		return fmt.Errorf("tunnel: SSH handshake failed: %w", err)
+	}
 
 	client := ssh.NewClient(sshConn, channConn, connRequest)
 	defer client.Close()
 
 	session, err := client.NewSession()
 	if err != nil {
-		client.Close()
-		utils.Err(err, 8)
+		return fmt.Errorf("tunnel: could not open session: %w", err)
 	}
-
 	defer session.Close()
 
 	fd := int(os.Stdin.Fd())
 	state, err := terminal.MakeRaw(fd)
-	utils.Err(err, 9)
+	if err != nil {
+		return fmt.Errorf("tunnel: MakeRaw: %w", err)
+	}
 	defer terminal.Restore(fd, state)
 
 	modes := ssh.TerminalModes{
@@ -110,16 +109,26 @@ AgMEBQ==
 	}
 
 	w, h, err := terminal.GetSize(fd)
-	utils.Err(err, 10)
+	if err != nil {
+		return fmt.Errorf("tunnel: GetSize: %w", err)
+	}
 	err = session.RequestPty("xterm-256color", h, w, modes)
-	utils.Err(err, 11)
+	if err != nil {
+		return fmt.Errorf("tunnel: RequestPty: %w", err)
+	}
 
 	stdin, err := session.StdinPipe()
-	utils.Err(err, 12)
+	if err != nil {
+		return fmt.Errorf("tunnel: StdinPipe: %w", err)
+	}
 	stdout, err := session.StdoutPipe()
-	utils.Err(err, 13)
+	if err != nil {
+		return fmt.Errorf("tunnel: StdoutPipe: %w", err)
+	}
 	stderr, err := session.StderrPipe()
-	utils.Err(err, 14)
+	if err != nil {
+		return fmt.Errorf("tunnel: StderrPipe: %w", err)
+	}
 
 	go io.Copy(stdin, os.Stdin)
 	go io.Copy(os.Stdout, stdout)

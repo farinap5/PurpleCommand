@@ -24,10 +24,10 @@ func ListenerNew(name string) error {
 	u := uuid.New()
 
 	l := &Listener{
-		Name: name,
-		UUID: u.String(),
-		Host: "0.0.0.0",
-		Port: "4444",
+		Name:       name,
+		UUID:       u.String(),
+		Host:       "0.0.0.0",
+		Port:       "4444",
 		Persistent: true,
 		SC: &ServerController{
 			stopChan: make(chan struct{}),
@@ -67,11 +67,11 @@ func ListenerSetOptions(key, value string) error {
 		if value == "t" || value == "true" || value == "on" {
 			v = true
 			db.DBListenerInsert(
-				ListenerMAP[CurrentListener].Name, 
-				ListenerMAP[CurrentListener].UUID, 
-				ListenerMAP[CurrentListener].Host, 
-				ListenerMAP[CurrentListener].Port, 
-				true, 
+				ListenerMAP[CurrentListener].Name,
+				ListenerMAP[CurrentListener].UUID,
+				ListenerMAP[CurrentListener].Host,
+				ListenerMAP[CurrentListener].Port,
+				true,
 				false,
 			)
 		} else if value == "f" || value == "false" || value == "off" {
@@ -125,15 +125,27 @@ func ListenerList() {
 }
 
 func ListenerStart() {
+	if ListenerMAP[CurrentListener] == nil {
+		log.PrintErr("no listener selected")
+		return
+	}
 	ListenerMAP[CurrentListener].StartHTTP()
 }
 
 func ListenerRestart() {
+	if ListenerMAP[CurrentListener] == nil {
+		log.PrintErr("no listener selected")
+		return
+	}
 	ListenerMAP[CurrentListener].StopHTTP()
 	ListenerMAP[CurrentListener].StartHTTP()
 }
 
 func ListenerStop() {
+	if ListenerMAP[CurrentListener] == nil {
+		log.PrintErr("no listener selected")
+		return
+	}
 	ListenerMAP[CurrentListener].StopHTTP()
 }
 
@@ -174,7 +186,7 @@ func ListenerInitFromDB() error {
 		return err
 	}
 
-	for i := range(list) {
+	for i := range list {
 		log.PrintInfo("Setting up listener ", list[i].Name)
 		ListenerNew(list[i].Name)
 		ListenerSetOptions("host", list[i].Host)

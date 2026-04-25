@@ -12,32 +12,39 @@ func CmdHelp(p *types.Profile) {
 	t := tabby.New()
 	t.AddHeader("GENERIC COMMAND", "DESCRIPTION")
 	t.AddLine("help", "Show help menu. Use `help <cmd>`.") //
-	t.AddLine("exit", "Exit from purpcmd.") //
+	t.AddLine("exit", "Exit from purpcmd.")                //
 
 	switch p.STATE {
 	case types.LISTENER:
-		t.AddLine("new", "Create new listener. Use `new <name>`.") //
-		t.AddLine("delete", "Delete listener.") //
-		t.AddLine("options", "Show options.") //
-		t.AddLine("set", "Set option. Use `set <key> <value>`.") //
-		t.AddLine("run/start", "Start listener.") //
-		t.AddLine("stop", "Stop a listener.") //
-		t.AddLine("list", "List listeners.") //
+		t.AddLine("new", "Create new listener. Use `new <name>`.")                //
+		t.AddLine("delete", "Delete listener.")                                   //
+		t.AddLine("options", "Show options.")                                     //
+		t.AddLine("set", "Set option. Use `set <key> <value>`.")                  //
+		t.AddLine("run/start", "Start listener.")                                 //
+		t.AddLine("stop", "Stop a listener.")                                     //
+		t.AddLine("list", "List listeners.")                                      //
 		t.AddLine("interact", "Interact with a listener. Use `interact <name>`.") //
-		t.AddLine("back", "Exit listener mode.") //
+		t.AddLine("back", "Exit listener mode.")                                  //
 	case types.SESSION:
-		t.AddLine("delete", "Delete session.") //
-		t.AddLine("list", "List sessions.") //
+		t.AddLine("delete", "Delete session.")                                   //
+		t.AddLine("list", "List sessions.")                                      //
 		t.AddLine("interact", "Interact with a session. Use `interact <name>`.") //
-		t.AddLine("back", "Exit session mode.") //
+		t.AddLine("back", "Exit session mode.")                                  //
 	case types.SCRIPT:
-		t.AddLine("load", "Load script.") //
-		t.AddLine("unload", "Unload script.") //
-		t.AddLine("list", "List scripts.") //
+		t.AddLine("load", "Load script.")      //
+		t.AddLine("unload", "Unload script.")  //
+		t.AddLine("list", "List scripts.")     //
 		t.AddLine("back", "Exit script mode.") //
+	case types.IMPLANT_BUILD:
+		t.AddLine("new", "Create new implant configuration.")
+		t.AddLine("options", "Show current implant options.")
+		t.AddLine("set", "Set implant option. Use `set <key> <value>`.")
+		t.AddLine("generate", "Build the implant binary with current options.")
+		t.AddLine("back", "Exit implant builder mode.")
 	default:
 		t.AddLine("listener", "Enter listener mode. Use `help <cmd>`.")
-		t.AddLine("session", "Enter session mode. Use `help <cmd>`.")		
+		t.AddLine("session", "Enter session mode. Use `help <cmd>`.")
+		t.AddLine("implant", "Enter implant builder mode.")
 	}
 
 	print("\n")
@@ -46,9 +53,9 @@ func CmdHelp(p *types.Profile) {
 
 	if p.STATE == types.SESSION {
 		t1 := tabby.New()
-		cmdlist := lua.LuaGetCommandDesc("a","a")
+		cmdlist := lua.LuaGetCommandDesc("a", "a")
 		t1.AddHeader("IMPL COMMAND", "DESCRIPTION")
-		for _,j := range cmdlist {
+		for _, j := range cmdlist {
 			t1.AddLine(j[0], j[1])
 		}
 		t1.Print()

@@ -134,6 +134,10 @@ func runSelectProfile(cmds []string, profile *types.Profile) int {
 		log.PrintErr(err.Error())
 		return 1
 	}
+
+	profile.Prompt = "(implant - " + cmds[1] + ")>> "
+	LivePrefixState.LivePrefix = profile.Prompt
+	LivePrefixState.IsEnable = true
 	return 0
 }
 

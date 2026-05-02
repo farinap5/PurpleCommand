@@ -63,7 +63,6 @@ func (db *DBDef) dbCreateDs() error {
 		sttm.Exec()
 	}
 
-
 	sttm, err = db.DBConn.Prepare(`
 	CREATE TABLE IF NOT EXISTS Scripts (
 		Sid		INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -82,6 +81,26 @@ func (db *DBDef) dbCreateDs() error {
 		Uuid	TEXT NOT NULL UNIQUE,
 		Session TEXT NOT NULL,
 		FileName TEXT NOT NULL
+	);
+	`)
+	if err != nil {
+		return err
+	} else {
+		sttm.Exec()
+	}
+
+	sttm, err = db.DBConn.Prepare(`
+	CREATE TABLE IF NOT EXISTS ImplantProfiles (
+		Pid			INTEGER PRIMARY KEY AUTOINCREMENT,
+		Name		TEXT NOT NULL UNIQUE,
+		LHOST		TEXT NOT NULL,
+		OS			TEXT NOT NULL,
+		ARCH		TEXT NOT NULL,
+		URI			TEXT NOT NULL,
+		UA			TEXT NOT NULL,
+		Output		TEXT NOT NULL,
+		Template	TEXT NOT NULL,
+		PublicKey	TEXT NOT NULL
 	);
 	`)
 	if err != nil {

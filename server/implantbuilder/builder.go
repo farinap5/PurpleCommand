@@ -247,6 +247,66 @@ func generate(name string, p *Profile) error {
 		return fmt.Errorf("profile %q: LHOST is not set", name)
 	}
 
+	absTemplateDir, err := filepath.Abs(p.Template)
+	if err != nil {
+		return err
+	}
+	absOutput, err := filepath.Abs(p.Output)
+	if err != nil {
+		return err
+	}
+	absPublicKey := ""
+	if p.PublicKey != "" {
+		absPublicKey, err = filepath.Abs(p.PublicKey)
+		if err != nil {
+			return err
+		}
+	}
+
+	// If the template contains a Makefile, delegate the entire build to make.
+	makefilePath := filepath.Join(absTemplateDir, "Makefile")
+	if _, err := os.Stat(makefilePath); err == nil {
+		return generateWithMakefile(name, p, absTemplateDir, absOutput, absPublicKey)
+	}
+
+	return generateGo(name, p, absTemplateDir, absOutput)
+}
+
+// generateWithMakefile runs `make` inside the template directory, forwarding all
+// profile fields as make variables. The Makefile is responsible for producing the
+// final binary at $(OUTPUT).
+func generateWithMakefile(name string, p *Profile, absTemplateDir, absOutput, absPublicKey string) error {
+	log.PrintInfo(fmt.Sprintf("[%s] Building %s -> %s", name, absTemplateDir, absOutput))
+
+	cmd := exec.Command("make",
+		"-C", absTemplateDir,
+		fmt.Sprintf("OUTPUT=%s", absOutput),
+		fmt.Sprintf("LHOST=%s", p.LHOST),
+		fmt.Sprintf("OS=%s", p.OS),
+		fmt.Sprintf("ARCH=%s", p.ARCH),
+		fmt.Sprintf("URI=%s", p.URI),
+		fmt.Sprintf("UA=%s", p.UA),
+		fmt.Sprintf("PUBLICKEY=%s", absPublicKey),
+	)
+	cmd.Env = append(os.Environ(),
+		"GOOS="+p.OS,
+		"GOARCH="+p.ARCH,
+		"CGO_ENABLED=0",
+	)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("make build failed: %w", err)
+	}
+
+	log.PrintSuccs(fmt.Sprintf("[%s] Implant written to: %s", name, absOutput))
+	return nil
+}
+
+// generateGo performs the default Go build: substitutes placeholders in main.go,
+// writes a temporary main_build.go, compiles it, then removes the temp file.
+func generateGo(name string, p *Profile, absTemplateDir, absOutput string) error {
 	// Read and validate the public key
 	var pubKeyDER []byte
 	if p.PublicKey != "" {
@@ -258,7 +318,6 @@ func generate(name string, p *Profile) error {
 		if block == nil {
 			return fmt.Errorf("no PEM block in public key file %s", p.PublicKey)
 		}
-		// Verify it's actually an RSA public key
 		key, err := x509.ParsePKIXPublicKey(block.Bytes)
 		if err != nil {
 			return fmt.Errorf("cannot parse public key: %w", err)
@@ -302,15 +361,6 @@ func generate(name string, p *Profile) error {
 		return fmt.Errorf("cannot write build source: %w", err)
 	}
 	defer os.Remove(tmpSrc)
-
-	absOutput, err := filepath.Abs(p.Output)
-	if err != nil {
-		return err
-	}
-	absTemplateDir, err := filepath.Abs(p.Template)
-	if err != nil {
-		return err
-	}
 
 	cmd := exec.Command("go", "build", "-ldflags", "-s -w", "-o", absOutput, "main_build.go")
 	cmd.Dir = absTemplateDir

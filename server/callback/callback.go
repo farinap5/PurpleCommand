@@ -115,7 +115,7 @@ func ParseAndReg(r io.Reader, req *http.Request) error {
 	i.Proc = string(dataS[0])
 	i.Hostname = string(dataS[1])
 	i.User = string(dataS[2])
-	i.Impl = string(dataS[3])
+	i.Type = string(dataS[3])
 
 	name := fmt.Sprintf("%d", i.SessionID)
 	if implant.ImplantPtrByName(name) != nil {
@@ -132,7 +132,7 @@ func ParseAndReg(r io.Reader, req *http.Request) error {
 
 	lua.LuaOnRegister(*imp)
 	log.AsyncWriteStdout(fmt.Sprintf("[\u001B[1;32m!\u001B[0;0m]- New implant %s - SOCK:%s HOSTNAME:%s USERNAME:%s TYPE:%s\n",
-		imp.Name, imp.Metadata.Socket, imp.Metadata.Hostname, imp.Metadata.User, imp.Metadata.Impl))
+		imp.Name, imp.Metadata.Socket, imp.Metadata.Hostname, imp.Metadata.User, imp.Metadata.Type))
 	return nil
 }
 

@@ -68,6 +68,6 @@ func ImplantInit() *implant.ImplantMetadata {
 		Proc:     getProcessName(),
 		Hostname: getHostname(),
 		User:     getUsername(),
-		Impl:     "impl",
+		Type:     "impl",
 	}
 }

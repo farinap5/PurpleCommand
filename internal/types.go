@@ -11,6 +11,7 @@ const (
 	CD
 	PWD
 	LS
+	MEMEXEC
 )
 
 const (

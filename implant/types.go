@@ -1,7 +1,5 @@
 package implant
 
-
-
 /*
 ImplantMetadata has 15bytes of fixed size
 */
@@ -13,12 +11,12 @@ type ImplantMetadata struct {
 	Socket    string
 	Port      uint16
 	Arch      byte
-	
+
 	// One time secret
-	OTS		  [12]byte
+	OTS [12]byte
 
 	User     string
 	Hostname string
 	Proc     string
-	Impl 	 string
+	Type     string
 }

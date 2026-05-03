@@ -198,5 +198,5 @@ func ImplantGetType() string {
 	if imp == nil {
 		return ""
 	}
-	return imp.Metadata.Impl
+	return imp.Metadata.Type
 }

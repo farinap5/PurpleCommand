@@ -13,6 +13,7 @@ const (
 	LS
 	MEMEXEC
 	IFCONFIG
+	CAT
 )
 
 const (

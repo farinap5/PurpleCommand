@@ -107,6 +107,9 @@ func Start(sock string) {
 		case internal.IFCONFIG:
 			response := HandleIFCONFIG(ctx, tid)
 			h.Post([]byte(response))
+		case internal.CAT:
+			response := HandleCAT(ctx, payload, tid)
+			h.Post([]byte(response))
 		default:
 			print("->", tcode, "Nothing")
 		}

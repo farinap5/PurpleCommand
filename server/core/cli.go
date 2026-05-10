@@ -135,7 +135,9 @@ func (paux *ProfileAux) completer(d prompt.Document) []prompt.Suggest {
 		promptSuggestions = append(promptSuggestions,
 			prompt.Suggest{Text: "back", Description: "Exit from loot menu"},
 			prompt.Suggest{Text: "list", Description: "List loot"},
-			prompt.Suggest{Text: "export", Description: "export"},
+			prompt.Suggest{Text: "view", Description: "View loot file content"},
+			prompt.Suggest{Text: "export", Description: "Export loot to file"},
+			prompt.Suggest{Text: "delete", Description: "Delete loot file"},
 		)
 	} else if paux.Profile.STATE == types.IMPLANT_BUILD {
 		// Dynamic profile completions for select/generate/delete <name>

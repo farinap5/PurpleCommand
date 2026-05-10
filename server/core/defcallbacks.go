@@ -289,6 +289,16 @@ func runDelete(cmds []string, profile *types.Profile) int {
 			LivePrefixState.LivePrefix = profile.Prompt
 			LivePrefixState.IsEnable = true
 		}
+	} else if profile.STATE == types.LOOT {
+		if len(cmds) != 2 {
+			log.PrintErr("usage: delete <uuid>")
+			return 1
+		}
+		err := loot.Delete(cmds[1])
+		if err != nil {
+			log.PrintErr(err.Error())
+			return 1
+		}
 	} else if profile.STATE == types.IMPLANT_BUILD {
 		if len(cmds) != 2 {
 			println("usage: delete <profile-name>")
@@ -358,6 +368,21 @@ func runExport(cmds []string, profile *types.Profile) int {
 			return 1
 		}
 		err := loot.Export(cmds[1], cmds[2])
+		if err != nil {
+			log.PrintErr(err.Error())
+			return 1
+		}
+	}
+	return 0
+}
+
+func runView(cmds []string, profile *types.Profile) int {
+	if profile.STATE == types.LOOT {
+		if len(cmds) != 2 {
+			log.PrintErr("usage: view <uuid>")
+			return 1
+		}
+		err := loot.View(cmds[1])
 		if err != nil {
 			log.PrintErr(err.Error())
 			return 1

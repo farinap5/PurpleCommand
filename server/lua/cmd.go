@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"purpcmd/server/implant"
+	"purpcmd/server/log"
 
 	lua "github.com/yuin/gopher-lua"
 )
@@ -77,25 +78,49 @@ func ImplantAddSendBuffer(L *lua.LState) int {
 	return 0
 }
 
-func ImplantAddGenericCommand(L *lua.LState) int {
+func ImplantAddGenericTask(L *lua.LState) int {
 	code := L.CheckInt(1)
 	payload := L.CheckString(2)
 
-	errInt := implant.ImplantAddGenericTask(code, payload)
+	taskID, errInt := implant.ImplantAddGenericTask(code, payload)
 	if errInt != 0 {
-		//L.Push(lua.LNil)
+		L.Push(lua.LNil)
 		L.Push(lua.LString("could not create task"))
-		return 0
+		return 2
 	}
-	L.Push(lua.LNil)
+	L.Push(lua.LString(taskID))
+
+	return 1
+}
+
+// registerTaskCallback registers a callback function for a specific task ID
+// Usage from Lua: register_task_callback(task_id, function(task_id, response, name, uuid, hostname, user) ... end)
+func (l *LuaProfile) registerTaskCallback(L *lua.LState) int {
+	taskID := L.CheckString(1)
+	callback := L.CheckFunction(2)
+
+	l.TaskCallbacksMutex.Lock()
+	l.TaskCallbacks[taskID] = callback
+	l.TaskCallbacksMutex.Unlock()
 
 	return 0
 }
 
-func CallCommand(name, impl, payload string) (string, error) {
-	cmdStr, exists := CMDMAP[impl+"."+name]
+// LuaPrint provides a thread-safe print function for Lua scripts
+// Usage from Lua: lua_print("message", var1, var2, ...)
+func LuaPrint(L *lua.LState) int {
+	args := make([]interface{}, L.GetTop())
+	for i := 1; i <= L.GetTop(); i++ {
+		args[i-1] = L.Get(i).String()
+	}
+	log.AsyncWriteStdout(args...)
+	return 0
+}
+
+func CallCommand(name, implantType, payload string) (string, error) {
+	cmdStr, exists := CMDMAP[implantType+"."+name]
 	if !exists {
-		return "", fmt.Errorf("command %s for %s not found", name, impl)
+		return "", fmt.Errorf("command %s for %s not found", name, implantType)
 	}
 
 	L := ScriptMAP[cmdStr.ScriptName].state

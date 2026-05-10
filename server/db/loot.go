@@ -61,3 +61,9 @@ func DBLootGetByUUID(uuid string) (name string, fuuid string, err error) {
     err = row.Scan(&name, &fuuid)
     return
 }
+
+func DBLootDelete(uuid string) error {
+	query := `DELETE FROM Loot WHERE Uuid = ?;`
+	_, err := DBMS.DBConn.Exec(query, uuid)
+	return err
+}

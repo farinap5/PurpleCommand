@@ -35,6 +35,12 @@ func CmdHelp(p *types.Profile) {
 		t.AddLine("unload", "Unload script.")  //
 		t.AddLine("list", "List scripts.")     //
 		t.AddLine("back", "Exit script mode.") //
+	case types.LOOT:
+		t.AddLine("list", "List all downloaded loot files.")                    //
+		t.AddLine("view", "View loot file content. Use `view <uuid>`.")         //
+		t.AddLine("export", "Export loot to file. Use `export <uuid> <path>`.") //
+		t.AddLine("delete", "Delete loot file. Use `delete <uuid>`.")           //
+		t.AddLine("back", "Exit loot mode.")                                    //
 	case types.IMPLANT_BUILD:
 		t.AddLine("new", "Create new profile. Use `new profile <name>`.")
 		t.AddLine("list", "List all implant profiles.")
@@ -47,6 +53,8 @@ func CmdHelp(p *types.Profile) {
 	default:
 		t.AddLine("listener", "Enter listener mode. Use `help <cmd>`.")
 		t.AddLine("session", "Enter session mode. Use `help <cmd>`.")
+		t.AddLine("script", "Enter script mode.")
+		t.AddLine("loot", "Enter loot management mode.")
 		t.AddLine("implant", "Enter implant builder mode.")
 	}
 
@@ -57,7 +65,7 @@ func CmdHelp(p *types.Profile) {
 	if p.STATE == types.SESSION {
 		t1 := tabby.New()
 		cmdlist := lua.LuaGetCommandDesc("a", "a")
-		t1.AddHeader("IMPL COMMAND", "DESCRIPTION")
+		t1.AddHeader("AVAILABLE COMMAND", "DESCRIPTION")
 		for _, j := range cmdlist {
 			t1.AddLine(j[0], j[1])
 		}

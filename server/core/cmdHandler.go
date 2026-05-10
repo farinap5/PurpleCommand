@@ -179,6 +179,12 @@ func loadFunctions() {
 		Desc:   "",
 		Prompt: nil,
 	}
+	commandMap["view"] = &types.Command{
+		Call:   runView,
+		Usage:  nil,
+		Desc:   "View loot file content.",
+		Prompt: nil,
+	}
 	commandMap["select"] = &types.Command{
 		Call:   runSelectProfile,
 		Usage:  nil,

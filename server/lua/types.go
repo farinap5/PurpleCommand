@@ -18,6 +18,10 @@ type LuaProfile struct {
 	cancel  context.CancelFunc
 	done    chan struct{}
 	closing sync.Once
+
+	// Task-specific callbacks: task_id -> callback function
+	TaskCallbacks map[string]*lua.LFunction
+	TaskCallbacksMutex sync.RWMutex
 }
 
 

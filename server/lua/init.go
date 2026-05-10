@@ -27,13 +27,16 @@ func LuaNew(path string) (*LuaProfile, error) {
 	l := new(LuaProfile)
 	l.script = path
 	l.state = lua.NewState()
+	l.TaskCallbacks = make(map[string]*lua.LFunction)
 
 	l.state.OpenLibs()
 	l.state.SetGlobal("command", l.state.NewFunction(l.command))
-	l.state.SetGlobal("add_task", l.state.NewFunction(ImplantAddGenericCommand))
+	l.state.SetGlobal("add_task", l.state.NewFunction(ImplantAddGenericTask))
 	l.state.SetGlobal("add_task_upload_file", l.state.NewFunction(ImplantAddUploadFileCommand))
 	l.state.SetGlobal("add_task_send_buffer", l.state.NewFunction(ImplantAddSendBuffer))
 	l.state.SetGlobal("implant_register_profile", l.state.NewFunction(LuaRegisterImplantProfile))
+	l.state.SetGlobal("register_task_callback", l.state.NewFunction(l.registerTaskCallback))
+	l.state.SetGlobal("lua_print", l.state.NewFunction(LuaPrint))
 	err := l.state.DoFile(path)
 
 	return l, err

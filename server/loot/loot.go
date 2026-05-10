@@ -75,3 +75,42 @@ func Export(uuid, path string) error {
 	log.PrintSuccs("file ", fuuid, " ", name, " saved to ", path)
 	return nil
 }
+
+func Delete(uuid string) error {
+	name, fuuid, err := db.DBLootGetByUUID(uuid)
+	if err != nil {
+		return err
+	}
+
+	// Delete the physical file
+	err = os.Remove("loot/" + fuuid)
+	if err != nil {
+		return err
+	}
+
+	// Delete the database entry
+	err = db.DBLootDelete(fuuid)
+	if err != nil {
+		return err
+	}
+
+	log.PrintSuccs("deleted loot file ", fuuid, " (", name, ")")
+	return nil
+}
+
+func View(uuid string) error {
+	name, fuuid, err := db.DBLootGetByUUID(uuid)
+	if err != nil {
+		return err
+	}
+
+	content, err := os.ReadFile("loot/" + fuuid)
+	if err != nil {
+		return err
+	}
+
+	log.PrintSuccs("Viewing loot file: ", name, " (UUID: ", fuuid,")")
+	//TODO: if file too large, do something like print just a part or something
+	println("\n" + string(content) + "\n")
+	return nil
+}

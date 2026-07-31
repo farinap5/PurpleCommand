@@ -3,6 +3,7 @@ package implant
 import (
 	"purpcmd/implant"
 	"purpcmd/internal/encrypt"
+	"sync"
 	"time"
 )
 
@@ -18,12 +19,16 @@ type Implant struct {
 
 	Task    []*Task
 	TaskMap map[[8]byte]*Task
+	taskMu  *sync.Mutex
 }
 
 type Task struct {
 	ID         [8]byte
 	Sent       bool
 	Done       bool
+	Processing bool
+	Attempts   uint32
+	LastSent   time.Time
 	Registered time.Time
 	Code       uint16
 	Payload    []byte

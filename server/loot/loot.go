@@ -1,8 +1,11 @@
 package loot
 
 import (
+	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+
 	"purpcmd/server/db"
 	"purpcmd/server/log"
 
@@ -10,28 +13,54 @@ import (
 	"github.com/google/uuid"
 )
 
-func New(s, n string, c []byte) *Loot {
-	l := new(Loot)
-	l.FileName = n
-	l.Content = c
-	l.Session = s
-	l.UUID = uuid.New().String()
-	return l
+// StorageDir is created automatically on the first downloaded file. It is a
+// variable so deployments and tests can select a different storage location.
+var StorageDir = "loot"
+
+func New(session, name string, content []byte) *Loot {
+	return &Loot{
+		FileName: name,
+		Content:  content,
+		Session:  session,
+		UUID:     uuid.NewString(),
+	}
 }
 
-func (l *Loot)SaveData() error {
-	file, err := os.OpenFile("loot/"+l.UUID, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+func storagePath(id string) (string, error) {
+	if _, err := uuid.Parse(id); err != nil {
+		return "", fmt.Errorf("invalid loot UUID %q: %w", id, err)
+	}
+	return filepath.Join(StorageDir, id), nil
+}
+
+func (l *Loot) SaveData() error {
+	path, err := storagePath(l.UUID)
 	if err != nil {
 		return err
 	}
+	if err := os.MkdirAll(StorageDir, 0700); err != nil {
+		return fmt.Errorf("create loot directory: %w", err)
+	}
 
-	defer file.Close()
-	_,err = file.Write(l.Content)
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
 	}
+	if _, err := file.Write(l.Content); err != nil {
+		_ = file.Close()
+		_ = os.Remove(path)
+		return err
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(path)
+		return err
+	}
 
-	return db.DBLootInsert(l.UUID, l.Session, l.FileName)
+	if err := db.DBLootInsert(l.UUID, l.Session, l.FileName); err != nil {
+		_ = os.Remove(path)
+		return err
+	}
+	return nil
 }
 
 func List() {
@@ -39,78 +68,93 @@ func List() {
 	c := 1
 	t.AddHeader("N", "UUID", "SESSION", "FILENAME")
 
-	l, _ := db.DBLootList()
-	for i := range l {
-		t.AddLine(c, l[i][0][24:], l[i][1], l[i][2])
-		c += 1
+	entries, err := db.DBLootList()
+	if err != nil {
+		log.PrintErr(err.Error())
+		return
+	}
+	for _, entry := range entries {
+		shortID := entry[0]
+		if len(shortID) > 12 {
+			shortID = shortID[len(shortID)-12:]
+		}
+		t.AddLine(c, shortID, entry[1], entry[2])
+		c++
 	}
 	print("\n")
 	t.Print()
 	print("\n")
 }
 
-func Export(uuid, path string) error {
-	name,fuuid, err := db.DBLootGetByUUID(uuid)
+func Export(id, destination string) error {
+	name, fullID, err := db.DBLootGetByUUID(id)
+	if err != nil {
+		return err
+	}
+	sourcePath, err := storagePath(fullID)
 	if err != nil {
 		return err
 	}
 
-	src, err := os.Open("loot/" + fuuid)
+	source, err := os.Open(sourcePath)
 	if err != nil {
 		return err
 	}
-	defer src.Close()
+	defer source.Close()
 
-	dst, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+	destinationFile, err := os.OpenFile(destination, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
 	}
-	defer dst.Close()
-
-	_, err = io.Copy(dst, src)
-	if err != nil {
+	if _, err := io.Copy(destinationFile, source); err != nil {
+		_ = destinationFile.Close()
+		return err
+	}
+	if err := destinationFile.Close(); err != nil {
 		return err
 	}
 
-	log.PrintSuccs("file ", fuuid, " ", name, " saved to ", path)
+	log.PrintSuccs("file ", fullID, " ", name, " saved to ", destination)
 	return nil
 }
 
-func Delete(uuid string) error {
-	name, fuuid, err := db.DBLootGetByUUID(uuid)
+func Delete(id string) error {
+	name, fullID, err := db.DBLootGetByUUID(id)
+	if err != nil {
+		return err
+	}
+	path, err := storagePath(fullID)
 	if err != nil {
 		return err
 	}
 
-	// Delete the physical file
-	err = os.Remove("loot/" + fuuid)
-	if err != nil {
+	if err := os.Remove(path); err != nil {
+		return err
+	}
+	if err := db.DBLootDelete(fullID); err != nil {
 		return err
 	}
 
-	// Delete the database entry
-	err = db.DBLootDelete(fuuid)
-	if err != nil {
-		return err
-	}
-
-	log.PrintSuccs("deleted loot file ", fuuid, " (", name, ")")
+	log.PrintSuccs("deleted loot file ", fullID, " (", name, ")")
 	return nil
 }
 
-func View(uuid string) error {
-	name, fuuid, err := db.DBLootGetByUUID(uuid)
+func View(id string) error {
+	name, fullID, err := db.DBLootGetByUUID(id)
+	if err != nil {
+		return err
+	}
+	path, err := storagePath(fullID)
 	if err != nil {
 		return err
 	}
 
-	content, err := os.ReadFile("loot/" + fuuid)
+	content, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
 
-	log.PrintSuccs("Viewing loot file: ", name, " (UUID: ", fuuid,")")
-	//TODO: if file too large, do something like print just a part or something
+	log.PrintSuccs("Viewing loot file: ", name, " (UUID: ", fullID, ")")
 	println("\n" + string(content) + "\n")
 	return nil
 }

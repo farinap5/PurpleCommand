@@ -75,13 +75,17 @@ Commands accept partial UUIDs for convenience. The system will match the first l
 (loot)>> export 46ce /tmp/exported_file.txt
 ```
 
-This matches any UUID starting with or containing "46ce".
+This matches a UUID starting with or containing "46ce" only when the fragment
+identifies exactly one entry. Ambiguous fragments are rejected; a full UUID
+always resolves to its exact entry.
 
 ## File Storage
 
-- **Physical files**: `loot/<UUID>` - Full UUID is used as filename
+- **Physical files**: `loot/<UUID>` - Full UUID is used as filename. The
+  directory is created automatically on the first download.
 - **Database**: SQLite table with UUID, Session, and FileName columns
-- **Permissions**: Files are created with 0644 permissions (readable by owner and group)
+- **Permissions**: The directory is created with 0700 permissions and loot
+  files with 0600 permissions.
 
 ## Implementation Details
 
@@ -113,7 +117,10 @@ When a file is downloaded:
 - If task ID is invalid, an error is logged
 - File system errors during save are reported
 - Database errors prevent file registration
-- Partial UUID matches that don't find entries will error
+- Database insertion failures remove the newly written file instead of leaving
+  an orphan on disk
+- Partial UUID matches that are missing or ambiguous will error
+- Exporting replaces the destination content rather than appending to it
 
 ## Future Enhancements
 

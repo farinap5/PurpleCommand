@@ -3,103 +3,118 @@ package db
 import (
 	"database/sql"
 	"errors"
+	"fmt"
+	"strings"
 )
 
-func DBListenerExist(Name string) bool {
+func DBListenerExist(name string) bool {
 	var rowName string
-	if err := DBMS.DBConn.QueryRow("SELECT Name FROM Listeners WHERE Name = ?;", Name).Scan(&rowName); err != nil {
-		if err == sql.ErrNoRows {
-			return false
-		}
-		return false
-	} else {
-		return true
-	}
+	return DBMS.DBConn.QueryRow("SELECT Name FROM Listeners WHERE Name = ?;", name).Scan(&rowName) == nil
 }
 
-func DBListenerInsert(Name, UUID, Host, Port string, Persist, Running bool) error {
-	if DBListenerExist(Name) {
+func DBListenerInsert(name, id, host, port string, persist, running bool) error {
+	if DBListenerExist(name) {
 		return errors.New("listener exists")
 	}
 
-	insertQuery := `
-	INSERT INTO Listeners (Uuid, Name, Host, Port, Persist, Running) VALUES (?,?,?,?,?,?);
-	`
-	_, err := DBMS.DBConn.Exec(insertQuery, UUID, Name, Host, Port, Persist, Running)
-
+	_, err := DBMS.DBConn.Exec(
+		`INSERT INTO Listeners (Uuid, Name, Host, Port, Persist, Running) VALUES (?,?,?,?,?,?);`,
+		id, name, host, port, persist, running,
+	)
 	return err
 }
 
 func DBListenerGetAll() ([]Listener, error) {
-	var listeners []Listener
-
-	selectQuery := `SELECT Uuid, Name, Host, Port, Persist, Running FROM Listeners;`
-	query, err := DBMS.DBConn.Query(selectQuery)
-	if err == nil {
-		for query.Next() {
-			listenerRow := Listener{}
-			err = query.Scan(&listenerRow.UUID, &listenerRow.Name, &listenerRow.Host, &listenerRow.Port, &listenerRow.Persistent, &listenerRow.Running)
-			if err != nil {
-				continue
-			}
-			listeners = append(listeners, listenerRow)
-		}
-	} else {
-		return listeners, err
+	rows, err := DBMS.DBConn.Query(`SELECT Uuid, Name, Host, Port, Persist, Running FROM Listeners;`)
+	if err != nil {
+		return nil, err
 	}
-	defer func(query *sql.Rows) {
-		_ = query.Close()
-	}(query)
+	defer rows.Close()
 
+	var listeners []Listener
+	for rows.Next() {
+		var listenerRow Listener
+		if err := rows.Scan(&listenerRow.UUID, &listenerRow.Name, &listenerRow.Host, &listenerRow.Port, &listenerRow.Persistent, &listenerRow.Running); err != nil {
+			return nil, err
+		}
+		listeners = append(listeners, listenerRow)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return listeners, nil
 }
 
-func DBListenerUpdateOption(Name, Key, Value string) error {
-	var updateQuery string
+func DBListenerUpdateOption(name, key, value string) error {
+	var (
+		query string
+		args  []any
+	)
 
-	switch Key {
+	switch strings.ToLower(key) {
 	case "uuid":
-		updateQuery = `
-		UPDATE Listeners SET Uuid = ? WHERE Name = ?;
-		`
+		query = `UPDATE Listeners SET Uuid = ? WHERE Name = ?;`
+		args = []any{value, name}
 	case "host":
-		updateQuery = `
-		UPDATE Listeners SET Host = ? WHERE Name = ?;
-		`
+		query = `UPDATE Listeners SET Host = ? WHERE Name = ?;`
+		args = []any{value, name}
 	case "port":
-		updateQuery = `
-		UPDATE Listeners SET Port = ? WHERE Name = ?;
-		`
-	case "running":
-		if Value == "t" || Value == "true" || Value == "on" {
-			updateQuery = `
-			UPDATE Listeners SET Running = 1 WHERE Name = ?;
-			`
-		} else if Value == "f" || Value == "false" || Value == "off" {
-			updateQuery = `
-			UPDATE Listeners SET Running = 0 WHERE Name = ?;
-			`
-		} else {
-			return errors.New("what?")
+		query = `UPDATE Listeners SET Port = ? WHERE Name = ?;`
+		args = []any{value, name}
+	case "persist":
+		persistent, err := parseDBBool(value)
+		if err != nil {
+			return err
 		}
+		query = `UPDATE Listeners SET Persist = ? WHERE Name = ?;`
+		args = []any{persistent, name}
+	case "running":
+		running, err := parseDBBool(value)
+		if err != nil {
+			return err
+		}
+		query = `UPDATE Listeners SET Running = ? WHERE Name = ?;`
+		args = []any{running, name}
+	default:
+		return fmt.Errorf("unknown listener option %q", key)
+	}
 
-		_, err := DBMS.DBConn.Exec(updateQuery, Name)
+	result, err := DBMS.DBConn.Exec(query, args...)
+	if err != nil {
 		return err
 	}
-
-	_, err := DBMS.DBConn.Exec(updateQuery, Value, Name)
-	return err
-}
-
-func DBListenerDelete(Name string) error {
-	if !DBListenerExist(Name) {
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected != 1 {
 		return errors.New("listener does not exist")
 	}
+	return nil
+}
 
-	delQuery := `
-	DELETE FROM Listeners WHERE Name = ?;
-	`
-	_, err := DBMS.DBConn.Exec(delQuery, Name)
+func parseDBBool(value string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "t", "true", "on":
+		return true, nil
+	case "f", "false", "off":
+		return false, nil
+	default:
+		return false, fmt.Errorf("invalid boolean value %q", value)
+	}
+}
 
-	return err
+func DBListenerDelete(name string) error {
+	result, err := DBMS.DBConn.Exec(`DELETE FROM Listeners WHERE Name = ?;`, name)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected != 1 {
+		return sql.ErrNoRows
+	}
+	return nil
 }

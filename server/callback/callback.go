@@ -211,7 +211,11 @@ func ParseAndReg(reader *bytes.Reader, req *http.Request) error {
 	metadata.Proc = string(entities[0])
 	metadata.Hostname = string(entities[1])
 	metadata.User = string(entities[2])
-	metadata.Type = string(entities[3])
+	payloadType := string(entities[3])
+	if err := internal.ValidatePayloadType(payloadType); err != nil {
+		return malformed("invalid payload type: %v", err)
+	}
+	metadata.Type = payloadType
 
 	name := fmt.Sprintf("%d", metadata.SessionID)
 	if implant.ImplantPtrByName(name) != nil {

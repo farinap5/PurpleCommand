@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"purpcmd/internal"
 	"purpcmd/server/db"
 	"purpcmd/server/log"
 
@@ -19,6 +20,7 @@ import (
 
 // Profile holds the build configuration for a single implant binary.
 type Profile struct {
+	Type      string
 	LHOST     string
 	OS        string
 	ARCH      string
@@ -39,6 +41,7 @@ var (
 // defaultProfile returns a Profile with sensible defaults.
 func defaultProfile() *Profile {
 	return &Profile{
+		Type:      internal.DefaultPayloadType,
 		LHOST:     "",
 		OS:        "linux",
 		ARCH:      "amd64",
@@ -72,6 +75,12 @@ func NewProfile(name string) error {
 func RegisterProfile(name string, p Profile) error {
 	if _, exists := ProfileMap[name]; exists {
 		return fmt.Errorf("profile %q already exists", name)
+	}
+	if p.Type == "" {
+		p.Type = internal.DefaultPayloadType
+	}
+	if err := internal.ValidatePayloadType(p.Type); err != nil {
+		return fmt.Errorf("profile %q: %w", name, err)
 	}
 	copy := p
 	ProfileMap[name] = &copy
@@ -116,13 +125,13 @@ func ListProfiles() {
 	}
 	t := tabby.New()
 	print("\n")
-	t.AddHeader("NAME", "LHOST", "OS", "ARCH", "OUTPUT", "ACTIVE")
+	t.AddHeader("NAME", "TYPE", "LHOST", "OS", "ARCH", "OUTPUT", "ACTIVE")
 	for name, p := range ProfileMap {
 		active := ""
 		if name == CurrentName {
 			active = "*"
 		}
-		t.AddLine(name, p.LHOST, p.OS, p.ARCH, p.Output, active)
+		t.AddLine(name, p.Type, p.LHOST, p.OS, p.ARCH, p.Output, active)
 	}
 	t.Print()
 	print("\n")
@@ -139,6 +148,7 @@ func ShowOptions() {
 	print("\n")
 	println("Profile: " + CurrentName)
 	t.AddHeader("OPTION", "VALUE", "DESCRIPTION")
+	t.AddLine("TYPE", p.Type, "Payload type used for Lua command routing")
 	t.AddLine("LHOST", p.LHOST, "Listener callback address (host:port)")
 	t.AddLine("OS", p.OS, "Target OS (linux, windows, darwin)")
 	t.AddLine("ARCH", p.ARCH, "Target architecture (amd64, 386, arm64)")
@@ -158,6 +168,11 @@ func SetOption(key, value string) error {
 	}
 	p := ProfileMap[CurrentName]
 	switch strings.ToUpper(key) {
+	case "TYPE":
+		if err := internal.ValidatePayloadType(value); err != nil {
+			return err
+		}
+		p.Type = value
 	case "LHOST":
 		p.LHOST = value
 	case "OS":
@@ -187,6 +202,7 @@ func SetOption(key, value string) error {
 func profileToDBRow(name string, p *Profile) db.ImplantProfile {
 	return db.ImplantProfile{
 		Name:      name,
+		Type:      p.Type,
 		LHOST:     p.LHOST,
 		OS:        p.OS,
 		ARCH:      p.ARCH,
@@ -211,6 +227,7 @@ func ProfilesReloadFromDB() {
 			continue // already in map (e.g. from a Lua script that ran first)
 		}
 		p := &Profile{
+			Type:      r.Type,
 			LHOST:     r.LHOST,
 			OS:        r.OS,
 			ARCH:      r.ARCH,
@@ -219,6 +236,9 @@ func ProfilesReloadFromDB() {
 			Output:    r.Output,
 			Template:  r.Template,
 			PublicKey: r.PublicKey,
+		}
+		if p.Type == "" {
+			p.Type = internal.DefaultPayloadType
 		}
 		ProfileMap[r.Name] = p
 		log.PrintInfo("Loaded implant profile: " + r.Name)
@@ -243,6 +263,9 @@ func Generate() error {
 }
 
 func generate(name string, p *Profile) error {
+	if err := internal.ValidatePayloadType(p.Type); err != nil {
+		return fmt.Errorf("profile %q: %w", name, err)
+	}
 	if p.LHOST == "" {
 		return fmt.Errorf("profile %q: LHOST is not set", name)
 	}
@@ -286,6 +309,7 @@ func generateWithMakefile(name string, p *Profile, absTemplateDir, absOutput, ab
 		fmt.Sprintf("ARCH=%s", p.ARCH),
 		fmt.Sprintf("URI=%s", p.URI),
 		fmt.Sprintf("UA=%s", p.UA),
+		fmt.Sprintf("TYPE=%s", p.Type),
 		fmt.Sprintf("PUBLICKEY=%s", absPublicKey),
 	)
 	cmd.Env = append(os.Environ(),
@@ -337,6 +361,7 @@ func generateGo(name string, p *Profile, absTemplateDir, absOutput string) error
 	// Substitute placeholder values in the template source.
 	modified := string(src)
 	modified = strings.Replace(modified, `"LHOST"`, fmt.Sprintf("%q", p.LHOST), 1)
+	modified = strings.Replace(modified, `"IMPLANT_TYPE"`, fmt.Sprintf("%q", p.Type), 1)
 	modified = strings.Replace(modified, `"/"`, fmt.Sprintf("%q", p.URI), 1)
 	modified = strings.Replace(modified, `"Mozilla PurpCMD"`, fmt.Sprintf("%q", p.UA), 1)
 
@@ -386,7 +411,7 @@ func generateGo(name string, p *Profile, absTemplateDir, absOutput string) error
 func ProfileNamesForSuggestions() [][]string {
 	out := make([][]string, 0, len(ProfileMap))
 	for name, p := range ProfileMap {
-		out = append(out, []string{name, p.OS + "/" + p.ARCH + " -> " + p.Output})
+		out = append(out, []string{name, p.Type + " " + p.OS + "/" + p.ARCH + " -> " + p.Output})
 	}
 	return out
 }

@@ -92,6 +92,27 @@ func TestParseCheckBindsEncryptedMetadataToAuthenticatedSession(t *testing.T) {
 	}
 }
 
+func TestRegistrationRejectsInvalidPayloadType(t *testing.T) {
+	previousMap := serverimplant.ImplantMAP
+	serverimplant.ImplantMAP = make(map[string]*serverimplant.Implant)
+	t.Cleanup(func() { serverimplant.ImplantMAP = previousMap })
+
+	packet := new(bytes.Buffer)
+	writeMetadata(t, packet, 12345)
+	_ = binary.Write(packet, binary.BigEndian, [16]byte{})
+	_ = binary.Write(packet, binary.BigEndian, [16]byte{})
+	data := bytes.Join([][]byte{[]byte("proc"), []byte("host"), []byte("user"), []byte("invalid type")}, internal.SEP)
+	_ = binary.Write(packet, binary.BigEndian, uint16(len(data)))
+	packet.Write(data)
+
+	if err := ParseAndReg(bytes.NewReader(packet.Bytes()), httptest.NewRequest("POST", "/", nil)); !errors.Is(err, ErrMalformedPayload) {
+		t.Fatalf("invalid payload type returned %v", err)
+	}
+	if len(serverimplant.ImplantMAP) != 0 {
+		t.Fatal("invalid payload type registered a session")
+	}
+}
+
 func TestParseCallbackRejectsInvalidFramingWithoutPanicking(t *testing.T) {
 	previousMap := serverimplant.ImplantMAP
 	serverimplant.ImplantMAP = make(map[string]*serverimplant.Implant)

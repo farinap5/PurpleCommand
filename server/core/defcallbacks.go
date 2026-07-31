@@ -289,6 +289,27 @@ func runDelete(cmds []string, profile *types.Profile) int {
 			LivePrefixState.LivePrefix = profile.Prompt
 			LivePrefixState.IsEnable = true
 		}
+	} else if profile.STATE == types.SESSION {
+		if len(cmds) == 2 && (cmds[1] == "terminate" || cmds[1] == "--terminate") {
+			_, err := implant.ImplantRequestTermination()
+			if err != nil {
+				log.PrintErr(err.Error())
+				return 1
+			}
+			log.PrintInfo("termination queued; delete the session after the implant checks in")
+			return 0
+		}
+		if len(cmds) != 1 {
+			log.PrintErr("usage: delete [terminate]")
+			return 1
+		}
+		if err := implant.ImplantDelete(); err != nil {
+			log.PrintErr(err.Error())
+			return 1
+		}
+		profile.Prompt = "(session - " + implant.CurrentImplant + ")>> "
+		LivePrefixState.LivePrefix = profile.Prompt
+		LivePrefixState.IsEnable = true
 	} else if profile.STATE == types.LOOT {
 		if len(cmds) != 2 {
 			log.PrintErr("usage: delete <uuid>")
@@ -392,7 +413,12 @@ func runView(cmds []string, profile *types.Profile) int {
 }
 
 func runTaskCall(cmds []string) {
-	_, err := lua.CallCommand(cmds[0], implant.ImplantGetType(), strings.Join(cmds[1:], " "))
+	payloadType := implant.CurrentPayloadType()
+	if payloadType == "" {
+		log.PrintErr("no session is selected")
+		return
+	}
+	_, err := lua.CallCommand(cmds[0], payloadType, strings.Join(cmds[1:], " "))
 	if err != nil {
 		log.PrintErr(err.Error())
 	}

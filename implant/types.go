@@ -1,8 +1,8 @@
 package implant
 
-/*
-ImplantMetadata has 15bytes of fixed size
-*/
+// ImplantMetadata contains the 31-byte fixed network metadata block plus
+// registration-only identity strings. Type is the payload family identifier
+// used by the server to route Lua commands.
 type ImplantMetadata struct {
 	PID       uint32
 	SessionID uint32
@@ -18,5 +18,5 @@ type ImplantMetadata struct {
 	User     string
 	Hostname string
 	Proc     string
-	Type     string
+	Type     string // Payload type; for example "impl" or "linux.impl".
 }

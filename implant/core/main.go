@@ -11,8 +11,8 @@ import (
 	"time"
 )
 
-func Start(sock string) {
-	i := ImplantInit()
+func Start(sock string, payloadTypes ...string) {
+	i := ImplantInit(payloadTypes...)
 
 	h := HTTPNew(i.SessionID)
 	h.HTTPSetSocket(sock)

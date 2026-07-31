@@ -13,9 +13,10 @@ type Implant struct {
 	Enc      encrypt.Encrypt
 	Metadata implant.ImplantMetadata
 
-	Alive     bool
-	LastSeen  time.Time
-	FirstSeen time.Time
+	Alive       bool
+	Terminating bool
+	LastSeen    time.Time
+	FirstSeen   time.Time
 
 	Task    []*Task
 	TaskMap map[[8]byte]*Task

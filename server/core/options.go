@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"purpcmd/server/implant"
 	"purpcmd/server/lua"
 	"purpcmd/server/types"
 
@@ -26,10 +27,10 @@ func CmdHelp(p *types.Profile) {
 		t.AddLine("interact", "Interact with a listener. Use `interact <name>`.") //
 		t.AddLine("back", "Exit listener mode.")                                  //
 	case types.SESSION:
-		t.AddLine("delete", "Delete session.")                                   //
-		t.AddLine("list", "List sessions.")                                      //
-		t.AddLine("interact", "Interact with a session. Use `interact <name>`.") //
-		t.AddLine("back", "Exit session mode.")                                  //
+		t.AddLine("delete", "Delete a non-live session. Use `delete terminate` to terminate a live implant first.") //
+		t.AddLine("list", "List sessions.")                                                                         //
+		t.AddLine("interact", "Interact with a session. Use `interact <name>`.")                                    //
+		t.AddLine("back", "Exit session mode.")                                                                     //
 	case types.SCRIPT:
 		t.AddLine("load", "Load script.")      //
 		t.AddLine("unload", "Unload script.")  //
@@ -64,7 +65,7 @@ func CmdHelp(p *types.Profile) {
 
 	if p.STATE == types.SESSION {
 		t1 := tabby.New()
-		cmdlist := lua.LuaGetCommandDesc("a", "a")
+		cmdlist := lua.LuaGetCommandDescriptions(implant.CurrentPayloadType())
 		t1.AddHeader("AVAILABLE COMMAND", "DESCRIPTION")
 		for _, j := range cmdlist {
 			t1.AddLine(j[0], j[1])

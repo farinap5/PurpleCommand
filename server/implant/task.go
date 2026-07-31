@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"purpcmd/internal"
 	"purpcmd/server"
 )
 
@@ -53,6 +54,10 @@ func (i *Implant) taskClaimAt(now time.Time) (*Task, error) {
 			t.Sent = true
 			t.LastSent = now
 			t.Attempts++
+			if t.Code == internal.KILL {
+				i.Terminating = true
+				i.Alive = false
+			}
 
 			// Return a snapshot so callers can marshal without holding the lock.
 			claimed := *t

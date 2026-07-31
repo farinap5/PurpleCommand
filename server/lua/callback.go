@@ -1,7 +1,3 @@
-/*
-	TODO: send implant type too
-*/
-
 package lua
 
 import (
@@ -26,12 +22,13 @@ func LuaOnRegister(i implant.Implant) {
 		v.state.Push(lua.LString(i.Metadata.User))
 		v.state.Push(lua.LString(i.Metadata.Socket))
 		v.state.Push(lua.LString(fmt.Sprintf("%d", i.Metadata.SessionID)))
+		v.state.Push(lua.LString(i.Metadata.Type))
 		//v.state.Push(lua.LString(i.Metadata.IP))
 		//v.state.Push(lua.LString(i.Metadata.Sleep))
 		//v.state.Push(lua.LString(i.Metadata.PID))
 		//v.state.Push(lua.LString(i.Metadata.Arch))
 
-		v.state.PCall(6, 0, nil)
+		v.state.PCall(7, 0, nil)
 	}
 }
 
@@ -52,8 +49,9 @@ func LuaOnCheck(tid [8]byte, data string, i implant.Implant) {
 		v.state.Push(lua.LString(fmt.Sprintf("%d", i.Metadata.SessionID)))
 		v.state.Push(lua.LString(string(tid[:])))
 		v.state.Push(lua.LString(data))
+		v.state.Push(lua.LString(i.Metadata.Type))
 
-		v.state.PCall(8, 0, nil)
+		v.state.PCall(9, 0, nil)
 	}
 }
 
@@ -75,7 +73,8 @@ func LuaOnResponse(tid [8]byte, data string, i implant.Implant) {
 			v.state.Push(lua.LString(i.UUID))
 			v.state.Push(lua.LString(i.Metadata.Hostname))
 			v.state.Push(lua.LString(i.Metadata.User))
-			v.state.PCall(6, 0, nil)
+			v.state.Push(lua.LString(i.Metadata.Type))
+			v.state.PCall(7, 0, nil)
 
 			// Remove the callback after execution (one-time use)
 			v.TaskCallbacksMutex.Lock()
@@ -100,10 +99,9 @@ func LuaOnResponse(tid [8]byte, data string, i implant.Implant) {
 		v.state.Push(lua.LString(fmt.Sprintf("%d", i.Metadata.SessionID)))
 		v.state.Push(lua.LString(taskIDStr))
 		v.state.Push(lua.LString(data))
+		v.state.Push(lua.LString(i.Metadata.Type))
 
-		v.state.PCall(8, 0, nil)
+		v.state.PCall(9, 0, nil)
 	}
 
 }
-
-

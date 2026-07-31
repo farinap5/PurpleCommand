@@ -114,10 +114,10 @@ func (paux *ProfileAux) completer(d prompt.Document) []prompt.Suggest {
 			prompt.Suggest{Text: "back", Description: "Exit from session menu"},
 			prompt.Suggest{Text: "list", Description: "List session"},
 			prompt.Suggest{Text: "interact", Description: "Interact with session"},
-			prompt.Suggest{Text: "delete", Description: "Delete session"},
+			prompt.Suggest{Text: "delete", Description: "Delete session; use `delete terminate` while live"},
 		)
 
-		cmdList := lua.LuaGetCommandDesc("a", "a")
+		cmdList := lua.LuaGetCommandDescriptions(implant.CurrentPayloadType())
 		for _, j := range cmdList {
 			promptSuggestions = append(promptSuggestions,
 				prompt.Suggest{Text: j[0], Description: j[1]},

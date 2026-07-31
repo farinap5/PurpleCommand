@@ -5,6 +5,7 @@ OS        ?= linux
 ARCH      ?= amd64
 URI       ?= /
 UA        ?= Mozilla PurpCMD
+TYPE      ?= impl
 PUBLICKEY ?=
 
 GOOS      ?= $(OS)
@@ -20,6 +21,7 @@ build: ## Build implant binary (used by implantbuilder and manually)
 	@echo "[*] Generating $(TMP_SRC) ..."
 	@sed \
 		-e 's|"LHOST"|"$(LHOST)"|g' \
+		-e 's|"IMPLANT_TYPE"|"$(TYPE)"|g' \
 		-e 's|uri  := "/"|uri  := "$(URI)"|g' \
 		-e 's|"Mozilla PurpCMD"|"$(UA)"|g' \
 		main.go > $(TMP_SRC)
@@ -71,6 +73,7 @@ help: ## Show this help
 	@echo '  OS=$(OS)  ARCH=$(ARCH)'
 	@echo '  URI=$(URI)'
 	@echo '  UA=$(UA)'
+	@echo '  TYPE=$(TYPE)'
 	@echo '  PUBLICKEY=$(PUBLICKEY)'
 	@echo ''
 	@echo 'Targets:'

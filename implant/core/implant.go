@@ -56,7 +56,11 @@ func getProcessName() string {
 	return "unknown"
 }
 
-func ImplantInit() *implant.ImplantMetadata {
+func ImplantInit(payloadTypes ...string) *implant.ImplantMetadata {
+	payloadType := internal.DefaultPayloadType
+	if len(payloadTypes) > 0 && internal.ValidatePayloadType(payloadTypes[0]) == nil {
+		payloadType = payloadTypes[0]
+	}
 	return &implant.ImplantMetadata{
 		PID:       uint32(os.Getpid()),
 		SessionID: RandInt(),
@@ -68,6 +72,6 @@ func ImplantInit() *implant.ImplantMetadata {
 		Proc:     getProcessName(),
 		Hostname: getHostname(),
 		User:     getUsername(),
-		Type:     "impl",
+		Type:     payloadType,
 	}
 }

@@ -8,6 +8,7 @@ import (
 // ImplantProfile mirrors implantbuilder.Profile for DB storage.
 type ImplantProfile struct {
 	Name      string
+	Type      string
 	LHOST     string
 	OS        string
 	ARCH      string
@@ -29,9 +30,9 @@ func DBImplantProfileInsert(p ImplantProfile) error {
 		return errors.New("profile already exists")
 	}
 	_, err := DBMS.DBConn.Exec(
-		`INSERT INTO ImplantProfiles (Name, LHOST, OS, ARCH, URI, UA, Output, Template, PublicKey)
-		 VALUES (?,?,?,?,?,?,?,?,?);`,
-		p.Name, p.LHOST, p.OS, p.ARCH, p.URI, p.UA, p.Output, p.Template, p.PublicKey,
+		`INSERT INTO ImplantProfiles (Name, Type, LHOST, OS, ARCH, URI, UA, Output, Template, PublicKey)
+		 VALUES (?,?,?,?,?,?,?,?,?,?);`,
+		p.Name, p.Type, p.LHOST, p.OS, p.ARCH, p.URI, p.UA, p.Output, p.Template, p.PublicKey,
 	)
 	return err
 }
@@ -42,9 +43,9 @@ func DBImplantProfileUpdate(p ImplantProfile) error {
 	}
 	_, err := DBMS.DBConn.Exec(
 		`UPDATE ImplantProfiles
-		 SET LHOST=?, OS=?, ARCH=?, URI=?, UA=?, Output=?, Template=?, PublicKey=?
+		 SET Type=?, LHOST=?, OS=?, ARCH=?, URI=?, UA=?, Output=?, Template=?, PublicKey=?
 		 WHERE Name=?;`,
-		p.LHOST, p.OS, p.ARCH, p.URI, p.UA, p.Output, p.Template, p.PublicKey, p.Name,
+		p.Type, p.LHOST, p.OS, p.ARCH, p.URI, p.UA, p.Output, p.Template, p.PublicKey, p.Name,
 	)
 	return err
 }
@@ -60,7 +61,7 @@ func DBImplantProfileDelete(name string) error {
 func DBImplantProfileGetAll() ([]ImplantProfile, error) {
 	var profiles []ImplantProfile
 	rows, err := DBMS.DBConn.Query(
-		`SELECT Name, LHOST, OS, ARCH, URI, UA, Output, Template, PublicKey FROM ImplantProfiles;`,
+		`SELECT Name, Type, LHOST, OS, ARCH, URI, UA, Output, Template, PublicKey FROM ImplantProfiles;`,
 	)
 	if err != nil {
 		return nil, err
@@ -69,7 +70,7 @@ func DBImplantProfileGetAll() ([]ImplantProfile, error) {
 
 	for rows.Next() {
 		var p ImplantProfile
-		if err := rows.Scan(&p.Name, &p.LHOST, &p.OS, &p.ARCH, &p.URI, &p.UA, &p.Output, &p.Template, &p.PublicKey); err != nil {
+		if err := rows.Scan(&p.Name, &p.Type, &p.LHOST, &p.OS, &p.ARCH, &p.URI, &p.UA, &p.Output, &p.Template, &p.PublicKey); err != nil {
 			continue
 		}
 		profiles = append(profiles, p)

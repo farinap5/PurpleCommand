@@ -3,6 +3,10 @@ package lua
 import (
 	"fmt"
 	"os"
+	"sort"
+	"sync"
+
+	"purpcmd/internal"
 	"purpcmd/server/implant"
 	"purpcmd/server/log"
 
@@ -10,27 +14,65 @@ import (
 )
 
 var (
-	CMDMAP = make(map[string]*command_def)
+	CMDMAP   = make(map[commandKey]*commandDef)
+	cmdMapMu sync.RWMutex
 )
 
-func LuaGetCommandDesc(impl, command string) [][]string {
+// LuaGetCommandDescriptions returns only the commands registered for the exact
+// payload type of the selected session. Payload type matching is case-sensitive.
+func LuaGetCommandDescriptions(payloadType string) [][]string {
+	if internal.ValidatePayloadType(payloadType) != nil {
+		return nil
+	}
+
+	cmdMapMu.RLock()
+	defer cmdMapMu.RUnlock()
+
 	var aux [][]string
-	for _, v := range CMDMAP {
+	for key, command := range CMDMAP {
+		if key.Type != payloadType {
+			continue
+		}
 		aux = append(aux, []string{
-			v.Name, v.Description,
+			command.Name, command.Description,
 		})
 	}
+	sort.Slice(aux, func(i, j int) bool {
+		return aux[i][0] < aux[j][0]
+	})
 	return aux
 }
 
+// LuaGetCommandDesc is retained for compatibility with integrations using the
+// old API. The obsolete command argument is ignored.
+func LuaGetCommandDesc(payloadType string, _ ...string) [][]string {
+	return LuaGetCommandDescriptions(payloadType)
+}
+
 func (l *LuaProfile) command(L *lua.LState) int {
-	impl := L.CheckString(1)
+	payloadType := L.CheckString(1)
 	name := L.CheckString(2)
 	desc := L.CheckString(3)
 	fn := L.CheckFunction(4) // Get function reference
 
-	CMDMAP[impl+"."+name] = &command_def{
-		Impl:        impl,
+	if err := internal.ValidatePayloadType(payloadType); err != nil {
+		L.ArgError(1, err.Error())
+		return 0
+	}
+	if err := internal.ValidateCommandName(name); err != nil {
+		L.ArgError(2, err.Error())
+		return 0
+	}
+
+	key := commandKey{Type: payloadType, Name: name}
+	cmdMapMu.Lock()
+	defer cmdMapMu.Unlock()
+	if existing := CMDMAP[key]; existing != nil {
+		L.RaiseError("command %q for payload type %q is already registered by %s", name, payloadType, existing.ScriptName)
+		return 0
+	}
+	CMDMAP[key] = &commandDef{
+		Type:        payloadType,
 		Name:        name,
 		Description: desc,
 		ptr:         fn,
@@ -38,6 +80,16 @@ func (l *LuaProfile) command(L *lua.LState) int {
 	}
 
 	return 0
+}
+
+func removeCommandsForScript(scriptName string) {
+	cmdMapMu.Lock()
+	defer cmdMapMu.Unlock()
+	for key, command := range CMDMAP {
+		if command.ScriptName == scriptName {
+			delete(CMDMAP, key)
+		}
+	}
 }
 
 func ImplantAddUploadFileCommand(L *lua.LState) int {
@@ -94,7 +146,8 @@ func ImplantAddGenericTask(L *lua.LState) int {
 }
 
 // registerTaskCallback registers a callback function for a specific task ID
-// Usage from Lua: register_task_callback(task_id, function(task_id, response, name, uuid, hostname, user) ... end)
+// Usage from Lua: register_task_callback(task_id, function(task_id, response,
+// name, uuid, hostname, user, payload_type) ... end)
 func (l *LuaProfile) registerTaskCallback(L *lua.LState) int {
 	taskID := L.CheckString(1)
 	callback := L.CheckFunction(2)
@@ -117,13 +170,26 @@ func LuaPrint(L *lua.LState) int {
 	return 0
 }
 
-func CallCommand(name, implantType, payload string) (string, error) {
-	cmdStr, exists := CMDMAP[implantType+"."+name]
-	if !exists {
-		return "", fmt.Errorf("command %s for %s not found", name, implantType)
+func CallCommand(name, payloadType, payload string) (string, error) {
+	if err := internal.ValidatePayloadType(payloadType); err != nil {
+		return "", err
+	}
+	if err := internal.ValidateCommandName(name); err != nil {
+		return "", err
 	}
 
-	L := ScriptMAP[cmdStr.ScriptName].state
+	cmdMapMu.RLock()
+	cmdStr, exists := CMDMAP[commandKey{Type: payloadType, Name: name}]
+	cmdMapMu.RUnlock()
+	if !exists {
+		return "", fmt.Errorf("command %q for payload type %q not found", name, payloadType)
+	}
+
+	profile := ScriptMAP[cmdStr.ScriptName]
+	if profile == nil {
+		return "", fmt.Errorf("script %q for command %q is not loaded", cmdStr.ScriptName, name)
+	}
+	L := profile.state
 	L.Push(cmdStr.ptr)
 
 	L.Push(lua.LString(payload))

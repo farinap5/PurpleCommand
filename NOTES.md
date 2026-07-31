@@ -88,6 +88,8 @@ I completed an end-to-end audit of the repository. It compiles, but I would not 
 
 14. Session deletion cannot work as documented.
 
+   **Historical finding — fixed. See “Fix report: finding 14” below.**
+
    Help advertises session deletion, but [runDelete](/home/elf/go/src/PurpleCommand/server/core/defcallbacks.go:282) contains no session branch. Even if called directly, implants initialize `Alive=true`, never transition to false, and [ImplantDelete](/home/elf/go/src/PurpleCommand/server/implant/implant.go:81) refuses to delete a live implant.
 
 15. Sensitive cryptographic and operation data is logged.
@@ -292,3 +294,67 @@ Regression coverage:
 
 This fix hardens the existing protocol; it does not replace the CBC/HMAC design
 or add replay protection. Those remain tracked separately under finding 5.
+
+## Fix report: finding 14
+
+Implemented on July 31, 2026.
+
+### 14. Session deletion now follows the implant lifecycle
+
+Status: fixed.
+
+- The session-mode `delete` command now calls the session deletion code.
+- A selected live session cannot be deleted. The CLI explains that the operator
+  must use `delete terminate` (or `delete --terminate`) first.
+- `delete terminate` queues exactly one KILL task and retains the session so the
+  pending task is not discarded before the next implant check-in.
+- Dispatching the KILL task transitions the session out of the live state. The
+  operator can then run `delete` to remove it from the server.
+- A repeated termination request does not enqueue duplicate KILL tasks.
+- Sessions that have missed their configured sleep/check-in interval transition
+  to dead using the same rule displayed by `session list`, and can be deleted
+  without requesting termination.
+- A later check-in revives an ordinary stale session, but does not cancel a
+  pending termination request.
+- Session help and completion text now document the live-session behavior and
+  termination syntax.
+
+Regression coverage verifies that live deletion is refused, termination is
+queued once, a dispatched KILL makes deletion possible, stale sessions are
+deletable, and the session CLI invokes the lifecycle operations.
+
+## Consistency report: payload type functionality
+
+Implemented on July 31, 2026.
+
+The codebase now uses **payload type** as the conceptual name and `Type` as the
+Go field name. Local variables named `imp` still mean an implant instance; they
+are not type selectors. The old `command_def.Impl` field was replaced by
+`commandDef.Type`.
+
+End-to-end contract:
+
+- Build profiles have a persisted `TYPE` option. Existing database rows migrate
+  to the compatible default `impl`.
+- Both direct Go builds and Makefile builds embed the profile type, and the
+  implant includes it in registration metadata.
+- Registration, profile configuration, and Lua command registration share one
+  payload-type validator. Type matching is exact and case-sensitive.
+- Lua commands are keyed by a structured `(Type, Name)` pair. Duplicate pairs
+  are rejected instead of silently replacing another script's handler.
+- Script unload and failed script load remove commands owned by that script, so
+  stale suggestions cannot point to missing Lua states.
+- Command dispatch uses the selected session's metadata type.
+- Session help and completion now show only commands for the selected payload
+  type and sort them deterministically.
+- Session listings and `interact` suggestions display the payload type used for
+  routing.
+- Lua lifecycle and task-specific callbacks receive the payload type as their
+  final argument.
+- `LuaGetCommandDesc` remains as a compatibility wrapper; new code uses the
+  type-specific `LuaGetCommandDescriptions` API.
+
+Regression coverage uses two payload types with overlapping command names to
+verify isolated suggestions and dispatch. It also covers invalid type rejection,
+duplicate registration, unload cleanup, callback arguments, builder defaults,
+implant initialization, registration parsing, and migration of old databases.

@@ -1,29 +1,33 @@
 package lua
 
 import (
-"purpcmd/server/implantbuilder"
-"purpcmd/server/log"
+	"purpcmd/internal"
+	"purpcmd/server/implantbuilder"
+	"purpcmd/server/log"
 
-lua "github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 )
 
 // LuaRegisterImplantProfile exposes implant_register_profile(name, table) to Lua.
 //
 // Lua usage:
-//   implant_register_profile("myprofile", {
-//       lhost    = "192.168.1.1:4444",
-//       os       = "linux",
-//       arch     = "amd64",
-//       uri      = "/beacon",
-//       ua       = "Mozilla/5.0",
-//       output   = "shell",
-//       template = "./template",
-//   })
+//
+//	implant_register_profile("myprofile", {
+//	    type     = "impl",
+//	    lhost    = "192.168.1.1:4444",
+//	    os       = "linux",
+//	    arch     = "amd64",
+//	    uri      = "/beacon",
+//	    ua       = "Mozilla/5.0",
+//	    output   = "shell",
+//	    template = "./template",
+//	})
 func LuaRegisterImplantProfile(L *lua.LState) int {
 	name := L.CheckString(1)
 	tbl := L.CheckTable(2)
 
 	p := implantbuilder.Profile{
+		Type:     internal.DefaultPayloadType,
 		OS:       "linux",
 		ARCH:     "amd64",
 		URI:      "/",
@@ -32,6 +36,9 @@ func LuaRegisterImplantProfile(L *lua.LState) int {
 		Template: "./template",
 	}
 
+	if v := tbl.RawGetString("type"); v != lua.LNil {
+		p.Type = v.String()
+	}
 	if v := tbl.RawGetString("lhost"); v != lua.LNil {
 		p.LHOST = v.String()
 	}

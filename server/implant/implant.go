@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"purpcmd/implant"
+	"purpcmd/internal"
 	"purpcmd/internal/encrypt"
 	"purpcmd/server/log"
 	"sync"
@@ -17,6 +18,11 @@ import (
 var (
 	ImplantMAP            = make(map[string]*Implant)
 	CurrentImplant string = "none"
+
+	ErrNoCurrentImplant   = errors.New("no session is selected")
+	ErrImplantAlive       = errors.New("session is alive; run `delete terminate` to request implant termination")
+	ErrTerminationPending = errors.New("implant termination is pending; wait for its next check-in before deleting")
+	ErrImplantNotAlive    = errors.New("session is not alive; run `delete` to remove it")
 )
 
 func (i *Implant) ImplantAddImplant() {
@@ -54,25 +60,32 @@ func ImplantList() {
 
 	t := tabby.New()
 	c := 1
-	t.AddHeader("N", "NAME", "USERNAME", "MACHINE", "UUID", "SOCKET", "PID", "SLEEP", "LAST SEEN", "STATUS")
+	t.AddHeader("N", "NAME", "TYPE", "USERNAME", "MACHINE", "UUID", "SOCKET", "PID", "SLEEP", "LAST SEEN", "STATUS")
+	now := time.Now()
 	for k, v := range ImplantMAP {
+		alive, terminating, lastSeen := v.implantLifecycleAt(now)
 
-		lastS := int(time.Since(v.LastSeen).Seconds())
+		lastS := int(now.Sub(lastSeen).Seconds())
+		if lastS < 0 {
+			lastS = 0
+		}
 		aux := "s"
 		if lastS > 360 {
-			lastS = int(time.Since(v.LastSeen).Minutes())
+			lastS = int(now.Sub(lastSeen).Minutes())
 			aux = "m"
 			if lastS > 360 {
-				lastS = int(time.Since(v.LastSeen).Hours())
+				lastS = int(now.Sub(lastSeen).Hours())
 				aux = "h"
 			}
 		}
 		status := "\u001B[1;32mhealthy\u001B[0;0m"
-		if time.Since(v.LastSeen).Seconds() > float64(v.Metadata.Sleep) {
+		if terminating && alive {
+			status = "\u001B[1;33mterminating\u001B[0;0m"
+		} else if !alive {
 			status = "\u001B[1;31mdead\u001B[0;0m"
 		}
 
-		t.AddLine(c, k, v.Metadata.User, v.Metadata.Hostname, v.UUID[24:], v.Metadata.Socket, v.Metadata.PID, v.Metadata.Sleep, fmt.Sprintf("%d%s ago", lastS, aux), status)
+		t.AddLine(c, k, v.Metadata.Type, v.Metadata.User, v.Metadata.Hostname, v.UUID[24:], v.Metadata.Socket, v.Metadata.PID, v.Metadata.Sleep, fmt.Sprintf("%d%s ago", lastS, aux), status)
 		c += 1
 	}
 	print("\n")
@@ -81,18 +94,65 @@ func ImplantList() {
 }
 
 func ImplantDelete() error {
-	if ImplantMAP[CurrentImplant] != nil {
-		if ImplantMAP[CurrentImplant].Alive {
-			return errors.New("listener is running")
-		}
-
-		delete(ImplantMAP, CurrentImplant)
-		log.PrintSuccs("Session " + CurrentImplant + " deleted")
-		CurrentImplant = "none"
-	} else {
-		return errors.New("no listener")
+	name := CurrentImplant
+	if name == "none" {
+		return ErrNoCurrentImplant
 	}
+	imp := ImplantMAP[name]
+	if imp == nil {
+		return ErrNoCurrentImplant
+	}
+
+	mu := imp.taskMutex()
+	mu.Lock()
+	imp.refreshAliveLocked(time.Now())
+	if imp.Alive {
+		terminating := imp.Terminating
+		mu.Unlock()
+		if terminating {
+			return ErrTerminationPending
+		}
+		return ErrImplantAlive
+	}
+	mu.Unlock()
+
+	delete(ImplantMAP, name)
+	log.PrintSuccs("Session " + name + " deleted")
+	CurrentImplant = "none"
 	return nil
+}
+
+// ImplantRequestTermination queues a single KILL task for the selected live
+// implant. The session remains present until the task is dispatched, ensuring
+// deletion cannot discard the termination request before the implant sees it.
+func ImplantRequestTermination() ([8]byte, error) {
+	name := CurrentImplant
+	if name == "none" || ImplantMAP[name] == nil {
+		return [8]byte{}, ErrNoCurrentImplant
+	}
+
+	imp := ImplantMAP[name]
+	mu := imp.taskMutex()
+	mu.Lock()
+	defer mu.Unlock()
+
+	imp.refreshAliveLocked(time.Now())
+	if !imp.Alive {
+		return [8]byte{}, ErrImplantNotAlive
+	}
+	for _, task := range imp.Task {
+		if task.Code == internal.KILL && !task.Done {
+			imp.Terminating = true
+			return task.ID, ErrTerminationPending
+		}
+	}
+
+	task := TaskNew(internal.KILL, nil)
+	imp.Task = append(imp.Task, task)
+	imp.TaskMap[task.ID] = task
+	imp.Terminating = true
+	log.PrintInfo("implant termination task added: ", string(task.ID[:]))
+	return task.ID, nil
 }
 
 func ImplantInteract(name string) error {
@@ -104,7 +164,10 @@ func ImplantInteract(name string) error {
 }
 
 func (i *Implant) ImplantSetAlive() {
-	if !i.Alive {
+	mu := i.taskMutex()
+	mu.Lock()
+	defer mu.Unlock()
+	if !i.Terminating {
 		i.Alive = true
 	}
 }
@@ -118,7 +181,30 @@ func ImplantPtrByName(name string) *Implant {
 }
 
 func (i *Implant) ImplantUpdateLastseen() {
+	mu := i.taskMutex()
+	mu.Lock()
+	defer mu.Unlock()
 	i.LastSeen = time.Now()
+	if !i.Terminating {
+		i.Alive = true
+	}
+}
+
+func (i *Implant) refreshAliveLocked(now time.Time) {
+	if !i.Alive || i.Metadata.Sleep == 0 {
+		return
+	}
+	if now.Sub(i.LastSeen) > time.Duration(i.Metadata.Sleep)*time.Second {
+		i.Alive = false
+	}
+}
+
+func (i *Implant) implantLifecycleAt(now time.Time) (alive, terminating bool, lastSeen time.Time) {
+	mu := i.taskMutex()
+	mu.Lock()
+	defer mu.Unlock()
+	i.refreshAliveLocked(now)
+	return i.Alive, i.Terminating, i.LastSeen
 }
 
 func ImplantCount() int {
@@ -176,6 +262,9 @@ func (i *Implant) ImplantAddTask(task *Task) {
 	i.pruneCompletedTasksLocked(time.Now())
 	i.Task = append(i.Task, task)
 	i.TaskMap[task.ID] = task
+	if task.Code == internal.KILL {
+		i.Terminating = true
+	}
 	log.PrintInfo("new task added: ", string(task.ID[:]))
 }
 
@@ -194,15 +283,22 @@ func (i *Implant) ImplantGetTaskStr() (string, [8]byte, error) {
 func ImplantListForSuggestions() [][]string {
 	var suggestions [][]string
 	for k, v := range ImplantMAP {
-		suggestions = append(suggestions, []string{k, v.Metadata.Hostname + "@" + v.Metadata.User})
+		description := v.Metadata.Type + " " + v.Metadata.Hostname + "@" + v.Metadata.User
+		suggestions = append(suggestions, []string{k, description})
 	}
 	return suggestions
 }
 
-func ImplantGetType() string {
+func CurrentPayloadType() string {
 	imp := ImplantMAP[CurrentImplant]
 	if imp == nil {
 		return ""
 	}
 	return imp.Metadata.Type
+}
+
+// ImplantGetType is retained for compatibility. New code should use
+// CurrentPayloadType to make clear that this is a command-routing identifier.
+func ImplantGetType() string {
+	return CurrentPayloadType()
 }

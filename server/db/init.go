@@ -3,6 +3,9 @@ package db
 import (
 	"database/sql"
 	"os"
+	"strings"
+
+	"purpcmd/internal"
 	"purpcmd/server/log"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -17,8 +20,7 @@ func CheckDB() error {
 	}
 
 	DBMS = *dbms
-	DBMS.dbCreateDs()
-	return nil
+	return DBMS.dbCreateDs()
 }
 
 func DBInit() (*DBDef, error) {
@@ -93,6 +95,7 @@ func (db *DBDef) dbCreateDs() error {
 	CREATE TABLE IF NOT EXISTS ImplantProfiles (
 		Pid			INTEGER PRIMARY KEY AUTOINCREMENT,
 		Name		TEXT NOT NULL UNIQUE,
+		Type		TEXT NOT NULL DEFAULT 'impl',
 		LHOST		TEXT NOT NULL,
 		OS			TEXT NOT NULL,
 		ARCH		TEXT NOT NULL,
@@ -109,5 +112,41 @@ func (db *DBDef) dbCreateDs() error {
 		sttm.Exec()
 	}
 
-	return nil
+	return db.ensureImplantProfileTypeColumn()
+}
+
+// ensureImplantProfileTypeColumn migrates databases created before payload
+// types were persisted on implant build profiles.
+func (db *DBDef) ensureImplantProfileTypeColumn() error {
+	rows, err := db.DBConn.Query(`PRAGMA table_info(ImplantProfiles);`)
+	if err != nil {
+		return err
+	}
+	found := false
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			rows.Close()
+			return err
+		}
+		if strings.EqualFold(name, "Type") {
+			found = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if found {
+		return nil
+	}
+	_, err = db.DBConn.Exec(
+		`ALTER TABLE ImplantProfiles ADD COLUMN Type TEXT NOT NULL DEFAULT '` + internal.DefaultPayloadType + `'`,
+	)
+	return err
 }

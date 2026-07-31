@@ -9,10 +9,10 @@ import (
 )
 
 type LuaProfile struct {
-	script 	string
-	state 	*lua.LState
+	script  string
+	state   *lua.LState
 	Profile *types.Profile
-	Running  bool
+	Running bool
 
 	ctx     context.Context
 	cancel  context.CancelFunc
@@ -20,16 +20,20 @@ type LuaProfile struct {
 	closing sync.Once
 
 	// Task-specific callbacks: task_id -> callback function
-	TaskCallbacks map[string]*lua.LFunction
+	TaskCallbacks      map[string]*lua.LFunction
 	TaskCallbacksMutex sync.RWMutex
 }
 
-
-type command_def struct {
-	Impl string
+type commandKey struct {
+	Type string
 	Name string
+}
+
+type commandDef struct {
+	Type        string
+	Name        string
 	Description string
-	ScriptName string
+	ScriptName  string
 
 	ptr *lua.LFunction
 }

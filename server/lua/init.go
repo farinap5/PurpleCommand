@@ -38,8 +38,13 @@ func LuaNew(path string) (*LuaProfile, error) {
 	l.state.SetGlobal("register_task_callback", l.state.NewFunction(l.registerTaskCallback))
 	l.state.SetGlobal("lua_print", l.state.NewFunction(LuaPrint))
 	err := l.state.DoFile(path)
+	if err != nil {
+		removeCommandsForScript(path)
+		l.state.Close()
+		return nil, err
+	}
 
-	return l, err
+	return l, nil
 }
 
 func LuaLoad(path string) {
@@ -69,6 +74,7 @@ func LuaUnload(path string) {
 	}
 
 	log.PrintInfo("Unloading script ", path)
+	removeCommandsForScript(path)
 	delete(ScriptMAP, path)
 	db.DBScriptDelete(path)
 }

@@ -105,7 +105,7 @@ Task messages are sent from C2 to implant in response to CHK messages. Structure
 
 ## Packet Structure
 
-### Common Metadata Block (25 bytes)
+### Common Metadata Block (31 bytes)
 All implant messages (except registration encryption layer) contain this metadata:
 
 ```
@@ -124,19 +124,19 @@ Offset | Size | Type   | Field      | Description
 ### 1. REG (Registration) - Before Encryption
 ```
 [MessageType: uint16] = 1
-[Metadata: 25 bytes]
+[Metadata: 31 bytes]
 [AES Key: 16 bytes]
 [AES IV: 16 bytes]
 [DataLen: uint16]
 [Data: variable]
-   └─ Hostname\x00User\x00Process\x00ImplantType\x00
+   └─ Process\x00Hostname\x00User\x00PayloadType
 ```
 
 **Data Section** is null-byte separated strings:
 - Process name (e.g., "sshd")
 - Hostname (e.g., "webserver01")
 - Username (e.g., "www-data")
-- Implant type (e.g., "impl")
+- Payload type (e.g., "impl")
 
 **Encryption**: Entire packet is RSA-encrypted, then Base64-encoded.
 
@@ -145,7 +145,7 @@ Offset | Size | Type   | Field      | Description
 ### 2. CHK (Check-in)
 ```
 [MessageType: uint16] = 2
-[Metadata: 25 bytes]
+[Metadata: 31 bytes]
 ```
 
 **Encryption**: AES-CBC encrypt → Append HMAC(16 bytes) → Base64 encode
@@ -587,7 +587,40 @@ binary content limit may be lower than 8 MiB when transported in a 10 MiB body.
 
 ---
 
-## Implant Type Definitions (Lua Script)
+## Payload Type and Lua Command Routing
+
+Every implant presents a payload `Type` in its registration data. This stable
+identifier connects three parts of the system:
+
+1. An implant build profile sets `TYPE` (default: `impl`).
+2. The generated implant registers that value in `ImplantMetadata.Type`.
+3. Lua registers supported commands with
+   `command(payload_type, name, description, handler)`.
+
+The server uses the exact, case-sensitive pair `(payload_type, command_name)`
+for both CLI suggestions and command dispatch. Commands for other types are not
+shown and cannot be invoked through the selected session. A command must be
+registered separately for every payload type that implements it. Duplicate
+registrations for the same pair are rejected, and unloading a script removes
+the commands owned by that script.
+
+Payload type identifiers are 1-64 bytes and may contain ASCII letters, digits,
+dots, underscores, and hyphens. Command names have the same length limit but do
+not allow dots. Invalid types are rejected during Lua registration, profile
+configuration, and implant registration.
+
+Example:
+
+```lua
+command("impl", "ping", "Ping the default implant", ping_impl)
+command("iot.v1", "ping", "Ping the IoT payload", ping_iot)
+```
+
+Existing build profiles are migrated with `TYPE=impl`. Operators can configure
+a different type with `set TYPE <payload-type>` or the `type` field of
+`implant_register_profile`.
+
+### Default `impl` Commands
 
 From the Lua configuration, the implant type "impl" supports these commands:
 
@@ -605,9 +638,14 @@ From the Lua configuration, the implant type "impl" supports these commands:
 
 ### Lua Callback Functions (Optional)
 The C2 server can define Lua callbacks for implant lifecycle events:
-- `OnRegister(name, uuid, hostname, user, socket)` - Called when implant registers
-- `OnCheck(name, uuid, hostname, user, data, task)` - Called on check-in
-- `OnResponse(name, uuid, hostname, user, response, task)` - Called on task response
+- `OnRegister(name, uuid, hostname, user, socket, session_id, payload_type)`
+- `OnCheck(name, uuid, hostname, user, socket, session_id, task_id, data, payload_type)`
+- `OnResponse(name, uuid, hostname, user, socket, session_id, task_id, data, payload_type)`
+- `register_task_callback` handlers receive
+  `(task_id, response, name, uuid, hostname, user, payload_type)`.
+
+`payload_type` is appended to the older callback argument lists, so Lua
+functions that accept only the previous fixed arguments continue to work.
 
 ---
 
@@ -679,5 +717,5 @@ HMAC: 16 bytes (truncated SHA256)
 ---
 
 **Document Version:** 1.0  
-**Last Updated:** May 2, 2026  
+**Last Updated:** July 31, 2026
 **Protocol Version:** PurpleCommand v1

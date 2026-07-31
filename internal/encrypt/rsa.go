@@ -1,6 +1,7 @@
 package encrypt
 
 import (
+	"crypto/aes"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -78,8 +79,11 @@ func (e Encrypt) RSADecode(data []byte) ([]byte, error) {
 	}
 
 	rsaKeyLen := privKey.Size()
-	if len(data) < rsaKeyLen {
-		return nil, fmt.Errorf("RSADecode: data too short (%d < %d)", len(data), rsaKeyLen)
+	if len(data) < rsaKeyLen+aes.BlockSize {
+		return nil, fmt.Errorf("RSADecode: data too short for key and payload")
+	}
+	if (len(data)-rsaKeyLen)%aes.BlockSize != 0 {
+		return nil, fmt.Errorf("RSADecode: encrypted payload is not block-aligned")
 	}
 
 	decodedKeys, err := rsa.DecryptPKCS1v15(rand.Reader, privKey, data[:rsaKeyLen])

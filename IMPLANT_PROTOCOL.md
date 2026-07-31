@@ -553,6 +553,25 @@ This is sent as GET parameter or body.
 
 ## Security Considerations
 
+### Parser and Transport Limits
+
+The server validates the complete cryptographic and binary envelope before
+processing a callback. Current limits are:
+
+| Field | Maximum |
+|------|---------|
+| Base64-encoded HTTP callback | 10 MiB |
+| Decoded callback envelope | 8 MiB |
+| Registration string block | 4 KiB |
+| Response payload | 8 MiB |
+| Loot filename | 4 KiB |
+| Loot content | 8 MiB |
+
+Declared lengths must fit within the bytes remaining in the packet, and no
+trailing data is permitted. Malformed callbacks receive HTTP 400; unsupported
+HTTP methods receive HTTP 405. Because Base64 expands data, the practical
+binary content limit may be lower than 8 MiB when transported in a 10 MiB body.
+
 ### Key Points:
 1. **RSA Key**: Server's public key must be embedded in the implant
 2. **AES Key**: Generated once per implant session, shared during registration

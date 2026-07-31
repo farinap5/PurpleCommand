@@ -1,19 +1,22 @@
 package listener
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"strings"
+
 	"purpcmd/internal"
 	"purpcmd/server/callback"
-
-	//imp "purpcmd/server/implant"
 	"purpcmd/server/log"
 	"purpcmd/server/ssh"
 	"purpcmd/server/utils"
-	"strings"
 
 	"github.com/gorilla/websocket"
 )
+
+var errUnsupportedCallbackMethod = errors.New("unsupported callback method")
 
 func (l *Listener) root(w http.ResponseWriter, r *http.Request) {
 	if strings.Contains(r.URL.Path, ".png") || strings.Contains(r.URL.Path, ".jpg") || strings.Contains(r.URL.Path, ".gif") {
@@ -31,7 +34,17 @@ func (l *Listener) root(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a, task := processPayload(w, r)
+	a, task, err := processPayload(w, r)
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, errUnsupportedCallbackMethod) {
+			status = http.StatusMethodNotAllowed
+			w.Header().Set("Allow", "GET, POST")
+		}
+		log.PrintErr("Rejected callback: ", err)
+		http.Error(w, http.StatusText(status), status)
+		return
+	}
 
 	if uint16(a) == internal.NIL {
 		w.WriteHeader(404)
@@ -50,26 +63,27 @@ func (l *Listener) root(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("Hi!"))
 }
 
-func processPayload(w http.ResponseWriter, r *http.Request) (uint16, []byte) {
+func processPayload(w http.ResponseWriter, r *http.Request) (uint16, []byte, error) {
 	var data []byte
-	var err error
 
 	name := r.URL.Query().Get("a")
 
-	if r.Method == "GET" {
-		cookies := r.Cookies()
-		if len(cookies) == 0 {
-			return internal.NIL, []byte{}
-		} else {
-			data = []byte(cookies[0].Value)
+	switch r.Method {
+	case http.MethodGet:
+		cookie, err := r.Cookie("a")
+		if err != nil {
+			return internal.NIL, nil, fmt.Errorf("%w: missing callback cookie", callback.ErrMalformedPayload)
 		}
-	} else if r.Method == "POST" {
-		r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10 MB limit
+		data = []byte(cookie.Value)
+	case http.MethodPost:
+		r.Body = http.MaxBytesReader(w, r.Body, callback.MaxEncodedPayloadSize)
+		var err error
 		data, err = io.ReadAll(r.Body)
 		if err != nil {
-			log.AsyncWriteStdout(err.Error())
-			return internal.NIL, []byte{}
+			return internal.NIL, nil, fmt.Errorf("%w: read callback body: %v", callback.ErrMalformedPayload, err)
 		}
+	default:
+		return internal.NIL, nil, errUnsupportedCallbackMethod
 	}
 
 	return callback.ParseCallback(data, r, name)

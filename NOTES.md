@@ -22,6 +22,8 @@ I completed an end-to-end audit of the repository. It compiles, but I would not 
 
 4. Malformed network data can panic or exhaust the server.
 
+   **Historical finding — fixed. See “Fix report: finding 4” below.**
+
    [HMACVerifyHash](/home/elf/go/src/PurpleCommand/internal/encrypt/hmac.go:14) slices `len(pack)-16` without first requiring 16 bytes. Base64 errors are ignored before calling it in [ParseCallback](/home/elf/go/src/PurpleCommand/server/callback/callback.go:41). Likewise, CBC decryption does not validate block alignment before `CryptBlocks`.
 
    Response, filename, and content lengths are trusted before allocation in [callback.go](/home/elf/go/src/PurpleCommand/server/callback/callback.go:181). A party can register its own implant, send an authenticated packet declaring a multi-gigabyte length inside a small request, and potentially exhaust server memory.
@@ -224,3 +226,69 @@ Regression coverage:
 - Export truncates stale destination data.
 - Ambiguous fragments are rejected while exact UUIDs still resolve.
 - A failed database insert removes the newly created file.
+
+## Fix report: finding 4
+
+Implemented on July 31, 2026.
+
+### 4. Malformed network data is rejected without panics or unbounded allocation
+
+Status: fixed at the server callback boundary.
+
+Cryptographic framing:
+
+- HMAC verification rejects frames shorter than the 16-byte tag before taking
+  any slices.
+- Authenticated callback frames must contain at least one AES block plus the
+  HMAC tag.
+- AES-CBC decryption rejects uninitialized ciphers, empty ciphertext, and
+  ciphertext that is not block-aligned before calling `CryptBlocks`.
+- PKCS#7 unpadding validates every padding byte, not only the final byte.
+- RSA registration frames must contain a complete RSA key block followed by at
+  least one aligned AES block.
+- Base64 is decoded in strict standard form. Whitespace, non-alphabet bytes,
+  invalid padding, empty input, and oversized input are rejected.
+
+Binary parsing and allocation limits:
+
+- Every metadata and packet field read now returns and propagates an error.
+- Lengths are checked against both a configured maximum and the actual bytes
+  remaining before memory is allocated.
+- Registration metadata and loot filenames are limited to 4 KiB.
+- Response and loot-content fields are limited to 8 MiB.
+- Encoded HTTP payloads are limited to 10 MiB and decoded payloads to 8 MiB.
+- All packet types reject trailing bytes, preventing alternate or ambiguous
+  packet interpretations.
+- Registration packets are accepted only on the registration route; encrypted
+  session routes reject registration message types.
+- The session ID inside encrypted metadata must match the session selected by
+  the authenticated request parameter.
+- A final recovery guard converts any unforeseen parser panic into a malformed
+  payload error instead of allowing it to escape the callback boundary.
+
+HTTP behavior:
+
+- Parser errors propagate to the listener and produce HTTP 400 without
+  incrementing listener association state.
+- Unsupported methods produce HTTP 405 with `Allow: GET, POST`.
+- GET callbacks require the cookie named `a`; an unrelated first cookie is no
+  longer interpreted as callback data.
+- POST bodies use the same 10 MiB limit as the Base64 parser.
+- Detailed errors are logged server-side while clients receive generic HTTP
+  status text.
+
+Regression coverage:
+
+- Short HMAC frames and empty/misaligned CBC ciphertext do not panic.
+- Invalid PKCS#7 padding and incomplete RSA hybrid frames are rejected.
+- Every truncated metadata length is rejected.
+- Claimed 4 GiB response lengths fail before allocation.
+- Oversized filenames/content and packets with trailing bytes are rejected.
+- Invalid/non-canonical Base64, short authenticated frames, and valid-HMAC but
+  misaligned ciphertext are rejected.
+- Encrypted cross-session metadata is rejected.
+- Malformed HTTP requests return 400/405 and do not change association state.
+- A fuzz target exercises metadata parsing with arbitrary byte strings.
+
+This fix hardens the existing protocol; it does not replace the CBC/HMAC design
+or add replay protection. Those remain tracked separately under finding 5.

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
 	impx "purpcmd/implant"
 	"purpcmd/internal"
 	"purpcmd/internal/encrypt"
@@ -17,117 +18,212 @@ import (
 	"purpcmd/server/lua"
 )
 
-func ParseCallback(d []byte, req *http.Request, name string) (uint16, []byte) {
-	var r io.Reader
+const (
+	MaxEncodedPayloadSize      = 10 << 20
+	maxDecodedPayloadSize      = 8 << 20
+	maxRegistrationDataSize    = 4 << 10
+	maxResponsePayloadSize     = 8 << 20
+	maxLootFileNameSize        = 4 << 10
+	maxLootContentSize         = 8 << 20
+	callbackHMACSize           = 16
+	minimumAuthenticatedPacket = callbackHMACSize + 16
+)
 
-	if name == "" {
-		dataB64 := make([]byte, base64.StdEncoding.DecodedLen(len(d)))
-		n, _ := base64.StdEncoding.Decode(dataB64, d)
+var ErrMalformedPayload = errors.New("malformed callback payload")
 
-		var aux encrypt.Encrypt
-		a, err := aux.RSADecode(dataB64[:n])
-		if err != nil {
-			return internal.NIL, []byte{}
+func malformed(format string, args ...any) error {
+	return fmt.Errorf("%w: %s", ErrMalformedPayload, fmt.Sprintf(format, args...))
+}
+
+func ParseCallback(encoded []byte, req *http.Request, authenticatedName string) (messageType uint16, task []byte, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			messageType = internal.NIL
+			task = nil
+			err = malformed("recovered parser panic: %v", recovered)
 		}
+	}()
 
-		r = bytes.NewReader(a)
-	} else {
-		imp := implant.ImplantPtrByName(name)
-		if imp == nil {
-			// error no session for given ID
-			return internal.NIL, []byte{}
-		}
-
-		dataB64 := make([]byte, base64.StdEncoding.DecodedLen(len(d)))
-		n, _ := base64.StdEncoding.Decode(dataB64, d)
-
-		if !imp.Enc.HMACVerifyHash(dataB64[:n]) {
-			// error HMAC do not match
-			return internal.NIL, []byte{}
-		}
-
-		dataOrig := dataB64[:n][:len(dataB64[:n])-16]
-		data, err := imp.Enc.AESCbcDecrypt(dataOrig)
-		if err != nil {
-			// error problem with enc
-			panic(err)
-		}
-
-		r = bytes.NewReader(data)
-	}
-
-	var messageType uint16
-	err := binary.Read(r, binary.BigEndian, &messageType)
+	decoded, err := decodePayload(encoded)
 	if err != nil {
-		if err == io.EOF {
-			return internal.NIL, []byte{}
+		return internal.NIL, nil, err
+	}
+
+	var plaintext []byte
+	if authenticatedName == "" {
+		var rsaEncryption encrypt.Encrypt
+		plaintext, err = rsaEncryption.RSADecode(decoded)
+		if err != nil {
+			return internal.NIL, nil, malformed("registration decrypt failed: %v", err)
+		}
+	} else {
+		imp := implant.ImplantPtrByName(authenticatedName)
+		if imp == nil {
+			return internal.NIL, nil, malformed("unknown session")
+		}
+		if len(decoded) < minimumAuthenticatedPacket {
+			return internal.NIL, nil, malformed("authenticated packet is too short")
+		}
+		if !imp.Enc.HMACVerifyHash(decoded) {
+			return internal.NIL, nil, malformed("HMAC verification failed")
+		}
+
+		ciphertext := decoded[:len(decoded)-callbackHMACSize]
+		plaintext, err = imp.Enc.AESCbcDecrypt(ciphertext)
+		if err != nil {
+			return internal.NIL, nil, malformed("session decrypt failed: %v", err)
 		}
 	}
 
-	var task []byte
+	reader := bytes.NewReader(plaintext)
+	if err := readBinary(reader, &messageType, "message type"); err != nil {
+		return internal.NIL, nil, err
+	}
+	if authenticatedName == "" && messageType != internal.REG {
+		return internal.NIL, nil, malformed("registration endpoint received message type %d", messageType)
+	}
+	if authenticatedName != "" && messageType == internal.REG {
+		return internal.NIL, nil, malformed("session endpoint received registration message")
+	}
+
 	switch messageType {
 	case internal.REG:
-		err = ParseAndReg(r, req)
+		err = ParseAndReg(reader, req)
 	case internal.CHK:
-		task, err = ParseCheck(r, req)
+		task, err = ParseCheck(reader, authenticatedName)
 	case internal.RSP:
-		err = ParseResponse(r, req)
+		err = ParseResponse(reader, authenticatedName)
 	case internal.CHU:
-		err = ParseChunkData(r, req)
-		if err != nil {
-			log.AsyncWriteStdoutAlert(err.Error())
-		}
+		err = ParseChunkData(reader, authenticatedName)
 	default:
-		messageType = internal.NIL
+		err = malformed("unknown message type %d", messageType)
 	}
-
-	return messageType, task
+	if err != nil {
+		return internal.NIL, nil, err
+	}
+	return messageType, task, nil
 }
 
-func ParseMetadata(r io.Reader, i *impx.ImplantMetadata) {
-	binary.Read(r, binary.BigEndian, &i.PID)
-	binary.Read(r, binary.BigEndian, &i.SessionID)
-	binary.Read(r, binary.BigEndian, &i.OTS)
-	binary.Read(r, binary.BigEndian, &i.IP)
-	binary.Read(r, binary.BigEndian, &i.Port)
-	binary.Read(r, binary.BigEndian, &i.Sleep)
-	binary.Read(r, binary.BigEndian, &i.Arch)
+func decodePayload(encoded []byte) ([]byte, error) {
+	if len(encoded) == 0 {
+		return nil, malformed("empty encoded payload")
+	}
+	if len(encoded) > MaxEncodedPayloadSize {
+		return nil, malformed("encoded payload exceeds %d bytes", MaxEncodedPayloadSize)
+	}
+	for _, value := range encoded {
+		if !((value >= 'A' && value <= 'Z') || (value >= 'a' && value <= 'z') ||
+			(value >= '0' && value <= '9') || value == '+' || value == '/' || value == '=') {
+			return nil, malformed("payload is not canonical base64")
+		}
+	}
+
+	decoded, err := base64.StdEncoding.Strict().DecodeString(string(encoded))
+	if err != nil {
+		return nil, malformed("invalid base64: %v", err)
+	}
+	if len(decoded) > maxDecodedPayloadSize {
+		return nil, malformed("decoded payload exceeds %d bytes", maxDecodedPayloadSize)
+	}
+	return decoded, nil
 }
 
-func ParseAndReg(r io.Reader, req *http.Request) error {
-	i := new(impx.ImplantMetadata)
-	ParseMetadata(r, i)
-
-	var aedkey [16]byte
-	var aesiv [16]byte
-	binary.Read(r, binary.BigEndian, &aedkey)
-	binary.Read(r, binary.BigEndian, &aesiv)
-
-	var dataLen uint16
-	binary.Read(r, binary.BigEndian, &dataLen)
-	data := make([]byte, dataLen)
-	binary.Read(r, binary.BigEndian, &data)
-
-	dataS := bytes.Split(data, internal.SEP)
-	if len(dataS) != 4 {
-		return errors.New("data must have 4 entities and have")
+func readBinary(reader io.Reader, destination any, field string) error {
+	if err := binary.Read(reader, binary.BigEndian, destination); err != nil {
+		return malformed("read %s: %v", field, err)
 	}
-	i.Proc = string(dataS[0])
-	i.Hostname = string(dataS[1])
-	i.User = string(dataS[2])
-	i.Type = string(dataS[3])
+	return nil
+}
 
-	name := fmt.Sprintf("%d", i.SessionID)
+func readSizedBytes(reader *bytes.Reader, length uint64, maximum uint64, field string) ([]byte, error) {
+	if length > maximum {
+		return nil, malformed("%s length %d exceeds maximum %d", field, length, maximum)
+	}
+	if length > uint64(reader.Len()) {
+		return nil, malformed("%s length %d exceeds remaining packet size %d", field, length, reader.Len())
+	}
+	data := make([]byte, int(length))
+	if _, err := io.ReadFull(reader, data); err != nil {
+		return nil, malformed("read %s: %v", field, err)
+	}
+	return data, nil
+}
+
+func requireConsumed(reader *bytes.Reader) error {
+	if reader.Len() != 0 {
+		return malformed("packet contains %d trailing bytes", reader.Len())
+	}
+	return nil
+}
+
+func ParseMetadata(reader io.Reader, metadata *impx.ImplantMetadata) error {
+	fields := []struct {
+		name  string
+		value any
+	}{
+		{"PID", &metadata.PID},
+		{"session ID", &metadata.SessionID},
+		{"OTS", &metadata.OTS},
+		{"IP", &metadata.IP},
+		{"port", &metadata.Port},
+		{"sleep", &metadata.Sleep},
+		{"architecture", &metadata.Arch},
+	}
+	for _, field := range fields {
+		if err := readBinary(reader, field.value, field.name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ParseAndReg(reader *bytes.Reader, req *http.Request) error {
+	metadata := new(impx.ImplantMetadata)
+	if err := ParseMetadata(reader, metadata); err != nil {
+		return err
+	}
+
+	var aesKey [16]byte
+	var aesIV [16]byte
+	if err := readBinary(reader, &aesKey, "AES key"); err != nil {
+		return err
+	}
+	if err := readBinary(reader, &aesIV, "AES IV"); err != nil {
+		return err
+	}
+
+	var dataLength uint16
+	if err := readBinary(reader, &dataLength, "registration data length"); err != nil {
+		return err
+	}
+	data, err := readSizedBytes(reader, uint64(dataLength), maxRegistrationDataSize, "registration data")
+	if err != nil {
+		return err
+	}
+	if err := requireConsumed(reader); err != nil {
+		return err
+	}
+
+	entities := bytes.Split(data, internal.SEP)
+	if len(entities) != 4 {
+		return malformed("registration data must contain exactly four entities")
+	}
+	metadata.Proc = string(entities[0])
+	metadata.Hostname = string(entities[1])
+	metadata.User = string(entities[2])
+	metadata.Type = string(entities[3])
+
+	name := fmt.Sprintf("%d", metadata.SessionID)
 	if implant.ImplantPtrByName(name) != nil {
-		return errors.New("session/implant exists. can't register another with same name")
+		return malformed("session already exists")
 	}
-
-	aesEnc := encrypt.EncryptImport(aedkey, aesiv)
 
 	imp := implant.ImplantNew(name)
-	imp.ImplantSetMetadata(i)
-	imp.ImplantSetEncryption(aesEnc)
-	imp.ImplantSetRemoteSocket(req.RemoteAddr)
+	imp.ImplantSetMetadata(metadata)
+	imp.ImplantSetEncryption(encrypt.EncryptImport(aesKey, aesIV))
+	if req != nil {
+		imp.ImplantSetRemoteSocket(req.RemoteAddr)
+	}
 	imp.ImplantAddImplant()
 
 	lua.LuaOnRegister(*imp)
@@ -136,115 +232,141 @@ func ParseAndReg(r io.Reader, req *http.Request) error {
 	return nil
 }
 
-// ParseCheck parse health check
-func ParseCheck(r io.Reader, req *http.Request) ([]byte, error) {
-	i := new(impx.ImplantMetadata)
-	ParseMetadata(r, i)
-
-	name := fmt.Sprintf("%d", i.SessionID)
-	imp := implant.ImplantPtrByName(name)
+func validateSession(metadata *impx.ImplantMetadata, authenticatedName string) (*implant.Implant, error) {
+	name := fmt.Sprintf("%d", metadata.SessionID)
+	if authenticatedName == "" || name != authenticatedName {
+		return nil, malformed("encrypted session ID does not match authenticated session")
+	}
+	imp := implant.ImplantPtrByName(authenticatedName)
 	if imp == nil {
-		return []byte{}, errors.New("no session with name")
+		return nil, malformed("unknown session")
+	}
+	return imp, nil
+}
+
+// ParseCheck parses a health check after its cryptographic envelope has been authenticated.
+func ParseCheck(reader *bytes.Reader, authenticatedName string) ([]byte, error) {
+	metadata := new(impx.ImplantMetadata)
+	if err := ParseMetadata(reader, metadata); err != nil {
+		return nil, err
+	}
+	if err := requireConsumed(reader); err != nil {
+		return nil, err
+	}
+	imp, err := validateSession(metadata, authenticatedName)
+	if err != nil {
+		return nil, err
 	}
 	imp.ImplantUpdateLastseen()
 
-	data, tid, err := imp.ImplantGetTaskStr()
+	data, taskID, err := imp.ImplantGetTaskStr()
 	if err != nil {
-		return []byte{}, nil
+		return nil, nil
 	}
-	lua.LuaOnCheck(tid, data, *imp)
-
-	log.AsyncWriteStdoutInfo(fmt.Sprintf("Sending task %s of %d bytes to %s\n", string(tid[:]), len(data), imp.Name))
+	lua.LuaOnCheck(taskID, data, *imp)
+	log.AsyncWriteStdoutInfo(fmt.Sprintf("Sending task %s of %d bytes to %s\n", string(taskID[:]), len(data), imp.Name))
 	return []byte(data), nil
 }
 
-func ParseResponse(r io.Reader, req *http.Request) error {
-	i := new(impx.ImplantMetadata)
-	ParseMetadata(r, i)
-
-	name := fmt.Sprintf("%d", i.SessionID)
-	imp := implant.ImplantPtrByName(name)
-	if imp == nil {
-		return errors.New("no session with name")
+func ParseResponse(reader *bytes.Reader, authenticatedName string) error {
+	metadata := new(impx.ImplantMetadata)
+	if err := ParseMetadata(reader, metadata); err != nil {
+		return err
 	}
-	imp.ImplantUpdateLastseen()
 
-	var TaskID [8]byte
-	binary.Read(r, binary.BigEndian, &TaskID)
+	var taskID [8]byte
+	if err := readBinary(reader, &taskID, "task ID"); err != nil {
+		return err
+	}
+	var responseLength uint32
+	if err := readBinary(reader, &responseLength, "response length"); err != nil {
+		return err
+	}
+	response, err := readSizedBytes(reader, uint64(responseLength), maxResponsePayloadSize, "response")
+	if err != nil {
+		return err
+	}
+	if err := requireConsumed(reader); err != nil {
+		return err
+	}
 
-	accepted, err := imp.TaskBeginResponse(TaskID)
+	imp, err := validateSession(metadata, authenticatedName)
+	if err != nil {
+		return err
+	}
+	accepted, err := imp.TaskBeginResponse(taskID)
 	if err != nil {
 		return err
 	}
 	if !accepted {
 		return nil
 	}
-	defer imp.TaskAbortResponse(TaskID)
+	defer imp.TaskAbortResponse(taskID)
 
-	var respLen uint32
-	binary.Read(r, binary.BigEndian, &respLen)
-	respPayload := make([]byte, respLen)
-	binary.Read(r, binary.BigEndian, &respPayload)
-	if err := imp.TaskCompleteResponse(TaskID, respPayload); err != nil {
+	if err := imp.TaskCompleteResponse(taskID, response); err != nil {
 		return err
 	}
-
-	lua.LuaOnResponse(TaskID, string(respPayload), *imp)
-
-	log.AsyncWriteStdoutInfo(fmt.Sprintf("Response - session:%s task:%s length:%d\n\n%s\n\n", name, TaskID, respLen, respPayload))
+	imp.ImplantUpdateLastseen()
+	lua.LuaOnResponse(taskID, string(response), *imp)
+	log.AsyncWriteStdoutInfo(fmt.Sprintf("Response - session:%s task:%s length:%d\n\n%s\n\n", authenticatedName, taskID, responseLength, response))
 	return nil
 }
 
-func ParseChunkData(r io.Reader, req *http.Request) error {
-	i := new(impx.ImplantMetadata)
-	ParseMetadata(r, i)
-	name := fmt.Sprintf("%d", i.SessionID)
-	imp := implant.ImplantPtrByName(name)
-	if imp == nil {
-		return errors.New("no session with name")
+func ParseChunkData(reader *bytes.Reader, authenticatedName string) error {
+	metadata := new(impx.ImplantMetadata)
+	if err := ParseMetadata(reader, metadata); err != nil {
+		return err
 	}
-	imp.ImplantUpdateLastseen()
 
-	var TaskID [8]byte
-	binary.Read(r, binary.BigEndian, &TaskID)
+	var taskID [8]byte
+	if err := readBinary(reader, &taskID, "task ID"); err != nil {
+		return err
+	}
+	var fileNameLength uint32
+	if err := readBinary(reader, &fileNameLength, "file name length"); err != nil {
+		return err
+	}
+	fileName, err := readSizedBytes(reader, uint64(fileNameLength), maxLootFileNameSize, "file name")
+	if err != nil {
+		return err
+	}
+	var contentLength uint32
+	if err := readBinary(reader, &contentLength, "content length"); err != nil {
+		return err
+	}
+	content, err := readSizedBytes(reader, uint64(contentLength), maxLootContentSize, "content")
+	if err != nil {
+		return err
+	}
+	if err := requireConsumed(reader); err != nil {
+		return err
+	}
 
-	accepted, err := imp.TaskBeginResponse(TaskID)
+	imp, err := validateSession(metadata, authenticatedName)
+	if err != nil {
+		return err
+	}
+	accepted, err := imp.TaskBeginResponse(taskID)
 	if err != nil {
 		return err
 	}
 	if !accepted {
 		return nil
 	}
-	defer imp.TaskAbortResponse(TaskID)
+	defer imp.TaskAbortResponse(taskID)
 
-	var fileNameLen uint32
-	binary.Read(r, binary.BigEndian, &fileNameLen)
-	fileName := make([]byte, fileNameLen)
-	binary.Read(r, binary.BigEndian, &fileName)
-
-	var contentLen uint32
-	binary.Read(r, binary.BigEndian, &contentLen)
-	content := make([]byte, contentLen)
-	binary.Read(r, binary.BigEndian, &content)
-
-	lootEntry := loot.New(name, string(fileName), content)
-	err = lootEntry.SaveData()
-	if err != nil {
-		log.AsyncWriteStdoutAlert(fmt.Sprintf("Failed to save loot - session:%s task:%s file:%s error:%s", name, TaskID, string(fileName), err.Error()))
+	lootEntry := loot.New(authenticatedName, string(fileName), content)
+	if err := lootEntry.SaveData(); err != nil {
+		log.AsyncWriteStdoutAlert(fmt.Sprintf("Failed to save loot - session:%s task:%s file:%s error:%s", authenticatedName, taskID, string(fileName), err.Error()))
 		return err
 	}
 
-	// Mark task as completed
-	response := []byte(fmt.Sprintf("File downloaded: %s (%d bytes) - UUID: %s", string(fileName), contentLen, lootEntry.UUID))
-	if err := imp.TaskCompleteResponse(TaskID, response); err != nil {
+	response := []byte(fmt.Sprintf("File downloaded: %s (%d bytes) - UUID: %s", string(fileName), contentLength, lootEntry.UUID))
+	if err := imp.TaskCompleteResponse(taskID, response); err != nil {
 		return err
 	}
-
-	// Call Lua callback if defined
-	lua.LuaOnResponse(TaskID, fmt.Sprintf("Downloaded: %s", string(fileName)), *imp)
-
-	// Log successful download
-	log.AsyncWriteStdoutSuccs(fmt.Sprintf("File downloaded - session:%s task:%s file:%s size:%d bytes UUID:%s", name, TaskID, string(fileName), contentLen, lootEntry.UUID))
-
+	imp.ImplantUpdateLastseen()
+	lua.LuaOnResponse(taskID, fmt.Sprintf("Downloaded: %s", string(fileName)), *imp)
+	log.AsyncWriteStdoutSuccs(fmt.Sprintf("File downloaded - session:%s task:%s file:%s size:%d bytes UUID:%s", authenticatedName, taskID, string(fileName), contentLength, lootEntry.UUID))
 	return nil
 }

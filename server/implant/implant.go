@@ -23,13 +23,14 @@ var (
 	ErrImplantAlive       = errors.New("session is alive; run `delete terminate` to request implant termination")
 	ErrTerminationPending = errors.New("implant termination is pending; wait for its next check-in before deleting")
 	ErrImplantNotAlive    = errors.New("session is not alive; run `delete` to remove it")
+	implantMapMu          sync.RWMutex
 )
 
 func (i *Implant) ImplantAddImplant() {
-	/*if CurrentImplant == "none" {
-		CurrentImplant = i.Name
-	}*/
+	implantMapMu.Lock()
 	ImplantMAP[i.Name] = i
+	implantMapMu.Unlock()
+	markSessionRegistered(i)
 }
 
 func ImplantNew(name string) *Implant {
@@ -94,69 +95,24 @@ func ImplantList() {
 }
 
 func ImplantDelete() error {
-	name := CurrentImplant
-	if name == "none" {
-		return ErrNoCurrentImplant
-	}
-	imp := ImplantMAP[name]
-	if imp == nil {
-		return ErrNoCurrentImplant
-	}
-
-	mu := imp.taskMutex()
-	mu.Lock()
-	imp.refreshAliveLocked(time.Now())
-	if imp.Alive {
-		terminating := imp.Terminating
-		mu.Unlock()
-		if terminating {
-			return ErrTerminationPending
-		}
-		return ErrImplantAlive
-	}
-	mu.Unlock()
-
-	delete(ImplantMAP, name)
-	log.PrintSuccs("Session " + name + " deleted")
-	CurrentImplant = "none"
-	return nil
+	return APIDeleteSession(CurrentImplant)
 }
 
 // ImplantRequestTermination queues a single KILL task for the selected live
 // implant. The session remains present until the task is dispatched, ensuring
 // deletion cannot discard the termination request before the implant sees it.
 func ImplantRequestTermination() ([8]byte, error) {
-	name := CurrentImplant
-	if name == "none" || ImplantMAP[name] == nil {
-		return [8]byte{}, ErrNoCurrentImplant
-	}
-
-	imp := ImplantMAP[name]
-	mu := imp.taskMutex()
-	mu.Lock()
-	defer mu.Unlock()
-
-	imp.refreshAliveLocked(time.Now())
-	if !imp.Alive {
-		return [8]byte{}, ErrImplantNotAlive
-	}
-	for _, task := range imp.Task {
-		if task.Code == internal.KILL && !task.Done {
-			imp.Terminating = true
-			return task.ID, ErrTerminationPending
-		}
-	}
-
-	task := TaskNew(internal.KILL, nil)
-	imp.Task = append(imp.Task, task)
-	imp.TaskMap[task.ID] = task
-	imp.Terminating = true
-	log.PrintInfo("implant termination task added: ", string(task.ID[:]))
-	return task.ID, nil
+	task, err := APIRequestTermination(CurrentImplant)
+	var id [8]byte
+	copy(id[:], task.ID)
+	return id, err
 }
 
 func ImplantInteract(name string) error {
-	if ImplantMAP[name] == nil {
+	implantMapMu.RLock()
+	implant := ImplantMAP[name]
+	implantMapMu.RUnlock()
+	if implant == nil {
 		return errors.New("no implant")
 	}
 	CurrentImplant = name
@@ -177,17 +133,20 @@ func (i *Implant) ImplantSetRemoteSocket(socket string) {
 }
 
 func ImplantPtrByName(name string) *Implant {
+	implantMapMu.RLock()
+	defer implantMapMu.RUnlock()
 	return ImplantMAP[name]
 }
 
 func (i *Implant) ImplantUpdateLastseen() {
 	mu := i.taskMutex()
 	mu.Lock()
-	defer mu.Unlock()
 	i.LastSeen = time.Now()
 	if !i.Terminating {
 		i.Alive = true
 	}
+	mu.Unlock()
+	markSessionCheckin(i)
 }
 
 func (i *Implant) refreshAliveLocked(now time.Time) {
@@ -208,6 +167,8 @@ func (i *Implant) implantLifecycleAt(now time.Time) (alive, terminating bool, la
 }
 
 func ImplantCount() int {
+	implantMapMu.RLock()
+	defer implantMapMu.RUnlock()
 	return len(ImplantMAP)
 }
 
@@ -216,21 +177,36 @@ func ImplantAddTask() {
 		return
 	}
 	t := TaskNew(0x01, []byte("ping"))
-	ImplantMAP[CurrentImplant].ImplantAddTask(t)
+	if implant := ImplantPtrByName(CurrentImplant); implant != nil {
+		implant.ImplantAddTask(t)
+	}
 }
 
 func ImplantAddGenericTask(code int, payload string) (string, int) {
-	if CurrentImplant == "none" {
+	return ImplantAddGenericTaskFor(CurrentImplant, code, payload)
+}
+
+func ImplantAddGenericTaskFor(session string, code int, payload string) (string, int) {
+	if session == "" || session == "none" {
 		return "", 1
 	}
 	t := TaskNew(uint16(code), []byte(payload))
-	ImplantMAP[CurrentImplant].ImplantAddTask(t)
+	target := ImplantPtrByName(session)
+	if target == nil {
+		return "", 1
+	}
+	target.ImplantAddTask(t)
 	return string(t.ID[:]), 0
 }
 
 func ImplantAddUploadTask(code int, name string, data []byte) int {
-	if CurrentImplant == "none" {
-		return 1
+	_, result := ImplantAddUploadTaskFor(CurrentImplant, code, name, data)
+	return result
+}
+
+func ImplantAddUploadTaskFor(session string, code int, name string, data []byte) (string, int) {
+	if session == "" || session == "none" {
+		return "", 1
 	}
 
 	var Buff []byte
@@ -250,21 +226,26 @@ func ImplantAddUploadTask(code int, name string, data []byte) int {
 	Buff = append(Buff, data...)
 
 	t := TaskNew(uint16(code), Buff)
-	ImplantMAP[CurrentImplant].ImplantAddTask(t)
-	return 0
+	target := ImplantPtrByName(session)
+	if target == nil {
+		return "", 1
+	}
+	target.ImplantAddTask(t)
+	return string(t.ID[:]), 0
 }
 
 func (i *Implant) ImplantAddTask(task *Task) {
 	mu := i.taskMutex()
 	mu.Lock()
-	defer mu.Unlock()
-
 	i.pruneCompletedTasksLocked(time.Now())
 	i.Task = append(i.Task, task)
 	i.TaskMap[task.ID] = task
 	if task.Code == internal.KILL {
 		i.Terminating = true
 	}
+	mu.Unlock()
+	markTaskCreated(i, task)
+	persistSession(i)
 	log.PrintInfo("new task added: ", string(task.ID[:]))
 }
 
@@ -281,6 +262,8 @@ func (i *Implant) ImplantGetTaskStr() (string, [8]byte, error) {
 }
 
 func ImplantListForSuggestions() [][]string {
+	implantMapMu.RLock()
+	defer implantMapMu.RUnlock()
 	var suggestions [][]string
 	for k, v := range ImplantMAP {
 		description := v.Metadata.Type + " " + v.Metadata.Hostname + "@" + v.Metadata.User
@@ -290,7 +273,7 @@ func ImplantListForSuggestions() [][]string {
 }
 
 func CurrentPayloadType() string {
-	imp := ImplantMAP[CurrentImplant]
+	imp := ImplantPtrByName(CurrentImplant)
 	if imp == nil {
 		return ""
 	}

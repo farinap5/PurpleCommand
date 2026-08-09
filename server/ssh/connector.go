@@ -53,6 +53,8 @@ func winChanges(session *ssh.Session, fd uintptr) {
 	}
 }
 
+var PrivateKeyPath = "template/key/id_ecdsa"
+
 func Connector(conn net.Conn) {
 	consoleWriter.EraseLine() // Erase current line
 	consoleWriter.EraseDown() // Required to remove the completions menu
@@ -64,8 +66,12 @@ func Connector(conn net.Conn) {
 	syscall.Kill(syscall.Getpid(), syscall.SIGWINCH) // Required to force the re-render of the prompt
 }
 
+func Tunnel(conn net.Conn) error {
+	return tunnel(conn)
+}
+
 func tunnel(conn net.Conn) error {
-	keyPath := "cmd/key/id_ecdsa"
+	keyPath := PrivateKeyPath
 	keuBytes, err := os.ReadFile(keyPath)
 	if err != nil {
 		return fmt.Errorf("tunnel: could not read SSH key from %s: %w", keyPath, err)

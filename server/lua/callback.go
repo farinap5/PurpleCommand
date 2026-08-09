@@ -2,106 +2,122 @@ package lua
 
 import (
 	"fmt"
+
 	"purpcmd/server/implant"
+	"purpcmd/server/log"
 
 	lua "github.com/yuin/gopher-lua"
 )
 
-func LuaOnRegister(i implant.Implant) {
-	for _, v := range ScriptMAP {
-		fn := v.state.GetGlobal("OnRegister")
-		if fn.Type() != lua.LTFunction {
-			continue
-		}
-
-		v.state.Push(fn)
-
-		v.state.Push(lua.LString(i.Name))
-		v.state.Push(lua.LString(i.UUID))
-		v.state.Push(lua.LString(i.Metadata.Hostname))
-		v.state.Push(lua.LString(i.Metadata.User))
-		v.state.Push(lua.LString(i.Metadata.Socket))
-		v.state.Push(lua.LString(fmt.Sprintf("%d", i.Metadata.SessionID)))
-		v.state.Push(lua.LString(i.Metadata.Type))
-		//v.state.Push(lua.LString(i.Metadata.IP))
-		//v.state.Push(lua.LString(i.Metadata.Sleep))
-		//v.state.Push(lua.LString(i.Metadata.PID))
-		//v.state.Push(lua.LString(i.Metadata.Arch))
-
-		v.state.PCall(7, 0, nil)
+func callLifecycle(profile *LuaProfile, session string, function *lua.LFunction, arguments ...lua.LValue) {
+	profile.stateMu.Lock()
+	defer profile.stateMu.Unlock()
+	if profile.state == nil {
+		return
+	}
+	profile.executionSession = session
+	profile.createdTaskIDs = nil
+	defer func() {
+		profile.executionSession = ""
+		profile.createdTaskIDs = nil
+	}()
+	state := profile.state
+	state.Push(function)
+	for _, argument := range arguments {
+		state.Push(argument)
+	}
+	if err := state.PCall(len(arguments), 0, nil); err != nil {
+		log.PrintErr(err.Error())
 	}
 }
 
-func LuaOnCheck(tid [8]byte, data string, i implant.Implant) {
-	for _, v := range ScriptMAP {
-		fn := v.state.GetGlobal("OnCheck")
-		if fn.Type() != lua.LTFunction {
+func lifecycleFunction(profile *LuaProfile, name string) *lua.LFunction {
+	profile.stateMu.Lock()
+	defer profile.stateMu.Unlock()
+	if profile.state == nil {
+		return nil
+	}
+	function := profile.state.GetGlobal(name)
+	if function.Type() != lua.LTFunction {
+		return nil
+	}
+	return function.(*lua.LFunction)
+}
+
+func LuaOnRegister(item implant.Implant) {
+	for _, profile := range scriptSnapshot() {
+		function := lifecycleFunction(profile, "OnRegister")
+		if function == nil {
 			continue
 		}
-
-		v.state.Push(fn)
-
-		v.state.Push(lua.LString(i.Name))
-		v.state.Push(lua.LString(i.UUID))
-		v.state.Push(lua.LString(i.Metadata.Hostname))
-		v.state.Push(lua.LString(i.Metadata.User))
-		v.state.Push(lua.LString(i.Metadata.Socket))
-		v.state.Push(lua.LString(fmt.Sprintf("%d", i.Metadata.SessionID)))
-		v.state.Push(lua.LString(string(tid[:])))
-		v.state.Push(lua.LString(data))
-		v.state.Push(lua.LString(i.Metadata.Type))
-
-		v.state.PCall(9, 0, nil)
+		callLifecycle(profile, item.Name, function,
+			lua.LString(item.Name),
+			lua.LString(item.UUID),
+			lua.LString(item.Metadata.Hostname),
+			lua.LString(item.Metadata.User),
+			lua.LString(item.Metadata.Socket),
+			lua.LString(fmt.Sprintf("%d", item.Metadata.SessionID)),
+			lua.LString(item.Metadata.Type),
+		)
 	}
 }
 
-func LuaOnResponse(tid [8]byte, data string, i implant.Implant) {
-	taskIDStr := string(tid[:])
-
-	for _, v := range ScriptMAP {
-		// Check for task-specific callback first
-		v.TaskCallbacksMutex.RLock()
-		taskCallback, hasTaskCallback := v.TaskCallbacks[taskIDStr]
-		v.TaskCallbacksMutex.RUnlock()
-
-		if hasTaskCallback {
-			// Call task-specific callback
-			v.state.Push(taskCallback)
-			v.state.Push(lua.LString(taskIDStr))
-			v.state.Push(lua.LString(data))
-			v.state.Push(lua.LString(i.Name))
-			v.state.Push(lua.LString(i.UUID))
-			v.state.Push(lua.LString(i.Metadata.Hostname))
-			v.state.Push(lua.LString(i.Metadata.User))
-			v.state.Push(lua.LString(i.Metadata.Type))
-			v.state.PCall(7, 0, nil)
-
-			// Remove the callback after execution (one-time use)
-			v.TaskCallbacksMutex.Lock()
-			delete(v.TaskCallbacks, taskIDStr)
-			v.TaskCallbacksMutex.Unlock()
+func LuaOnCheck(taskID [8]byte, data string, item implant.Implant) {
+	for _, profile := range scriptSnapshot() {
+		function := lifecycleFunction(profile, "OnCheck")
+		if function == nil {
 			continue
 		}
-
-		// Fall back to global OnResponse callback
-		fn := v.state.GetGlobal("OnResponse")
-		if fn.Type() != lua.LTFunction {
-			continue
-		}
-
-		v.state.Push(fn)
-
-		v.state.Push(lua.LString(i.Name))
-		v.state.Push(lua.LString(i.UUID))
-		v.state.Push(lua.LString(i.Metadata.Hostname))
-		v.state.Push(lua.LString(i.Metadata.User))
-		v.state.Push(lua.LString(i.Metadata.Socket))
-		v.state.Push(lua.LString(fmt.Sprintf("%d", i.Metadata.SessionID)))
-		v.state.Push(lua.LString(taskIDStr))
-		v.state.Push(lua.LString(data))
-		v.state.Push(lua.LString(i.Metadata.Type))
-
-		v.state.PCall(9, 0, nil)
+		callLifecycle(profile, item.Name, function,
+			lua.LString(item.Name),
+			lua.LString(item.UUID),
+			lua.LString(item.Metadata.Hostname),
+			lua.LString(item.Metadata.User),
+			lua.LString(item.Metadata.Socket),
+			lua.LString(fmt.Sprintf("%d", item.Metadata.SessionID)),
+			lua.LString(string(taskID[:])),
+			lua.LString(data),
+			lua.LString(item.Metadata.Type),
+		)
 	}
+}
 
+func LuaOnResponse(taskID [8]byte, data string, item implant.Implant) {
+	taskIDString := string(taskID[:])
+	for _, profile := range scriptSnapshot() {
+		profile.TaskCallbacksMutex.Lock()
+		taskCallback := profile.TaskCallbacks[taskIDString]
+		if taskCallback != nil {
+			delete(profile.TaskCallbacks, taskIDString)
+		}
+		profile.TaskCallbacksMutex.Unlock()
+		if taskCallback != nil {
+			callLifecycle(profile, item.Name, taskCallback,
+				lua.LString(taskIDString),
+				lua.LString(data),
+				lua.LString(item.Name),
+				lua.LString(item.UUID),
+				lua.LString(item.Metadata.Hostname),
+				lua.LString(item.Metadata.User),
+				lua.LString(item.Metadata.Type),
+			)
+			continue
+		}
+
+		function := lifecycleFunction(profile, "OnResponse")
+		if function == nil {
+			continue
+		}
+		callLifecycle(profile, item.Name, function,
+			lua.LString(item.Name),
+			lua.LString(item.UUID),
+			lua.LString(item.Metadata.Hostname),
+			lua.LString(item.Metadata.User),
+			lua.LString(item.Metadata.Socket),
+			lua.LString(fmt.Sprintf("%d", item.Metadata.SessionID)),
+			lua.LString(taskIDString),
+			lua.LString(data),
+			lua.LString(item.Metadata.Type),
+		)
+	}
 }

@@ -6,8 +6,10 @@ import (
 	"os"
 	"path/filepath"
 
+	"purpcmd/pkg/teamapi"
 	"purpcmd/server/db"
 	"purpcmd/server/log"
+	"purpcmd/server/runtimeevents"
 
 	"github.com/cheynewallace/tabby"
 	"github.com/google/uuid"
@@ -59,6 +61,9 @@ func (l *Loot) SaveData() error {
 	if err := db.DBLootInsert(l.UUID, l.Session, l.FileName); err != nil {
 		_ = os.Remove(path)
 		return err
+	}
+	if item, err := APIGet(l.UUID); err == nil {
+		runtimeevents.Publish(teamapi.EventLootCreated, item)
 	}
 	return nil
 }

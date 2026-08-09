@@ -2,6 +2,7 @@ package lua
 
 import (
 	"purpcmd/internal"
+	"purpcmd/pkg/teamapi"
 	"purpcmd/server/implantbuilder"
 	"purpcmd/server/log"
 
@@ -61,7 +62,11 @@ func LuaRegisterImplantProfile(L *lua.LState) int {
 		p.Template = v.String()
 	}
 
-	if err := implantbuilder.RegisterProfile(name, p); err != nil {
+	if _, err := implantbuilder.APICreateProfile(teamapi.Profile{
+		Name: name, Type: p.Type, LHOST: p.LHOST, OS: p.OS, ARCH: p.ARCH,
+		URI: p.URI, UA: p.UA, Output: p.Output, Template: p.Template,
+		PublicKey: p.PublicKey,
+	}); err != nil {
 		log.PrintErr("implant_register_profile: " + err.Error())
 		L.Push(lua.LString(err.Error()))
 		return 1

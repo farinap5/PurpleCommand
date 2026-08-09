@@ -9,8 +9,6 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-
-
 func GeneratePrivKey() []byte {
 	privkey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {

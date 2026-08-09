@@ -219,7 +219,16 @@ func ParseAndReg(reader *bytes.Reader, req *http.Request) error {
 
 	name := fmt.Sprintf("%d", metadata.SessionID)
 	if implant.ImplantPtrByName(name) != nil {
-		return malformed("session already exists")
+		session, err := implant.APIGetSession(name)
+		if err != nil {
+			return malformed("inspect existing session: %v", err)
+		}
+		if session.Alive {
+			return malformed("session already exists")
+		}
+		if err := implant.APIDeleteSession(name); err != nil {
+			return malformed("replace dead session: %v", err)
+		}
 	}
 
 	imp := implant.ImplantNew(name)

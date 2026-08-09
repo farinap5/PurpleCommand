@@ -7,12 +7,12 @@ type DBDef struct {
 }
 
 type Listener struct {
-	Name	string
-	UUID	string
-	Host 	string
-	Port 	string
+	Name string
+	UUID string
+	Host string
+	Port string
 
-	Proto 		string
-	Persistent 	bool
-	Running 	bool
+	Proto      string
+	Persistent bool
+	Running    bool
 }

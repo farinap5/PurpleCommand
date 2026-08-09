@@ -8,8 +8,10 @@ import (
 	"net/http"
 	"time"
 
+	"purpcmd/pkg/teamapi"
 	"purpcmd/server/db"
 	"purpcmd/server/log"
+	"purpcmd/server/runtimeevents"
 )
 
 var (
@@ -27,8 +29,13 @@ func (l *Listener) StartHTTP() error {
 	serverMux := http.NewServeMux()
 	serverMux.HandleFunc("/", l.root)
 	server := &http.Server{
-		Addr:    l.Host + ":" + l.Port,
-		Handler: serverMux,
+		Addr:              l.Host + ":" + l.Port,
+		Handler:           serverMux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    32 << 10,
 	}
 	networkListener, err := net.Listen("tcp", server.Addr)
 	if err != nil {
@@ -61,6 +68,7 @@ func (l *Listener) StartHTTP() error {
 
 		if err := server.Serve(networkListener); err != nil && err != http.ErrServerClosed {
 			fmt.Printf("HTTP server error: %v\n", err)
+			runtimeevents.Publish(teamapi.EventListenerFailed, map[string]string{"name": l.Name, "error": err.Error()})
 		}
 
 		var persistenceErr error

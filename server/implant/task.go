@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"purpcmd/internal"
+	"purpcmd/pkg/teamapi"
 	"purpcmd/server"
 )
 
@@ -60,6 +61,8 @@ func (i *Implant) taskClaimAt(now time.Time) (*Task, error) {
 			}
 
 			// Return a snapshot so callers can marshal without holding the lock.
+			saveTask(i, t)
+			emit(teamapi.EventTaskDispatched, taskDTO(i.Name, t))
 			claimed := *t
 			claimed.Payload = append([]byte(nil), t.Payload...)
 			return &claimed, nil
@@ -100,6 +103,7 @@ func (i *Implant) TaskCompleteResponse(taskID [8]byte, payload []byte) error {
 	task.Done = true
 	task.Processing = false
 	task.Response = append([]byte(nil), payload...)
+	markTaskCompleted(i, task)
 	return nil
 }
 

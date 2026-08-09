@@ -1,6 +1,5 @@
 package utils
 
-
 func Usage() {
 	help := `
 Server usage: purpcmd server [options] ...

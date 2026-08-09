@@ -2,8 +2,9 @@ package lua
 
 import (
 	"context"
-	"purpcmd/server/types"
 	"sync"
+
+	"purpcmd/server/types"
 
 	lua "github.com/yuin/gopher-lua"
 )
@@ -18,8 +19,11 @@ type LuaProfile struct {
 	cancel  context.CancelFunc
 	done    chan struct{}
 	closing sync.Once
+	stateMu sync.Mutex
 
-	// Task-specific callbacks: task_id -> callback function
+	executionSession string
+	createdTaskIDs   []string
+
 	TaskCallbacks      map[string]*lua.LFunction
 	TaskCallbacksMutex sync.RWMutex
 }
@@ -34,6 +38,5 @@ type commandDef struct {
 	Name        string
 	Description string
 	ScriptName  string
-
-	ptr *lua.LFunction
+	ptr         *lua.LFunction
 }

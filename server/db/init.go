@@ -13,6 +13,9 @@ import (
 
 var DBMS DBDef
 
+// DatabasePath may be set before CheckDB by the teamserver entrypoint.
+var DatabasePath = "database.db"
+
 func CheckDB() error {
 	dbms, err := DBInit()
 	if err != nil {
@@ -24,20 +27,23 @@ func CheckDB() error {
 }
 
 func DBInit() (*DBDef, error) {
-	fname := "database.db"
-	_, err := os.Open(fname)
-	if err != nil {
-		//utils.LogMsg(homeDir+"/.venera/message.log", 0, "core", "Creating database")
+	fname := DatabasePath
+	if _, err := os.Stat(fname); os.IsNotExist(err) {
 		log.PrintInfo("Creating database")
-		_, err := os.Create(fname)
-		if err != nil {
-			return nil, err
-		}
+	}
+	file, err := os.OpenFile(fname, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return nil, err
+	}
+	if err := file.Chmod(0600); err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	if err := file.Close(); err != nil {
+		return nil, err
 	}
 
-	// Create db definition
 	db := new(DBDef)
-	//utils.LogMsg(homeDir+"/.venera/message.log", 0, "core", "Open database.")
 	db.DBConn, err = sql.Open("sqlite3", fname)
 	if err != nil {
 		return nil, err

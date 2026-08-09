@@ -33,9 +33,20 @@ func (sc *ServerController) isRunning() bool {
 }
 
 func (l *Listener) state() (persistent, running bool) {
+	persistent, running, _ = l.snapshotState()
+	return persistent, running
+}
+
+func (l *Listener) snapshotState() (persistent, running bool, associations int) {
 	l.SC.mu.Lock()
 	defer l.SC.mu.Unlock()
-	return l.Persistent, l.SC.running
+	return l.Persistent, l.SC.running, l.Association
+}
+
+func (l *Listener) incrementAssociation() {
+	l.SC.mu.Lock()
+	l.Association++
+	l.SC.mu.Unlock()
 }
 
 func (l *Listener) setPersistent(persistent bool) {

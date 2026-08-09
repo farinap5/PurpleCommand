@@ -10,7 +10,6 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-
 func (profile *ServerProfile) websockhand(w http.ResponseWriter, r *http.Request) {
 	up := websocket.Upgrader{}
 	conn, err := up.Upgrade(w, r, nil)

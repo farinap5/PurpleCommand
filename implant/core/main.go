@@ -83,7 +83,7 @@ func Start(sock string, payloadTypes ...string) {
 			h.Post([]byte(response))
 		case internal.SSH:
 			print("->", tcode, "calling ssh for ", h.Socket)
-			ssh.Wsclient("aaa", "/any.png", h.Socket)
+			ssh.Wsclient("aaa", "/any.png?stream="+string(payload), h.Socket)
 		case internal.DOWN:
 			response := HandleDownload(ctx, payload, tid)
 			h.Post([]byte(response))

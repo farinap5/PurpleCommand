@@ -358,3 +358,81 @@ Regression coverage uses two payload types with overlapping command names to
 verify isolated suggestions and dispatch. It also covers invalid type rejection,
 duplicate registration, unload cleanup, callback arguments, builder defaults,
 implant initialization, registration parsing, and migration of old databases.
+## Implementation report: teamserver and transient client split
+
+Implemented on August 9, 2026, on branch `feature/teamserver-client`.
+
+Status: implemented.
+
+### 1. Shared contract and executable split
+
+- Added the versioned `pkg/teamapi` envelope and DTO contract.
+- Standardized operator messages as `ask.*`, `rpy.*`, and `evt.*`.
+- Added `cmd/teamserver` for the always-on C2 process and `cmd/purpc` for the
+  transient CLI. `cmd/main.go` is now a compatibility client entrypoint.
+- Added root Makefile targets for both binaries, normal tests, and focused race
+  tests.
+
+### 2. Server-owned state and explicit resource APIs
+
+- Added explicit listener, session, task, loot, profile, script, command, and
+  build APIs which take resource names/session IDs rather than server-global
+  CLI selections.
+- Client menu mode and selected listener/session/profile now live only inside
+  `client/cli`.
+- Lua command execution receives the target session explicitly. Each GopherLua
+  state and lifecycle callback is serialized, preventing one client selection
+  from routing another client's task.
+- Sessions and task history persist in SQLite. On restart they restore as
+  inactive history because symmetric implant transport keys are intentionally
+  not stored in the database. A fresh registration can replace the inactive
+  record.
+- Build jobs are asynchronous and persisted. Listener definitions and running
+  state continue using their existing persistent lifecycle.
+
+### 3. Authenticated WebSocket control plane
+
+- Added `/api/v1/ws` with bearer authentication, the required
+  `purpcmd.v1` subprotocol, 1 MiB message limits, deadlines, ping/pong
+  liveness, bounded writer queues, and one writer per connection.
+- Every reply is correlated by request ID. Serialized replies are persisted by
+  `client_id` and request ID so a retry cannot repeat a mutation.
+- Events are persisted with monotonically increasing sequences. Clients replay
+  missing pages after reconnect and discard duplicate sequences.
+- A slow event subscriber is disconnected instead of blocking listener or
+  implant callback processing.
+- Non-loopback binds require TLS; loopback may generate an ephemeral token when
+  one is not configured. Tokens must contain at least 20 characters.
+
+### 4. HTTP data plane
+
+- Loot and build artifacts are downloaded through authenticated HTTP endpoints.
+- Local Lua scripts upload through a bounded endpoint before the control-plane
+  load operation.
+- Payload command files use `@path` in the CLI. Files upload separately (up
+  to 64 MiB), receive opaque expiring IDs, are consumed once by the command,
+  and are removed after synchronous Lua task construction.
+- Script uploads are limited to 2 MiB and stored with private permissions.
+
+### 5. Remote CLI and interactive terminal
+
+- Recreated the listener, session, script, loot, and implant-profile workflows
+  against the remote API, including payload-type-aware command suggestions.
+- Loot exports and build downloads write to client-local paths.
+- Interactive SSH now uses a server-owned broker. The teamserver queues the SSH
+  task and pairs the implant's reverse WebSocket with a short-lived,
+  authenticated client stream; terminal and SSH client logic run in `purpc`.
+- The default SSH client key path now matches the tracked development key under
+  `template/key` and can be overridden with `-ssh-key`.
+
+### 6. Verification and operational documentation
+
+- Added an HTTP/WebSocket integration test covering authentication, subprotocol,
+  correlation, persisted request deduplication, and event replay.
+- Added persistence coverage for inactive session and completed-task history
+  restoration.
+- Existing callback, malformed-input, task delivery, listener persistence,
+  loot, lifecycle, builder, and payload-type tests continue to pass.
+- Added `TEAMSERVER.md` with the architecture, complete runbook, security
+  boundary, message semantics, file transfer, reconnect behavior, interactive
+  flow, migration notes, and known transport-key restart limitation.

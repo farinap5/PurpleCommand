@@ -1,8 +1,21 @@
-## !!!The following README data refers to the version found under "old" branch. Use "old" branch!!!
+# PurpleCommand
 
-The tool is being refactored to become a better c2, with support for multiple connections, scripting and more. If you want to use the regular version, compile the "old" branch. The "main" is instable.
+PurpleCommand now runs as an always-on teamserver and a transient operator CLI.
+The teamserver owns listeners, implant callbacks, tasks, Lua, loot, builds, and
+persistence; the CLI can connect only when needed.
 
-# PurpCMD
+```sh
+export PURPCMD_TOKEN='replace-with-at-least-20-random-characters'
+make build
+./bin/purpcmd-teamserver
+# In another terminal:
+./bin/purpc
+```
+
+See [TEAMSERVER.md](TEAMSERVER.md) for architecture, security, protocol,
+migration, file transfer, interactive SSH, and deployment details.
+
+## Project overview
 
 PurpleCommand is a modular and extensible C2 framework designed for supporting red team operations and security researching. It provides a customizable platform for simulating advanced adversary behaviors and managing post-exploitation tasks. The main target OS will be Linux for now since this is my research subject.
 

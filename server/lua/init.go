@@ -2,6 +2,10 @@ package lua
 
 import (
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 
 	"purpcmd/server/db"
@@ -32,11 +36,77 @@ func ScriptsReloadFromDB() {
 		log.PrintErr(err.Error())
 		return
 	}
-	for _, path := range scripts {
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		log.PrintErr(err.Error())
+		return
+	}
+	loaded := make(map[string]struct{}, len(scripts))
+	for _, storedPath := range scripts {
+		path, resolveErr := resolvePersistedScriptPath(storedPath, workingDirectory)
+		if resolveErr != nil {
+			log.PrintErr(resolveErr.Error())
+			continue
+		}
+		if path != storedPath {
+			if err := db.DBScriptReplacePath(storedPath, path); err != nil {
+				log.PrintErr(fmt.Sprintf("migrate script path %q: %v", storedPath, err))
+				continue
+			}
+			log.PrintInfo("Relocated script ", storedPath, " -> ", path)
+		}
+		if _, exists := loaded[path]; exists {
+			continue
+		}
+		loaded[path] = struct{}{}
 		if _, err := loadScript(path, false); err != nil {
 			log.PrintErr(err.Error())
 		}
 	}
+}
+
+func resolvePersistedScriptPath(storedPath, workingDirectory string) (string, error) {
+	workingDirectory, err := filepath.Abs(workingDirectory)
+	if err != nil {
+		return "", err
+	}
+
+	candidates := make([]string, 0, 3)
+	if filepath.IsAbs(storedPath) {
+		candidates = append(candidates, filepath.Clean(storedPath))
+	} else {
+		candidates = append(candidates, filepath.Join(workingDirectory, storedPath))
+	}
+	parts := strings.Split(filepath.Clean(storedPath), string(os.PathSeparator))
+	for index, part := range parts {
+		if part == "script" {
+			localParts := append([]string{workingDirectory}, parts[index:]...)
+			candidates = append(candidates, filepath.Join(localParts...))
+			break
+		}
+	}
+	if base := filepath.Base(storedPath); base != "." && base != string(os.PathSeparator) {
+		candidates = append(candidates, filepath.Join(workingDirectory, "script", base))
+	}
+
+	seen := make(map[string]struct{}, len(candidates))
+	tried := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		candidate, err = filepath.Abs(candidate)
+		if err != nil {
+			continue
+		}
+		if _, exists := seen[candidate]; exists {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		tried = append(tried, candidate)
+		info, statErr := os.Stat(candidate)
+		if statErr == nil && info.Mode().IsRegular() {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("persisted script %q was not found (tried %s)", storedPath, strings.Join(tried, ", "))
 }
 
 func LuaNew(path string) (*LuaProfile, error) {
@@ -88,8 +158,13 @@ func loadScript(path string, persist bool) (*LuaProfile, error) {
 }
 
 func LuaLoad(path string) {
-	log.PrintInfo("Loading script ", path)
-	if _, err := loadScript(path, true); err != nil {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		log.PrintErr(err.Error())
+		return
+	}
+	log.PrintInfo("Loading script ", absolute)
+	if _, err := loadScript(absolute, true); err != nil {
 		log.PrintErr(err.Error())
 	}
 }
@@ -122,8 +197,13 @@ func unloadScript(path string, persist bool) error {
 }
 
 func LuaUnload(path string) {
-	log.PrintInfo("Unloading script ", path)
-	if err := unloadScript(path, true); err != nil {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		log.PrintErr(err.Error())
+		return
+	}
+	log.PrintInfo("Unloading script ", absolute)
+	if err := unloadScript(absolute, true); err != nil {
 		log.PrintErr(err.Error())
 	}
 }

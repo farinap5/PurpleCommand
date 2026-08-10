@@ -41,6 +41,41 @@ func DBScriptDelete(Path string) error {
 	return err
 }
 
+// DBScriptReplacePath atomically migrates a persisted script path. If the new
+// path is already present, the obsolete row is removed instead of creating a
+// duplicate.
+func DBScriptReplacePath(oldPath, newPath string) error {
+	if oldPath == newPath {
+		return nil
+	}
+	tx, err := DBMS.DBConn.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var exists int
+	err = tx.QueryRow("SELECT 1 FROM Scripts WHERE Path = ?;", newPath).Scan(&exists)
+	switch {
+	case err == nil:
+		_, err = tx.Exec("DELETE FROM Scripts WHERE Path = ?;", oldPath)
+	case errors.Is(err, sql.ErrNoRows):
+		var result sql.Result
+		result, err = tx.Exec("UPDATE Scripts SET Path = ? WHERE Path = ?;", newPath, oldPath)
+		if err == nil {
+			var affected int64
+			affected, err = result.RowsAffected()
+			if err == nil && affected != 1 {
+				err = errors.New("script path does not exist")
+			}
+		}
+	}
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func DBScriptGetAll() ([]string, error) {
 	var ScriptsPath []string
 

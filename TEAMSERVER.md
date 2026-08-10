@@ -117,6 +117,9 @@ The teamserver owns all long-lived state:
   authenticated endpoint.
 - Each Lua state is serialized. Command execution receives the target session
   explicitly; it never depends on another client's selected session.
+- Lua paths are stored canonically. When a database is moved with the checkout,
+  startup relocates a missing path ending in script/name.lua to the current
+  checkout's script/name.lua and updates the persisted path.
 
 The client owns only presentation state, completion caches, local export paths,
 terminal state, and its current menu selections.
@@ -144,3 +147,7 @@ Integration coverage starts the real HTTP/WebSocket handler and verifies bearer
 authentication, subprotocol negotiation, request correlation, mutation
 deduplication, and event replay. Persistence coverage verifies that session and
 task history restore inactive with completed task responses intact.
+
+Headless logging coverage also verifies that listener goroutines can report
+status before any CLI prompt exists, and script-path coverage verifies database
+relocation between checkouts.

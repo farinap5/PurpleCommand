@@ -358,6 +358,22 @@ Regression coverage uses two payload types with overlapping command names to
 verify isolated suggestions and dispatch. It also covers invalid type rejection,
 duplicate registration, unload cleanup, callback arguments, builder defaults,
 implant initialization, registration parsing, and migration of old databases.
+
+## Follow-up: headless teamserver startup
+
+Fixed on August 10, 2026.
+
+- Asynchronous server logging no longer assumes that a go-prompt console writer
+  exists. In the headless teamserver it writes complete, serialized lines to
+  standard output; in the local CLI it retains prompt-safe redraws. This fixes
+  the nil-pointer panic raised when a listener goroutine announces its HTTP
+  address.
+- Persisted Lua paths are canonicalized when scripts are loaded or unloaded.
+  At startup, a missing absolute path from a moved checkout is resolved against
+  the current script directory and atomically migrated in SQLite. Existing
+  destination rows are deduplicated.
+- Added regression tests for headless asynchronous logging, moved-checkout path
+  resolution, missing scripts, and atomic path migration/deduplication.
 ## Implementation report: teamserver and transient client split
 
 Implemented on August 9, 2026, on branch `feature/teamserver-client`.

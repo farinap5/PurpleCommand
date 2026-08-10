@@ -2,9 +2,12 @@ package log
 
 import (
 	"fmt"
-	"github.com/c-bata/go-prompt"
+	"strings"
+	"sync"
 	"syscall"
 	_ "unsafe" // Required for go:linkname
+
+	"github.com/c-bata/go-prompt"
 )
 
 // Map the local variable "consoleWriter" to the one of go-prompt
@@ -12,11 +15,25 @@ import (
 //go:linkname consoleWriter github.com/c-bata/go-prompt.consoleWriter
 var consoleWriter prompt.ConsoleWriter
 
+var asyncOutputMu sync.Mutex
+
 func AsyncWriteStdout(a ...any) {
-	consoleWriter.EraseLine()                          // Erase current line
-	consoleWriter.EraseDown()                          // Required to remove the completions menu
-	consoleWriter.WriteRawStr("\r" + fmt.Sprint(a...)) // 'r' to go back to the start of line
-	syscall.Kill(syscall.Getpid(), syscall.SIGWINCH)   // Required to force the re-render of the prompt
+	asyncOutputMu.Lock()
+	defer asyncOutputMu.Unlock()
+
+	message := fmt.Sprint(a...)
+	if consoleWriter == nil {
+		fmt.Print(message)
+		if !strings.HasSuffix(message, "\n") {
+			fmt.Print("\n")
+		}
+		return
+	}
+
+	consoleWriter.EraseLine()                            // Erase current line
+	consoleWriter.EraseDown()                            // Required to remove the completions menu
+	consoleWriter.WriteRawStr("\r" + message)            // '\r' to go back to the start of line
+	_ = syscall.Kill(syscall.Getpid(), syscall.SIGWINCH) // Required to force the re-render of the prompt
 }
 
 func AsyncWriteStdoutSuccs(a ...any) {

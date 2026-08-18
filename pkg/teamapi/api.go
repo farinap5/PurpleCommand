@@ -10,6 +10,7 @@ import (
 const (
 	Version           = 1
 	Subprotocol       = "purpcmd.v1"
+	BrowserAuthPrefix = "purpcmd.auth."
 	MaxControlMessage = 1 << 20
 )
 

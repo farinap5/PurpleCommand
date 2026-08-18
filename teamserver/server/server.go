@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -60,7 +61,13 @@ func New(configuration config.Config, eventBus *events.Bus) *Server {
 				return true
 			}
 			parsed, err := url.Parse(origin)
-			return err == nil && parsed.Host == request.Host
+			if err == nil && parsed.Host == request.Host {
+				return true
+			}
+			// Standalone browser clients cannot set an Authorization header on
+			// WebSocket upgrades. A valid token-bearing subprotocol both
+			// authenticates the request and permits its explicit origin.
+			return server.authorized(request)
 		},
 	}
 	mux := http.NewServeMux()
@@ -105,6 +112,19 @@ func (server *Server) health(writer http.ResponseWriter, _ *http.Request) {
 
 func (server *Server) authorized(request *http.Request) bool {
 	value := strings.TrimSpace(strings.TrimPrefix(request.Header.Get("Authorization"), "Bearer "))
+	if value == "" {
+		for _, protocol := range websocket.Subprotocols(request) {
+			if !strings.HasPrefix(protocol, teamapi.BrowserAuthPrefix) {
+				continue
+			}
+			encoded := strings.TrimPrefix(protocol, teamapi.BrowserAuthPrefix)
+			decoded, err := base64.RawURLEncoding.DecodeString(encoded)
+			if err == nil {
+				value = string(decoded)
+			}
+			break
+		}
+	}
 	if len(value) != len(server.config.Token) {
 		return false
 	}

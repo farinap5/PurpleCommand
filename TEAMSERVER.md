@@ -57,7 +57,8 @@ Teamserver flags:
 
 The control endpoint is `/api/v1/ws` and requires:
 
-- `Authorization: Bearer TOKEN`;
+- `Authorization: Bearer TOKEN` for native clients, or a secondary
+  `purpcmd.auth.BASE64URL_TOKEN` subprotocol for browser clients;
 - WebSocket subprotocol `purpcmd.v1`;
 - protocol version `1`;
 - a unique request `id` and stable per-process `client_id`.

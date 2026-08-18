@@ -76,14 +76,52 @@ func InitCLI() {
 
 func (paux *ProfileAux) completer(d prompt.Document) []prompt.Suggest {
 	inputs := strings.Split(d.TextBeforeCursor(), " ")
-	//length := len(inputs)
 
+	if paux.Profile.STATE == types.SESSION && inputs[0] == "interact" && len(inputs) > 1 {
+		promptSuggestions := []prompt.Suggest{}
+		implList := implant.ImplantListForSuggestions()
+		for _, j := range implList {
+			promptSuggestions = append(promptSuggestions,
+				prompt.Suggest{Text: j[0], Description: j[1]},
+			)
+		}
+		return prompt.FilterHasPrefix(promptSuggestions, inputs[1], true)
+	}
+
+	if paux.Profile.STATE == types.IMPLANT_BUILD && len(inputs) > 1 && (inputs[0] == "select" || inputs[0] == "generate" || inputs[0] == "delete") {
+		promptSuggestions := []prompt.Suggest{}
+		for _, p := range implantbuilder.ProfileNamesForSuggestions() {
+			promptSuggestions = append(promptSuggestions,
+				prompt.Suggest{Text: p[0], Description: p[1]},
+			)
+		}
+		return prompt.FilterHasPrefix(promptSuggestions, inputs[1], true)
+	}
+
+	promptSuggestions := PromptSuggestions(paux.Profile.STATE)
+	if paux.Profile.STATE == types.SESSION {
+		cmdList := lua.LuaGetCommandDescriptions(implant.CurrentPayloadType())
+		for _, j := range cmdList {
+			promptSuggestions = append(promptSuggestions,
+				prompt.Suggest{Text: j[0], Description: j[1]},
+			)
+		}
+	}
+
+	return prompt.FilterHasPrefix(promptSuggestions, inputs[0], true)
+}
+
+// PromptSuggestions returns the static navigation suggestions for a CLI state.
+// Dynamic resource names and session commands are added by each CLI using its
+// own data source.
+func PromptSuggestions(state int) []prompt.Suggest {
 	promptSuggestions := []prompt.Suggest{
 		{Text: "help", Description: "Show help menu"},
 		{Text: "exit", Description: "Exit from the prompt"},
 	}
 
-	if paux.Profile.STATE == types.LISTENER { // Options only valid when there is a selected script.
+	switch state {
+	case types.LISTENER:
 		promptSuggestions = append(promptSuggestions,
 			prompt.Suggest{Text: "set", Description: "Set listener options"},
 			prompt.Suggest{Text: "run", Description: "Start Listener"},
@@ -96,42 +134,21 @@ func (paux *ProfileAux) completer(d prompt.Document) []prompt.Suggest {
 			prompt.Suggest{Text: "delete", Description: "Delete listener"},
 			prompt.Suggest{Text: "restart", Description: "Restart listener"},
 		)
-
-		// interact with dynamic session id
-	} else if paux.Profile.STATE == types.SESSION {
-		if inputs[0] == "interact" && len(inputs) > 1 {
-			promptSuggestions = []prompt.Suggest{}
-			implList := implant.ImplantListForSuggestions()
-			for _, j := range implList {
-				promptSuggestions = append(promptSuggestions,
-					prompt.Suggest{Text: j[0], Description: j[1]},
-				)
-			}
-			return prompt.FilterHasPrefix(promptSuggestions, inputs[1], true)
-		}
-
+	case types.SESSION:
 		promptSuggestions = append(promptSuggestions,
 			prompt.Suggest{Text: "back", Description: "Exit from session menu"},
 			prompt.Suggest{Text: "list", Description: "List session"},
 			prompt.Suggest{Text: "interact", Description: "Interact with session"},
 			prompt.Suggest{Text: "delete", Description: "Delete session; use `delete terminate` while live"},
 		)
-
-		cmdList := lua.LuaGetCommandDescriptions(implant.CurrentPayloadType())
-		for _, j := range cmdList {
-			promptSuggestions = append(promptSuggestions,
-				prompt.Suggest{Text: j[0], Description: j[1]},
-			)
-		}
-
-	} else if paux.Profile.STATE == types.SCRIPT {
+	case types.SCRIPT:
 		promptSuggestions = append(promptSuggestions,
 			prompt.Suggest{Text: "back", Description: "Exit from script menu"},
 			prompt.Suggest{Text: "list", Description: "List script"},
 			prompt.Suggest{Text: "load", Description: "Interact with script"},
 			prompt.Suggest{Text: "unload", Description: "Unload and free script"},
 		)
-	} else if paux.Profile.STATE == types.LOOT {
+	case types.LOOT:
 		promptSuggestions = append(promptSuggestions,
 			prompt.Suggest{Text: "back", Description: "Exit from loot menu"},
 			prompt.Suggest{Text: "list", Description: "List loot"},
@@ -139,17 +156,7 @@ func (paux *ProfileAux) completer(d prompt.Document) []prompt.Suggest {
 			prompt.Suggest{Text: "export", Description: "Export loot to file"},
 			prompt.Suggest{Text: "delete", Description: "Delete loot file"},
 		)
-	} else if paux.Profile.STATE == types.IMPLANT_BUILD {
-		// Dynamic profile completions for select/generate/delete <name>
-		if len(inputs) > 1 && (inputs[0] == "select" || inputs[0] == "generate" || inputs[0] == "delete") {
-			promptSuggestions = []prompt.Suggest{}
-			for _, p := range implantbuilder.ProfileNamesForSuggestions() {
-				promptSuggestions = append(promptSuggestions,
-					prompt.Suggest{Text: p[0], Description: p[1]},
-				)
-			}
-			return prompt.FilterHasPrefix(promptSuggestions, inputs[1], true)
-		}
+	case types.IMPLANT_BUILD:
 		promptSuggestions = append(promptSuggestions,
 			prompt.Suggest{Text: "back", Description: "Exit implant menu"},
 			prompt.Suggest{Text: "new", Description: "Create new implant profile: new profile <name>"},
@@ -160,7 +167,7 @@ func (paux *ProfileAux) completer(d prompt.Document) []prompt.Suggest {
 			prompt.Suggest{Text: "generate", Description: "Build implant: generate [name]"},
 			prompt.Suggest{Text: "delete", Description: "Delete a profile: delete <name>"},
 		)
-	} else { // Options only valid when there is no selected script.
+	default:
 		promptSuggestions = append(promptSuggestions,
 			prompt.Suggest{Text: "listener", Description: "Interact with listeners"},
 			prompt.Suggest{Text: "session", Description: "Interact with session"},
@@ -170,5 +177,5 @@ func (paux *ProfileAux) completer(d prompt.Document) []prompt.Suggest {
 		)
 	}
 
-	return prompt.FilterHasPrefix(promptSuggestions, inputs[0], true)
+	return promptSuggestions
 }

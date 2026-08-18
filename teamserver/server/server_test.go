@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -107,6 +108,29 @@ func TestControlAuthenticationCorrelationDeduplicationAndReplay(t *testing.T) {
 
 	if err := listener.APIDelete("integration"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestControlAcceptsBrowserAuthenticationSubprotocol(t *testing.T) {
+	const token = "browser-token-that-is-long-enough"
+	instance := teamserver.New(config.Config{Token: token, ScriptDir: t.TempDir()}, events.New())
+	httpServer := httptest.NewServer(instance.Handler())
+	defer httpServer.Close()
+
+	endpoint := "ws" + strings.TrimPrefix(httpServer.URL, "http") + "/api/v1/ws"
+	authProtocol := teamapi.BrowserAuthPrefix + base64.RawURLEncoding.EncodeToString([]byte(token))
+	dialer := websocket.Dialer{Subprotocols: []string{teamapi.Subprotocol, authProtocol}}
+	requestHeader := http.Header{"Origin": {"http://127.0.0.1:5173"}}
+	connection, response, err := dialer.Dial(endpoint, requestHeader)
+	if err != nil {
+		if response != nil {
+			t.Fatalf("browser websocket: %s: %v", response.Status, err)
+		}
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	if connection.Subprotocol() != teamapi.Subprotocol {
+		t.Fatalf("selected subprotocol = %q", connection.Subprotocol())
 	}
 }
 

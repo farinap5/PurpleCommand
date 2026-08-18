@@ -9,54 +9,84 @@ import (
 	"github.com/cheynewallace/tabby"
 )
 
+// HelpEntry is a command and description shown in a state-specific help menu.
+type HelpEntry struct {
+	Command     string
+	Description string
+}
+
+// HelpEntries returns the shared help menu entries for a CLI state. Session
+// payload commands remain dynamic and are rendered by the caller.
+func HelpEntries(state int) []HelpEntry {
+	entries := []HelpEntry{
+		{Command: "help", Description: "Show help menu. Use `help <cmd>`."},
+		{Command: "exit", Description: "Exit from purpcmd."},
+	}
+
+	switch state {
+	case types.LISTENER:
+		entries = append(entries,
+			HelpEntry{Command: "new", Description: "Create new listener. Use `new <name>`."},
+			HelpEntry{Command: "delete", Description: "Delete listener."},
+			HelpEntry{Command: "options", Description: "Show options."},
+			HelpEntry{Command: "set", Description: "Set option. Use `set <key> <value>`."},
+			HelpEntry{Command: "run/start", Description: "Start listener."},
+			HelpEntry{Command: "stop", Description: "Stop a listener."},
+			HelpEntry{Command: "list", Description: "List listeners."},
+			HelpEntry{Command: "interact", Description: "Interact with a listener. Use `interact <name>`."},
+			HelpEntry{Command: "back", Description: "Exit listener mode."},
+		)
+	case types.SESSION:
+		entries = append(entries,
+			HelpEntry{Command: "delete", Description: "Delete a non-live session. Use `delete terminate` to terminate a live implant first."},
+			HelpEntry{Command: "list", Description: "List sessions."},
+			HelpEntry{Command: "interact", Description: "Interact with a session. Use `interact <name>`."},
+			HelpEntry{Command: "back", Description: "Exit session mode."},
+		)
+	case types.SCRIPT:
+		entries = append(entries,
+			HelpEntry{Command: "load", Description: "Load script."},
+			HelpEntry{Command: "unload", Description: "Unload script."},
+			HelpEntry{Command: "list", Description: "List scripts."},
+			HelpEntry{Command: "back", Description: "Exit script mode."},
+		)
+	case types.LOOT:
+		entries = append(entries,
+			HelpEntry{Command: "list", Description: "List all downloaded loot files."},
+			HelpEntry{Command: "view", Description: "View loot file content. Use `view <uuid>`."},
+			HelpEntry{Command: "export", Description: "Export loot to file. Use `export <uuid> <path>`."},
+			HelpEntry{Command: "delete", Description: "Delete loot file. Use `delete <uuid>`."},
+			HelpEntry{Command: "back", Description: "Exit loot mode."},
+		)
+	case types.IMPLANT_BUILD:
+		entries = append(entries,
+			HelpEntry{Command: "new", Description: "Create new profile. Use `new profile <name>`."},
+			HelpEntry{Command: "list", Description: "List all implant profiles."},
+			HelpEntry{Command: "select", Description: "Select a profile. Use `select <name>`."},
+			HelpEntry{Command: "options", Description: "Show current profile options."},
+			HelpEntry{Command: "set", Description: "Set option on current profile. Use `set <key> <value>`."},
+			HelpEntry{Command: "generate", Description: "Build implant. Use `generate [name]` or `generate` for current."},
+			HelpEntry{Command: "delete", Description: "Delete a profile. Use `delete <name>`."},
+			HelpEntry{Command: "back", Description: "Exit implant builder mode."},
+		)
+	default:
+		entries = append(entries,
+			HelpEntry{Command: "listener", Description: "Enter listener mode. Use `help <cmd>`."},
+			HelpEntry{Command: "session", Description: "Enter session mode. Use `help <cmd>`."},
+			HelpEntry{Command: "script", Description: "Enter script mode."},
+			HelpEntry{Command: "loot", Description: "Enter loot management mode."},
+			HelpEntry{Command: "implant", Description: "Enter implant builder mode."},
+		)
+	}
+
+	return entries
+}
+
 func CmdHelp(p *types.Profile) {
 	t := tabby.New()
 	t.AddHeader("GENERIC COMMAND", "DESCRIPTION")
-	t.AddLine("help", "Show help menu. Use `help <cmd>`.") //
-	t.AddLine("exit", "Exit from purpcmd.")                //
-
-	switch p.STATE {
-	case types.LISTENER:
-		t.AddLine("new", "Create new listener. Use `new <name>`.")                //
-		t.AddLine("delete", "Delete listener.")                                   //
-		t.AddLine("options", "Show options.")                                     //
-		t.AddLine("set", "Set option. Use `set <key> <value>`.")                  //
-		t.AddLine("run/start", "Start listener.")                                 //
-		t.AddLine("stop", "Stop a listener.")                                     //
-		t.AddLine("list", "List listeners.")                                      //
-		t.AddLine("interact", "Interact with a listener. Use `interact <name>`.") //
-		t.AddLine("back", "Exit listener mode.")                                  //
-	case types.SESSION:
-		t.AddLine("delete", "Delete a non-live session. Use `delete terminate` to terminate a live implant first.") //
-		t.AddLine("list", "List sessions.")                                                                         //
-		t.AddLine("interact", "Interact with a session. Use `interact <name>`.")                                    //
-		t.AddLine("back", "Exit session mode.")                                                                     //
-	case types.SCRIPT:
-		t.AddLine("load", "Load script.")      //
-		t.AddLine("unload", "Unload script.")  //
-		t.AddLine("list", "List scripts.")     //
-		t.AddLine("back", "Exit script mode.") //
-	case types.LOOT:
-		t.AddLine("list", "List all downloaded loot files.")                    //
-		t.AddLine("view", "View loot file content. Use `view <uuid>`.")         //
-		t.AddLine("export", "Export loot to file. Use `export <uuid> <path>`.") //
-		t.AddLine("delete", "Delete loot file. Use `delete <uuid>`.")           //
-		t.AddLine("back", "Exit loot mode.")                                    //
-	case types.IMPLANT_BUILD:
-		t.AddLine("new", "Create new profile. Use `new profile <name>`.")
-		t.AddLine("list", "List all implant profiles.")
-		t.AddLine("select", "Select a profile. Use `select <name>`.")
-		t.AddLine("options", "Show current profile options.")
-		t.AddLine("set", "Set option on current profile. Use `set <key> <value>`.")
-		t.AddLine("generate", "Build implant. Use `generate [name]` or `generate` for current.")
-		t.AddLine("delete", "Delete a profile. Use `delete <name>`.")
-		t.AddLine("back", "Exit implant builder mode.")
-	default:
-		t.AddLine("listener", "Enter listener mode. Use `help <cmd>`.")
-		t.AddLine("session", "Enter session mode. Use `help <cmd>`.")
-		t.AddLine("script", "Enter script mode.")
-		t.AddLine("loot", "Enter loot management mode.")
-		t.AddLine("implant", "Enter implant builder mode.")
+	for _, entry := range HelpEntries(p.STATE) {
+		t.AddLine(entry.Command, entry.Description)
 	}
 
 	print("\n")

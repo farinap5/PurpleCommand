@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
@@ -15,6 +14,7 @@ import (
 	"purpcmd/server/core"
 	"purpcmd/server/log"
 	serverssh "purpcmd/server/ssh"
+	"purpcmd/server/types"
 
 	"github.com/c-bata/go-prompt"
 	"github.com/cheynewallace/tabby"
@@ -82,7 +82,7 @@ func (cli *CLI) shutdown() {
 
 func (cli *CLI) eventLoop() {
 	for event := range cli.client.Events() {
-		message := event.Type
+		/*message := event.Type
 		if len(event.Data) > 0 {
 			var values map[string]any
 			if json.Unmarshal(event.Data, &values) == nil {
@@ -91,7 +91,9 @@ func (cli *CLI) eventLoop() {
 				}
 			}
 		}
-		log.AsyncWriteStdoutInfo(message + "\n")
+		log.AsyncWriteStdoutInfo(message + "\n")*/
+		// handle and show information
+		eventHandler(event)
 		_ = cli.refresh()
 	}
 }
@@ -195,7 +197,7 @@ func (cli *CLI) executeMain(fields []string) error {
 	case "implant", "profile":
 		cli.mode = modeProfile
 	default:
-		return errorsNew("valid commands: listener, session, script, loot, implant, help, exit")
+		return errorsNew("Unknow command: type `help`")
 	}
 	return nil
 }
@@ -364,7 +366,7 @@ func (cli *CLI) executeSession(input string, fields []string) error {
 			fmt.Println(reply.Message)
 		}
 		if len(reply.TaskIDs) > 0 {
-			fmt.Println("queued:", strings.Join(reply.TaskIDs, ", "))
+			fmt.Println("Queued task:", strings.Join(reply.TaskIDs, ", "))
 		}
 	}
 	return nil
@@ -628,78 +630,170 @@ func (cli *CLI) request(operation string, request, response any) error {
 }
 
 func (cli *CLI) complete(document prompt.Document) []prompt.Suggest {
-	words := strings.Fields(document.TextBeforeCursor())
+	return cli.completeText(document.TextBeforeCursor())
+}
+
+func (cli *CLI) completeText(input string) []prompt.Suggest {
+	words := strings.Fields(input)
+	trailingSpace := len(strings.TrimRight(input, " \t\r\n")) != len(input)
 	prefix := ""
-	if len(words) > 0 {
+	if len(words) > 0 && !trailingSpace {
 		prefix = words[len(words)-1]
 	}
+
 	cli.mu.RLock()
 	defer cli.mu.RUnlock()
-	suggestions := []prompt.Suggest{{Text: "help"}, {Text: "back"}, {Text: "exit"}}
+
+	state := stateForMode(cli.mode)
+	suggestions := core.PromptSuggestions(state)
+	argumentIndex := len(words) - 1
+	if trailingSpace {
+		argumentIndex++
+	}
+	argumentPosition := argumentIndex > 0
+	command := ""
+	if len(words) > 0 {
+		command = strings.ToLower(words[0])
+	}
+
 	switch cli.mode {
-	case modeMain:
-		suggestions = []prompt.Suggest{{Text: "listener"}, {Text: "session"}, {Text: "script"}, {Text: "loot"}, {Text: "implant"}, {Text: "help"}, {Text: "exit"}}
 	case modeListener:
-		suggestions = append(suggestions, wordsToSuggestions("list", "new", "interact", "options", "set", "start", "stop", "restart", "delete")...)
-		if len(words) > 1 && isOneOf(words[0], "interact", "start", "stop", "restart", "delete") {
+		if argumentIndex == 1 && isOneOf(command, "interact", "select", "options", "start", "run", "stop", "restart", "delete") {
 			suggestions = nil
 			for _, item := range cli.snapshot.Listeners {
 				suggestions = append(suggestions, prompt.Suggest{Text: item.Name, Description: item.Host + ":" + item.Port})
 			}
+			return prompt.FilterHasPrefix(suggestions, prefix, true)
 		}
+		suggestions = append(suggestions,
+			prompt.Suggest{Text: "start", Description: "Start listener"},
+			prompt.Suggest{Text: "select", Description: "Select a listener"},
+		)
 	case modeSession:
-		suggestions = append(suggestions, wordsToSuggestions("list", "interact", "tasks", "delete", "interactive")...)
-		if len(words) > 1 && words[0] == "interact" {
+		if argumentIndex == 1 && isOneOf(command, "interact", "select") {
 			suggestions = nil
 			for _, item := range cli.snapshot.Sessions {
 				suggestions = append(suggestions, prompt.Suggest{Text: item.Name, Description: item.PayloadType + " " + item.Hostname + "@" + item.User})
 			}
-		} else {
-			payloadType := ""
-			for _, session := range cli.snapshot.Sessions {
-				if session.Name == cli.selectedSession {
-					payloadType = session.PayloadType
-				}
-			}
-			for _, command := range cli.snapshot.Commands {
-				if command.PayloadType == payloadType {
-					suggestions = append(suggestions, prompt.Suggest{Text: command.Name, Description: command.Description})
-				}
+			return prompt.FilterHasPrefix(suggestions, prefix, true)
+		}
+		if argumentIndex == 1 && command == "delete" {
+			return prompt.FilterHasPrefix([]prompt.Suggest{{Text: "terminate", Description: "Terminate a live implant before deleting its session"}}, prefix, true)
+		}
+		suggestions = append(suggestions,
+			prompt.Suggest{Text: "select", Description: "Select a session"},
+			prompt.Suggest{Text: "tasks", Description: "List tasks for the selected session"},
+			prompt.Suggest{Text: "interactive", Description: "Open an interactive SSH session"},
+			prompt.Suggest{Text: "ssh", Description: "Open an interactive SSH session"},
+		)
+		payloadType := cli.selectedPayloadType()
+		for _, command := range cli.snapshot.Commands {
+			if command.PayloadType == payloadType {
+				suggestions = append(suggestions, prompt.Suggest{Text: command.Name, Description: command.Description})
 			}
 		}
 	case modeScript:
-		suggestions = append(suggestions, wordsToSuggestions("list", "load", "unload")...)
-	case modeLoot:
-		suggestions = append(suggestions, wordsToSuggestions("list", "view", "export", "delete")...)
+		if argumentIndex == 1 && command == "unload" {
+			suggestions = nil
+			for _, item := range cli.snapshot.Scripts {
+				suggestions = append(suggestions, prompt.Suggest{Text: item.Path, Description: shorten(item.SHA256, 12)})
+			}
+			return prompt.FilterHasPrefix(suggestions, prefix, true)
+		}
 	case modeProfile:
-		suggestions = append(suggestions, wordsToSuggestions("list", "new", "select", "options", "set", "generate", "builds", "download", "delete")...)
-		if len(words) > 1 && isOneOf(words[0], "select", "generate", "delete") {
+		if argumentIndex == 1 && isOneOf(command, "select", "interact", "generate", "delete", "options") {
 			suggestions = nil
 			for _, item := range cli.snapshot.Profiles {
 				suggestions = append(suggestions, prompt.Suggest{Text: item.Name, Description: item.Type + " " + item.OS + "/" + item.ARCH})
 			}
+			return prompt.FilterHasPrefix(suggestions, prefix, true)
 		}
+		if argumentIndex == 1 && command == "new" {
+			return prompt.FilterHasPrefix([]prompt.Suggest{{Text: "profile", Description: "Create a named implant profile"}}, prefix, true)
+		}
+		suggestions = append(suggestions,
+			prompt.Suggest{Text: "interact", Description: "Select a profile"},
+			prompt.Suggest{Text: "builds", Description: "List implant builds"},
+			prompt.Suggest{Text: "download", Description: "Download a completed build"},
+		)
+	}
+
+	if argumentPosition {
+		return nil
 	}
 	return prompt.FilterHasPrefix(suggestions, prefix, true)
 }
 
+func (cli *CLI) selectedPayloadType() string {
+	for _, session := range cli.snapshot.Sessions {
+		if session.Name == cli.selectedSession {
+			return session.PayloadType
+		}
+	}
+	return ""
+}
+
+func stateForMode(current mode) int {
+	switch current {
+	case modeListener:
+		return types.LISTENER
+	case modeSession:
+		return types.SESSION
+	case modeScript:
+		return types.SCRIPT
+	case modeLoot:
+		return types.LOOT
+	case modeProfile:
+		return types.IMPLANT_BUILD
+	default:
+		return types.NIL
+	}
+}
+
 func (cli *CLI) help() {
 	cli.mu.RLock()
-	current := cli.mode
-	cli.mu.RUnlock()
-	switch current {
-	case modeMain:
-		fmt.Println("listener | session | script | loot | implant | exit")
+	defer cli.mu.RUnlock()
+
+	entries := core.HelpEntries(stateForMode(cli.mode))
+	switch cli.mode {
 	case modeListener:
-		fmt.Println("list | new name [host] [port] | interact name | options | set key value | start | stop | restart | delete | back")
+		entries = append(entries,
+			core.HelpEntry{Command: "restart", Description: "Restart a listener."},
+			core.HelpEntry{Command: "select", Description: "Alias for `interact <name>`."},
+		)
 	case modeSession:
-		fmt.Println("list | interact name | tasks | command arguments (use @path for local files) | interactive | delete [terminate] | back")
-	case modeScript:
-		fmt.Println("list | load local-script.lua | unload server-path | back")
-	case modeLoot:
-		fmt.Println("list | view uuid | export uuid destination | delete uuid | back")
+		entries = append(entries,
+			core.HelpEntry{Command: "tasks", Description: "List tasks for the selected session."},
+			core.HelpEntry{Command: "interactive/ssh", Description: "Open an interactive SSH session."},
+		)
 	case modeProfile:
-		fmt.Println("list | new profile name | select name | options | set key value | generate | builds | download id destination | delete | back")
+		entries = append(entries,
+			core.HelpEntry{Command: "builds", Description: "List implant builds."},
+			core.HelpEntry{Command: "download", Description: "Download a build. Use `download <id> <destination>`."},
+			core.HelpEntry{Command: "interact", Description: "Alias for `select <name>`."},
+		)
+	}
+
+	table := tabby.New()
+	table.AddHeader("GENERIC COMMAND", "DESCRIPTION")
+	for _, entry := range entries {
+		table.AddLine(entry.Command, entry.Description)
+	}
+	fmt.Println()
+	table.Print()
+	fmt.Println()
+
+	if cli.mode == modeSession {
+		commands := tabby.New()
+		commands.AddHeader("AVAILABLE COMMAND", "DESCRIPTION")
+		payloadType := cli.selectedPayloadType()
+		for _, command := range cli.snapshot.Commands {
+			if command.PayloadType == payloadType {
+				commands.AddLine(command.Name, command.Description)
+			}
+		}
+		commands.Print()
+		fmt.Println()
 	}
 }
 

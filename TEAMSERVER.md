@@ -89,6 +89,7 @@ ask.user.list
 ask.user.create  {"name":"alice"}
 ask.user.update  {"name":"alice"}
 ask.user.delete  {"name":"alice"}
+ask.user.message {"message":"hello team"}
 ```
 
 Create and update return a newly generated token. The token is returned only
@@ -98,6 +99,10 @@ tokens otherwise authenticate the same operator API. Updating a user rotates
 the token and disconnects that user's existing WebSockets; deleting a user
 also disconnects them immediately. A user's `connected` field is true while
 at least one authenticated control WebSocket for that user is open.
+
+Any authenticated user can publish `ask.user.message`. The server derives the
+sender from the authenticated WebSocket and broadcasts an `evt.user.message`
+event to all connected users. The CLI command is `message <text>`.
 
 Control messages are limited to 1 MiB. Loot, build artifacts, Lua scripts, and
 payload-command attachments use authenticated HTTP endpoints instead of being

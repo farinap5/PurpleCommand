@@ -670,6 +670,21 @@ func (server *Server) dispatch(envelope teamapi.Envelope, actor principal) (any,
 			return fail(err)
 		}
 		return users, nil
+	case teamapi.AskUserMessage:
+		var request teamapi.UserMessageRequest
+		if err := teamapi.DecodeData(envelope, &request); err != nil {
+			return fail(err)
+		}
+		message := strings.TrimSpace(request.Message)
+		if message == "" {
+			return fail(errors.New("message is required"))
+		}
+		if len(message) > 4096 {
+			return fail(errors.New("message must not exceed 4096 bytes"))
+		}
+		broadcast := teamapi.UserMessage{User: actor.Name, Message: message}
+		publish(teamapi.EventUserMessage, broadcast)
+		return broadcast, nil
 	case teamapi.AskUserCreate:
 		var request teamapi.UserCreateRequest
 		if err := teamapi.DecodeData(envelope, &request); err != nil {

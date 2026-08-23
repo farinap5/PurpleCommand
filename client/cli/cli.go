@@ -157,6 +157,13 @@ func (cli *CLI) execute(input string) {
 		cli.help()
 		return
 	}
+	if command == "message" {
+		message := strings.TrimSpace(strings.TrimPrefix(input, fields[0]))
+		if err := cli.sendUserMessage(message); err != nil {
+			log.PrintErr(err)
+		}
+		return
+	}
 
 	cli.mu.RLock()
 	currentMode := cli.mode
@@ -629,6 +636,16 @@ func (cli *CLI) request(operation string, request, response any) error {
 	return cli.client.Request(ctx, operation, request, response)
 }
 
+func (cli *CLI) sendUserMessage(message string) error {
+	if message == "" {
+		return errorsNew("usage: message text")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_, err := cli.client.SendUserMessage(ctx, message)
+	return err
+}
+
 func (cli *CLI) complete(document prompt.Document) []prompt.Suggest {
 	return cli.completeText(document.TextBeforeCursor())
 }
@@ -646,6 +663,7 @@ func (cli *CLI) completeText(input string) []prompt.Suggest {
 
 	state := stateForMode(cli.mode)
 	suggestions := core.PromptSuggestions(state)
+	suggestions = append(suggestions, prompt.Suggest{Text: "message", Description: "Broadcast a message to connected users"})
 	argumentIndex := len(words) - 1
 	if trailingSpace {
 		argumentIndex++
@@ -755,6 +773,7 @@ func (cli *CLI) help() {
 	defer cli.mu.RUnlock()
 
 	entries := core.HelpEntries(stateForMode(cli.mode))
+	entries = append(entries, core.HelpEntry{Command: "message <text>", Description: "Broadcast a message to connected users."})
 	switch cli.mode {
 	case modeListener:
 		entries = append(entries,

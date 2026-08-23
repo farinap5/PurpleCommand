@@ -21,6 +21,18 @@ func TestCompleteTextUsesSharedPromptDescriptions(t *testing.T) {
 	}
 }
 
+func TestCompleteTextSuggestsUserMessage(t *testing.T) {
+	cli := &CLI{mode: modeMain}
+
+	suggestion, ok := suggestionByText(cli.completeText("mes"), "message")
+	if !ok {
+		t.Fatal("missing message suggestion")
+	}
+	if suggestion.Description == "" {
+		t.Fatal("message suggestion has no description")
+	}
+}
+
 func TestCompleteTextSuggestsRemoteResourcesAfterSpace(t *testing.T) {
 	cli := &CLI{
 		mode: modeListener,

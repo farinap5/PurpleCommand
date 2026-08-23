@@ -54,10 +54,10 @@ const (
 	AskEventReplay      = "ask.event.replay"
 	AskEventAck         = "ask.event.ack"
 	AskUserCreate       = "ask.user.create"
-	AskUserUpdate = "ask.user.update"
-	AskUserDelete = "ask.user.delete"
-	AskUserList   = "ask.user.list"
-	AskUserMessage = "ask.user.message"
+	AskUserUpdate       = "ask.user.update"
+	AskUserDelete       = "ask.user.delete"
+	AskUserList         = "ask.user.list"
+	AskUserMessage      = "ask.user.message"
 )
 
 const (
@@ -85,7 +85,7 @@ const (
 	EventUserCreated       = "evt.user.created"
 	EventUserUpdated       = "evt.user.updated"
 	EventUserDeleted       = "evt.user.deleted"
-	EventUserMessage	   = "evt.user.message"
+	EventUserMessage       = "evt.user.message"
 )
 
 type Envelope struct {
@@ -327,6 +327,15 @@ type UserUpdateRequest struct {
 type UserCredentials struct {
 	User  User   `json:"user"`
 	Token string `json:"token"`
+}
+
+type UserMessageRequest struct {
+	Message string `json:"message"`
+}
+
+type UserMessage struct {
+	User    string `json:"user"`
+	Message string `json:"message"`
 }
 
 type Snapshot struct {

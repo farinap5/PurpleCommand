@@ -223,6 +223,22 @@ func TestUserManagementAuthorizationTokensAndConnections(t *testing.T) {
 	assertUserEvent(t, ctx, userClient.Events(), teamapi.EventUserLogin, "alice")
 	assertUserEvent(t, ctx, admin.Events(), teamapi.EventUserLogin, "alice")
 
+	var spoofed teamapi.UserMessage
+	if err := userClient.Request(ctx, teamapi.AskUserMessage, map[string]string{
+		"user": "admin", "message": "spoofed",
+	}, &spoofed); err == nil {
+		t.Fatal("user message accepted a caller-selected sender")
+	}
+	broadcast, err := userClient.SendUserMessage(ctx, " hello team ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if broadcast.User != "alice" || broadcast.Message != "hello team" {
+		t.Fatalf("message reply = %#v", broadcast)
+	}
+	assertUserMessageEvent(t, ctx, userClient.Events(), "alice", "hello team")
+	assertUserMessageEvent(t, ctx, admin.Events(), "alice", "hello team")
+
 	for _, test := range []struct {
 		operation string
 		request   any
@@ -240,7 +256,7 @@ func TestUserManagementAuthorizationTokensAndConnections(t *testing.T) {
 	}
 
 	var rejected teamapi.UserCredentials
-	err := admin.Request(ctx, teamapi.AskUserUpdate, map[string]string{
+	err = admin.Request(ctx, teamapi.AskUserUpdate, map[string]string{
 		"name": "alice", "token": "caller-selected-token",
 	}, &rejected)
 	if err == nil {
@@ -310,6 +326,31 @@ func assertUserEvent(t *testing.T, ctx context.Context, channel <-chan teamapi.E
 			}
 		case <-ctx.Done():
 			t.Fatalf("timed out waiting for %s for %s", eventType, name)
+		}
+	}
+}
+
+func assertUserMessageEvent(t *testing.T, ctx context.Context, channel <-chan teamapi.Envelope, user, text string) {
+	t.Helper()
+	for {
+		select {
+		case event, ok := <-channel:
+			if !ok {
+				t.Fatal("event channel closed before user message")
+			}
+			if event.Type != teamapi.EventUserMessage {
+				continue
+			}
+			var message teamapi.UserMessage
+			if err := teamapi.DecodeData(event, &message); err != nil {
+				t.Fatalf("decode user message: %v", err)
+			}
+			if message.User != user || message.Message != text {
+				t.Fatalf("user message = %#v", message)
+			}
+			return
+		case <-ctx.Done():
+			t.Fatalf("timed out waiting for message from %s", user)
 		}
 	}
 }

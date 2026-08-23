@@ -1,8 +1,8 @@
 package cli
 
 import (
-	"purpcmd/server/log"
 	"purpcmd/pkg/teamapi"
+	"purpcmd/server/log"
 )
 
 func eventHandler(event teamapi.Envelope) {
@@ -10,8 +10,19 @@ func eventHandler(event teamapi.Envelope) {
 	case "evt.task.created":
 	case teamapi.EventTaskCompleted:
 		showTask(event)
+	case teamapi.EventUserMessage:
+		showUserMessage(event)
 	default:
 	}
+}
+
+func showUserMessage(event teamapi.Envelope) {
+	var message teamapi.UserMessage
+	if err := teamapi.DecodeData(event, &message); err != nil {
+		log.AsyncWriteStdoutErr(err.Error())
+		return
+	}
+	log.AsyncWriteStdoutInfo(message.User + ": " + message.Message + "\n")
 }
 
 func showTask(event teamapi.Envelope) {

@@ -299,6 +299,12 @@ func (client *Client) Users(ctx context.Context) ([]teamapi.User, error) {
 	return users, err
 }
 
+func (client *Client) SendUserMessage(ctx context.Context, message string) (teamapi.UserMessage, error) {
+	var broadcast teamapi.UserMessage
+	err := client.Request(ctx, teamapi.AskUserMessage, teamapi.UserMessageRequest{Message: message}, &broadcast)
+	return broadcast, err
+}
+
 func (client *Client) CreateUser(ctx context.Context, name string) (teamapi.UserCredentials, error) {
 	var credentials teamapi.UserCredentials
 	err := client.Request(ctx, teamapi.AskUserCreate, teamapi.UserCreateRequest{Name: name}, &credentials)

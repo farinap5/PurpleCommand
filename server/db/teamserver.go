@@ -57,6 +57,16 @@ func EnsureTeamserverSchema() error {
 			CreatedAt TEXT NOT NULL,
 			CompletedAt TEXT
 		);`,
+		`CREATE TABLE IF NOT EXISTS Users (
+			Name TEXT PRIMARY KEY,
+			Uuid TEXT NOT NULL UNIQUE,
+			Token TEXT NOT NULL UNIQUE,
+			Connected BOOLEAN NOT NULL,
+			Created TEXT NOT NULL,
+			LastSeen TEXT NOT NULL
+		);`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS UsersUuid ON Users (Uuid);`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS UsersToken ON Users (Token);`,
 	}
 	for _, statement := range statements {
 		if _, err := DBMS.DBConn.Exec(statement); err != nil {

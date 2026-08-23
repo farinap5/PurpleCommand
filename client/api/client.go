@@ -293,6 +293,34 @@ func (client *Client) Snapshot(ctx context.Context) (teamapi.Snapshot, error) {
 	return snapshot, err
 }
 
+func (client *Client) Users(ctx context.Context) ([]teamapi.User, error) {
+	var users []teamapi.User
+	err := client.Request(ctx, teamapi.AskUserList, struct{}{}, &users)
+	return users, err
+}
+
+func (client *Client) CreateUser(ctx context.Context, name string) (teamapi.UserCredentials, error) {
+	var credentials teamapi.UserCredentials
+	err := client.Request(ctx, teamapi.AskUserCreate, teamapi.UserCreateRequest{Name: name}, &credentials)
+	return credentials, err
+}
+
+func (client *Client) RefreshUserToken(ctx context.Context, name string) (teamapi.UserCredentials, error) {
+	var credentials teamapi.UserCredentials
+	err := client.Request(ctx, teamapi.AskUserUpdate, teamapi.UserUpdateRequest{Name: name}, &credentials)
+	return credentials, err
+}
+
+func (client *Client) UpdateUserToken(ctx context.Context, name string) (teamapi.UserCredentials, error) {
+	return client.RefreshUserToken(ctx, name)
+}
+
+func (client *Client) DeleteUser(ctx context.Context, name string) (teamapi.User, error) {
+	var user teamapi.User
+	err := client.Request(ctx, teamapi.AskUserDelete, teamapi.NameRequest{Name: name}, &user)
+	return user, err
+}
+
 func (client *Client) Download(ctx context.Context, remotePath, destination string) error {
 	endpoint, err := client.endpoint(remotePath, false)
 	if err != nil {

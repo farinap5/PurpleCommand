@@ -53,6 +53,11 @@ const (
 	AskInteractiveClose = "ask.interactive.close"
 	AskEventReplay      = "ask.event.replay"
 	AskEventAck         = "ask.event.ack"
+	AskUserCreate       = "ask.user.create"
+	AskUserUpdate = "ask.user.update"
+	AskUserDelete = "ask.user.delete"
+	AskUserList   = "ask.user.list"
+	AskUserMessage = "ask.user.message"
 )
 
 const (
@@ -75,6 +80,12 @@ const (
 	EventBuildOutput       = "evt.build.output"
 	EventBuildCompleted    = "evt.build.completed"
 	EventBuildFailed       = "evt.build.failed"
+	EventUserLogin         = "evt.user.login"
+	EventUserLogout        = "evt.user.logout"
+	EventUserCreated       = "evt.user.created"
+	EventUserUpdated       = "evt.user.updated"
+	EventUserDeleted       = "evt.user.deleted"
+	EventUserMessage	   = "evt.user.message"
 )
 
 type Envelope struct {
@@ -294,12 +305,37 @@ type Build struct {
 	DownloadURL  string    `json:"download_url,omitempty"`
 }
 
+type User struct {
+	Name      string    `json:"name"`
+	UUID      string    `json:"uuid"`
+	Admin     bool      `json:"admin"`
+	Connected bool      `json:"connected"`
+	Created   time.Time `json:"created"`
+	LastSeen  time.Time `json:"last_seen,omitempty"`
+}
+
+type UserCreateRequest struct {
+	Name string `json:"name"`
+}
+
+// UserUpdateRequest deliberately contains only the user name. Updating a user
+// rotates the token; no other user properties can be changed through this API.
+type UserUpdateRequest struct {
+	Name string `json:"name"`
+}
+
+type UserCredentials struct {
+	User  User   `json:"user"`
+	Token string `json:"token"`
+}
+
 type Snapshot struct {
 	Listeners     []Listener `json:"listeners"`
 	Sessions      []Session  `json:"sessions"`
 	Scripts       []Script   `json:"scripts"`
 	Profiles      []Profile  `json:"profiles"`
 	Commands      []Command  `json:"commands"`
+	Users         []User     `json:"users"`
 	EventSequence uint64     `json:"event_sequence"`
 }
 

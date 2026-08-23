@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
@@ -37,21 +38,36 @@ import (
 )
 
 type Server struct {
-	config   config.Config
-	id       string
-	events   *events.Bus
-	builds   *builds.Manager
-	http     *http.Server
-	dedupeMu sync.Mutex
-	upgrader websocket.Upgrader
+	config        config.Config
+	id            string
+	started       time.Time
+	events        *events.Bus
+	builds        *builds.Manager
+	http          *http.Server
+	dedupeMu      sync.Mutex
+	connectionsMu sync.RWMutex
+	connections   map[string]map[*websocket.Conn]struct{}
+	lastSeen      map[string]time.Time
+	upgrader      websocket.Upgrader
 }
+
+type principal struct {
+	Name  string
+	UUID  string
+	Admin bool
+}
+
+const adminPrincipalID = "admin"
 
 func New(configuration config.Config, eventBus *events.Bus) *Server {
 	server := &Server{
-		config: configuration,
-		id:     uuid.NewString(),
-		events: eventBus,
-		builds: builds.New(eventBus),
+		config:      configuration,
+		id:          uuid.NewString(),
+		started:     time.Now().UTC(),
+		events:      eventBus,
+		builds:      builds.New(eventBus),
+		connections: make(map[string]map[*websocket.Conn]struct{}),
+		lastSeen:    make(map[string]time.Time),
 	}
 	server.upgrader = websocket.Upgrader{
 		Subprotocols: []string{teamapi.Subprotocol},
@@ -73,7 +89,7 @@ func New(configuration config.Config, eventBus *events.Bus) *Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", server.health)
 	mux.HandleFunc("/api/v1/ws", server.control)
-	mux.HandleFunc("/api/v1/loot/", server.lootFile)
+	mux.Handle("/api/v1/loot/", browserDownload(http.HandlerFunc(server.lootFile)))
 	mux.HandleFunc("/api/v1/builds/", server.buildFile)
 	mux.HandleFunc("/api/v1/scripts/upload", server.scriptUpload)
 	mux.HandleFunc("/api/v1/files/upload", server.fileUpload)
@@ -105,13 +121,41 @@ func (server *Server) Shutdown(ctx context.Context) error {
 	return server.http.Shutdown(ctx)
 }
 
+func browserDownload(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Access-Control-Allow-Origin", "*")
+		writer.Header().Set("Access-Control-Allow-Headers", "Authorization")
+		writer.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		writer.Header().Set("Access-Control-Expose-Headers", "Content-Disposition")
+		if request.Method == http.MethodOptions {
+			writer.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if request.Method != http.MethodGet {
+			writer.Header().Set("Allow", "GET, OPTIONS")
+			http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		next.ServeHTTP(writer, request)
+	})
+}
+
 func (server *Server) health(writer http.ResponseWriter, _ *http.Request) {
 	writer.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(writer).Encode(map[string]any{"ok": true, "protocol": teamapi.Version})
 }
 
 func (server *Server) authorized(request *http.Request) bool {
-	value := strings.TrimSpace(strings.TrimPrefix(request.Header.Get("Authorization"), "Bearer "))
+	_, ok := server.authenticate(request)
+	return ok
+}
+
+func (server *Server) authenticate(request *http.Request) (principal, bool) {
+	value := ""
+	authorization := strings.TrimSpace(request.Header.Get("Authorization"))
+	if strings.HasPrefix(strings.ToLower(authorization), "bearer ") {
+		value = strings.TrimSpace(authorization[len("Bearer "):])
+	}
 	if value == "" {
 		for _, protocol := range websocket.Subprotocols(request) {
 			if !strings.HasPrefix(protocol, teamapi.BrowserAuthPrefix) {
@@ -125,14 +169,26 @@ func (server *Server) authorized(request *http.Request) bool {
 			break
 		}
 	}
-	if len(value) != len(server.config.Token) {
+	if tokenEqual(value, server.config.Token) {
+		return principal{Name: "admin", UUID: adminPrincipalID, Admin: true}, true
+	}
+	user, found, err := db.UserGetByToken(value)
+	if err != nil || !found {
+		return principal{}, false
+	}
+	return principal{Name: user.Name, UUID: user.UUID}, true
+}
+
+func tokenEqual(left, right string) bool {
+	if left == "" || len(left) != len(right) {
 		return false
 	}
-	return subtle.ConstantTimeCompare([]byte(value), []byte(server.config.Token)) == 1
+	return subtle.ConstantTimeCompare([]byte(left), []byte(right)) == 1
 }
 
 func (server *Server) control(writer http.ResponseWriter, request *http.Request) {
-	if !server.authorized(request) {
+	actor, ok := server.authenticate(request)
+	if !ok {
 		http.Error(writer, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -185,12 +241,18 @@ func (server *Server) control(writer http.ResponseWriter, request *http.Request)
 		}
 	}()
 
+	// Subscribe before publishing the connection event so the newly connected
+	// client receives its own login event. Register the disconnect defer after
+	// the subscription cleanup so observers also see logout before teardown.
+	server.userConnected(actor, connection)
+	defer server.userDisconnected(actor, connection)
+
 	for {
 		_, data, err := connection.ReadMessage()
 		if err != nil {
 			return
 		}
-		response := server.handle(data)
+		response := server.handle(data, actor)
 		select {
 		case outgoing <- response:
 		case <-ctx.Done():
@@ -222,7 +284,7 @@ func (server *Server) writePump(ctx context.Context, connection *websocket.Conn,
 	}
 }
 
-func (server *Server) handle(data []byte) []byte {
+func (server *Server) handle(data []byte, actor principal) []byte {
 	var request teamapi.Envelope
 	if err := json.Unmarshal(data, &request); err != nil {
 		return marshalError("", "", "bad_envelope", err)
@@ -240,11 +302,12 @@ func (server *Server) handle(data []byte) []byte {
 
 	server.dedupeMu.Lock()
 	defer server.dedupeMu.Unlock()
-	if previous, found, err := db.DBRequestGet(request.ClientID, request.ID); err == nil && found {
+	dedupeClientID := actor.UUID + "\x00" + request.ClientID
+	if previous, found, err := db.DBRequestGet(dedupeClientID, request.ID); err == nil && found {
 		return previous
 	}
 
-	value, apiError := server.dispatch(request)
+	value, apiError := server.dispatch(request, actor)
 	reply := teamapi.Envelope{
 		Version: teamapi.Version, Type: replyType, ID: request.ID,
 		ClientID: request.ClientID, Time: time.Now().UTC(), OK: apiError == nil,
@@ -261,16 +324,19 @@ func (server *Server) handle(data []byte) []byte {
 	if err != nil {
 		return marshalError(request.ID, replyType, "encode_failed", err)
 	}
-	_ = db.DBRequestSave(request.ClientID, request.ID, request.Type, encoded)
+	_ = db.DBRequestSave(dedupeClientID, request.ID, request.Type, encoded)
 	return encoded
 }
 
-func (server *Server) dispatch(envelope teamapi.Envelope) (any, *teamapi.APIError) {
+func (server *Server) dispatch(envelope teamapi.Envelope, actor principal) (any, *teamapi.APIError) {
 	fail := func(err error) (any, *teamapi.APIError) {
 		return nil, &teamapi.APIError{Code: "request_failed", Message: err.Error()}
 	}
 	publish := func(eventType string, value any) {
 		_, _ = server.events.Publish(eventType, value)
+	}
+	if userMutation(envelope.Type) && !actor.Admin {
+		return nil, &teamapi.APIError{Code: "forbidden", Message: "only the admin user can manage users"}
 	}
 	switch envelope.Type {
 	case teamapi.AskSystemHello:
@@ -290,10 +356,14 @@ func (server *Server) dispatch(envelope teamapi.Envelope) (any, *teamapi.APIErro
 		if err != nil {
 			return fail(err)
 		}
+		users, err := server.userList()
+		if err != nil {
+			return fail(err)
+		}
 		return teamapi.Snapshot{
 			Listeners: listener.APIList(), Sessions: implant.APIListSessions(),
 			Scripts: lua.APIListScripts(), Profiles: implantbuilder.APIListProfiles(),
-			Commands: lua.APIListCommands(""), EventSequence: latest,
+			Commands: lua.APIListCommands(""), Users: users, EventSequence: latest,
 		}, nil
 	case teamapi.AskListenerList:
 		return listener.APIList(), nil
@@ -594,9 +664,198 @@ func (server *Server) dispatch(envelope teamapi.Envelope) (any, *teamapi.APIErro
 		return items, nil
 	case teamapi.AskEventAck:
 		return map[string]bool{"acknowledged": true}, nil
+	case teamapi.AskUserList:
+		users, err := server.userList()
+		if err != nil {
+			return fail(err)
+		}
+		return users, nil
+	case teamapi.AskUserCreate:
+		var request teamapi.UserCreateRequest
+		if err := teamapi.DecodeData(envelope, &request); err != nil {
+			return fail(err)
+		}
+		token, err := newUserToken()
+		if err != nil {
+			return fail(err)
+		}
+		user, err := db.UserCreate(request.Name, token)
+		if err != nil {
+			return fail(err)
+		}
+		publish(teamapi.EventUserCreated, user)
+		return teamapi.UserCredentials{User: user, Token: token}, nil
+	case teamapi.AskUserUpdate:
+		var request teamapi.UserUpdateRequest
+		if err := teamapi.DecodeData(envelope, &request); err != nil {
+			return fail(err)
+		}
+		if strings.EqualFold(strings.TrimSpace(request.Name), "admin") {
+			return fail(errors.New("the startup admin token cannot be refreshed through the user API"))
+		}
+		token, err := newUserToken()
+		if err != nil {
+			return fail(err)
+		}
+		user, err := db.UserUpdateToken(request.Name, token)
+		if err != nil {
+			return fail(err)
+		}
+		if server.closeUserConnections(user.UUID) {
+			user.Connected = false
+			user.LastSeen = time.Now().UTC()
+			publish(teamapi.EventUserLogout, user)
+		}
+		publish(teamapi.EventUserUpdated, user)
+		return teamapi.UserCredentials{User: user, Token: token}, nil
+	case teamapi.AskUserDelete:
+		var request teamapi.NameRequest
+		if err := teamapi.DecodeData(envelope, &request); err != nil {
+			return fail(err)
+		}
+		if strings.EqualFold(strings.TrimSpace(request.Name), "admin") {
+			return fail(errors.New("the startup admin user cannot be deleted"))
+		}
+		user, err := db.UserGet(request.Name)
+		if err != nil {
+			return fail(err)
+		}
+		if err := db.UserDelete(request.Name); err != nil {
+			return fail(err)
+		}
+		if server.closeUserConnections(user.UUID) {
+			user.LastSeen = time.Now().UTC()
+		}
+		user.Connected = false
+		publish(teamapi.EventUserDeleted, user)
+		return user, nil
 	default:
 		return fail(fmt.Errorf("unknown operation %q", envelope.Type))
 	}
+}
+
+func userMutation(operation string) bool {
+	return operation == teamapi.AskUserCreate || operation == teamapi.AskUserUpdate || operation == teamapi.AskUserDelete
+}
+
+func newUserToken() (string, error) {
+	value := make([]byte, 32)
+	if _, err := rand.Read(value); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(value), nil
+}
+
+func (server *Server) userConnected(actor principal, connection *websocket.Conn) {
+	now := time.Now().UTC()
+	server.connectionsMu.Lock()
+	connections := server.connections[actor.UUID]
+	first := len(connections) == 0
+	if connections == nil {
+		connections = make(map[*websocket.Conn]struct{})
+		server.connections[actor.UUID] = connections
+	}
+	connections[connection] = struct{}{}
+	server.lastSeen[actor.UUID] = now
+	server.connectionsMu.Unlock()
+	_ = db.UserSetConnected(actor.UUID, true, now)
+	if first {
+		server.publishConnectionEvent(teamapi.EventUserLogin, server.userStatus(actor))
+	}
+}
+
+func (server *Server) userDisconnected(actor principal, connection *websocket.Conn) {
+	now := time.Now().UTC()
+	server.connectionsMu.Lock()
+	connections := server.connections[actor.UUID]
+	if connections == nil {
+		server.connectionsMu.Unlock()
+		return
+	}
+	delete(connections, connection)
+	disconnected := len(connections) == 0
+	if disconnected {
+		delete(server.connections, actor.UUID)
+	}
+	server.lastSeen[actor.UUID] = now
+	server.connectionsMu.Unlock()
+	_ = db.UserSetConnected(actor.UUID, !disconnected, now)
+	if disconnected {
+		server.publishConnectionEvent(teamapi.EventUserLogout, server.userStatus(actor))
+	}
+}
+
+func (server *Server) publishConnectionEvent(eventType string, user teamapi.User) {
+	// A handler can be constructed without a database in lightweight HTTP
+	// tests. Production startup initializes the database before New.
+	if server.events == nil || db.DBMS.DBConn == nil {
+		return
+	}
+	_, _ = server.events.Publish(eventType, user)
+}
+
+func (server *Server) closeUserConnections(uuid string) bool {
+	server.connectionsMu.Lock()
+	active := server.connections[uuid]
+	if len(active) == 0 {
+		server.connectionsMu.Unlock()
+		return false
+	}
+	connections := make([]*websocket.Conn, 0, len(active))
+	for connection := range active {
+		connections = append(connections, connection)
+	}
+	delete(server.connections, uuid)
+	server.lastSeen[uuid] = time.Now().UTC()
+	server.connectionsMu.Unlock()
+	for _, connection := range connections {
+		_ = connection.Close()
+	}
+	_ = db.UserSetConnected(uuid, false, time.Now().UTC())
+	return true
+}
+
+func (server *Server) userStatus(actor principal) teamapi.User {
+	if !actor.Admin {
+		if user, err := db.UserGet(actor.Name); err == nil {
+			server.connectionsMu.RLock()
+			user.Connected = len(server.connections[actor.UUID]) > 0
+			if lastSeen := server.lastSeen[actor.UUID]; !lastSeen.IsZero() {
+				user.LastSeen = lastSeen
+			}
+			server.connectionsMu.RUnlock()
+			return user
+		}
+	}
+	server.connectionsMu.RLock()
+	connected := len(server.connections[actor.UUID]) > 0
+	lastSeen := server.lastSeen[actor.UUID]
+	server.connectionsMu.RUnlock()
+	return teamapi.User{
+		Name: actor.Name, UUID: actor.UUID, Admin: actor.Admin,
+		Connected: connected, Created: server.started, LastSeen: lastSeen,
+	}
+}
+
+func (server *Server) userList() ([]teamapi.User, error) {
+	users, err := db.UserList()
+	if err != nil {
+		return nil, err
+	}
+	server.connectionsMu.RLock()
+	admin := teamapi.User{
+		Name: "admin", UUID: adminPrincipalID, Admin: true,
+		Connected: len(server.connections[adminPrincipalID]) > 0,
+		Created:   server.started, LastSeen: server.lastSeen[adminPrincipalID],
+	}
+	for index := range users {
+		users[index].Connected = len(server.connections[users[index].UUID]) > 0
+		if lastSeen := server.lastSeen[users[index].UUID]; !lastSeen.IsZero() {
+			users[index].LastSeen = lastSeen
+		}
+	}
+	server.connectionsMu.RUnlock()
+	return append([]teamapi.User{admin}, users...), nil
 }
 
 func (server *Server) lootFile(writer http.ResponseWriter, request *http.Request) {

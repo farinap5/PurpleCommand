@@ -38,15 +38,16 @@ client. The server is `go run ./cmd/teamserver`.
 
 A non-loopback teamserver binding is rejected unless both `-tls-cert` and
 `-tls-key` are set. The CLI validates TLS normally; `-insecure-tls` exists
-only for controlled testing. There are deliberately no operator accounts or
-server-side operator sessions: all clients use the same bearer token.
+only for controlled testing. The startup bearer token is the admin credential.
+The admin can create additional operator users, refresh their tokens, and
+delete them through the control API.
 
 Teamserver flags:
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
 | `-listen` | `127.0.0.1:8080` | Operator API address |
-| `-token` | `PURPCMD_TOKEN` | Shared bearer token |
+| `-token` | `PURPCMD_TOKEN` | Admin bearer token |
 | `-tls-cert`, `-tls-key` | empty | TLS files; required off loopback |
 | `-rsa-key` | `server.key` | Implant registration private key |
 | `-database` | `database.db` | SQLite state |
@@ -79,6 +80,25 @@ The task-create reply means that the task was queued, not completed. Request
 IDs are persisted with their serialized reply, so retrying the same
 `client_id` and request `id` does not perform the mutation twice.
 
+### Operator users
+
+User management uses these control operations:
+
+```text
+ask.user.list
+ask.user.create  {"name":"alice"}
+ask.user.update  {"name":"alice"}
+ask.user.delete  {"name":"alice"}
+```
+
+Create and update return a newly generated token. The token is returned only
+in that operation's reply; list and snapshot responses do not expose tokens.
+Only the startup admin credential can perform create, update, or delete. User
+tokens otherwise authenticate the same operator API. Updating a user rotates
+the token and disconnects that user's existing WebSockets; deleting a user
+also disconnects them immediately. A user's `connected` field is true while
+at least one authenticated control WebSocket for that user is open.
+
 Control messages are limited to 1 MiB. Loot, build artifacts, Lua scripts, and
 payload-command attachments use authenticated HTTP endpoints instead of being
 embedded in WebSocket JSON. Attachment uploads are limited to 64 MiB, expire
@@ -95,8 +115,8 @@ memexec @./tool argument
 Events have a monotonically increasing SQLite sequence. The client sends its
 last sequence in `ask.system.hello`; when history is missing it requests
 `ask.event.replay` in pages. Duplicate event sequences are discarded.
-A fresh snapshot contains listeners, sessions, scripts, profiles, commands, and
-the sequence at which it was generated.
+A fresh snapshot contains listeners, sessions, scripts, profiles, commands,
+users, and the sequence at which it was generated.
 
 A slow WebSocket subscriber is disconnected instead of blocking implant
 callbacks or other operators. The client reconnects on the next request and

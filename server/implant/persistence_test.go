@@ -31,6 +31,7 @@ func TestSessionAndTaskHistoryRestoresAsInactive(t *testing.T) {
 	item.Metadata.Hostname = "host"
 	item.Metadata.User = "user"
 	item.Metadata.Sleep = 60
+	item.ImplantSetSpeaker("bind-http")
 	item.ImplantAddImplant()
 	task := TaskNew(1, []byte("ping"))
 	item.ImplantAddTask(task)
@@ -50,6 +51,9 @@ func TestSessionAndTaskHistoryRestoresAsInactive(t *testing.T) {
 	}
 	if session.Alive {
 		t.Fatal("restored session was marked alive without restored transport keys")
+	}
+	if session.Transport != "speaker" || session.Speaker != "bind-http" {
+		t.Fatalf("restored session route = %q/%q", session.Transport, session.Speaker)
 	}
 	restoredTask, err := APIGetTask("persisted", string(task.ID[:]))
 	if err != nil {

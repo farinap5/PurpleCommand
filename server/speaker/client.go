@@ -1,6 +1,7 @@
 // Package speaker contains the outbound transport foundation used by bind-mode
-// implant connections. Protocol registration and task framing intentionally do
-// not live in this package.
+// implant connections. Each RequestEngine.Do call is one finite request and
+// response exchange. Protocol registration, task framing, and future
+// interactive transports intentionally do not live in this package.
 package speaker
 
 import (
@@ -20,6 +21,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"purpcmd/pkg/teamapi"
 )
 
 const (
@@ -39,50 +42,10 @@ var (
 	ErrResponseTooLarge = errors.New("speaker HTTP response exceeds configured limit")
 )
 
-// TLSClientConfig contains references to TLS trust material. Key and
-// certificate contents are loaded while constructing the engine and are never
-// returned in request or response values.
-type TLSClientConfig struct {
-	ServerName         string
-	RootCAFile         string
-	ClientCertFile     string
-	ClientKeyFile      string
-	SPKISHA256Pins     []string
-	MinVersion         string
-	InsecureSkipVerify bool
-}
-
-// HTTPClientConfig defines defaults shared by all requests from one speaker.
-// Maps and slices are cloned by NewRequestEngine, so callers may safely reuse
-// or mutate their input after construction.
-type HTTPClientConfig struct {
-	BaseURL string
-	Host    string
-	Headers http.Header
-	Query   url.Values
-	Cookies map[string]string
-
-	ProxyURL                  string
-	UseEnvironmentProxy       bool
-	FollowRedirects           bool
-	AllowCrossOriginRedirects bool
-	MaxRedirects              int
-
-	RequestTimeout         time.Duration
-	DialTimeout            time.Duration
-	TLSHandshakeTimeout    time.Duration
-	ResponseHeaderTimeout  time.Duration
-	IdleConnTimeout        time.Duration
-	MaxRequestBytes        int64
-	MaxResponseBytes       int64
-	MaxResponseHeaderBytes int64
-	MaxIdleConnections     int
-	MaxIdlePerHost         int
-	DisableCompression     bool
-	DisableKeepAlives      bool
-
-	TLS TLSClientConfig
-}
+// TLSClientConfig and HTTPClientConfig remain aliases for callers working in
+// the transport package. Their canonical wire definitions live in teamapi.
+type TLSClientConfig = teamapi.SpeakerTLSConfig
+type HTTPClientConfig = teamapi.SpeakerHTTPClientConfig
 
 // RequestSpec describes one outbound request. Request-specific headers, query
 // values, cookies, and Host replace defaults with the same key.
@@ -120,15 +83,16 @@ func (err *UnexpectedStatusError) Error() string {
 
 // RequestEngine owns a configured, concurrency-safe HTTP client.
 type RequestEngine struct {
-	baseURL          *url.URL
-	host             string
-	headers          http.Header
-	query            url.Values
-	cookies          map[string]string
-	maxRequestBytes  int64
-	maxResponseBytes int64
-	client           *http.Client
-	transport        *http.Transport
+	baseURL           *url.URL
+	host              string
+	headers           http.Header
+	query             url.Values
+	cookies           map[string]string
+	maxRequestBytes   int64
+	maxResponseBytes  int64
+	closeAfterRequest bool
+	client            *http.Client
+	transport         *http.Transport
 }
 
 func NewRequestEngine(configuration HTTPClientConfig) (*RequestEngine, error) {
@@ -184,7 +148,7 @@ func NewRequestEngine(configuration HTTPClientConfig) (*RequestEngine, error) {
 		MaxResponseHeaderBytes: maxResponseHeaders,
 		TLSClientConfig:        tlsConfiguration,
 		DisableCompression:     configuration.DisableCompression,
-		DisableKeepAlives:      configuration.DisableKeepAlives,
+		DisableKeepAlives:      !configuration.ReuseConnections,
 	}
 	client := &http.Client{Transport: transport, Timeout: requestTimeout}
 	client.CheckRedirect = redirectPolicy(
@@ -194,15 +158,16 @@ func NewRequestEngine(configuration HTTPClientConfig) (*RequestEngine, error) {
 	)
 
 	return &RequestEngine{
-		baseURL:          baseURL,
-		host:             strings.TrimSpace(configuration.Host),
-		headers:          normalizeHeader(configuration.Headers),
-		query:            cloneValues(configuration.Query),
-		cookies:          cloneStrings(configuration.Cookies),
-		maxRequestBytes:  maxRequestBytes,
-		maxResponseBytes: maxResponseBytes,
-		client:           client,
-		transport:        transport,
+		baseURL:           baseURL,
+		host:              strings.TrimSpace(configuration.Host),
+		headers:           normalizeHeader(configuration.Headers),
+		query:             cloneValues(configuration.Query),
+		cookies:           cloneStrings(configuration.Cookies),
+		maxRequestBytes:   maxRequestBytes,
+		maxResponseBytes:  maxResponseBytes,
+		closeAfterRequest: !configuration.ReuseConnections,
+		client:            client,
+		transport:         transport,
 	}, nil
 }
 
@@ -236,6 +201,7 @@ func (engine *RequestEngine) Do(ctx context.Context, specification RequestSpec) 
 		return Response{}, err
 	}
 	request.Header = mergeHeader(engine.headers, specification.Headers)
+	request.Close = engine.closeAfterRequest
 	request.Host = engine.host
 	if specification.Host != "" {
 		request.Host = strings.TrimSpace(specification.Host)

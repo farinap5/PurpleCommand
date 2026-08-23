@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"purpcmd/pkg/teamapi"
@@ -29,6 +30,8 @@ func EnsureTeamserverSchema() error {
 			Name TEXT PRIMARY KEY,
 			Uuid TEXT NOT NULL,
 			PayloadType TEXT NOT NULL,
+			Transport TEXT NOT NULL DEFAULT 'listener',
+			Speaker TEXT NOT NULL DEFAULT '',
 			Metadata BLOB NOT NULL,
 			Alive BOOLEAN NOT NULL,
 			Terminating BOOLEAN NOT NULL,
@@ -73,8 +76,54 @@ func EnsureTeamserverSchema() error {
 			return err
 		}
 	}
+	if err := ensureSessionRoutingColumns(); err != nil {
+		return err
+	}
 	_, err := DBMS.DBConn.Exec(`PRAGMA journal_mode=WAL;`)
 	return err
+}
+
+// ensureSessionRoutingColumns migrates databases created before sessions
+// could be delivered through a speaker.
+func ensureSessionRoutingColumns() error {
+	rows, err := DBMS.DBConn.Query(`PRAGMA table_info(Sessions);`)
+	if err != nil {
+		return err
+	}
+	found := make(map[string]bool)
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			rows.Close()
+			return err
+		}
+		found[strings.ToLower(name)] = true
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	statements := []struct {
+		name string
+		sql  string
+	}{
+		{name: "transport", sql: `ALTER TABLE Sessions ADD COLUMN Transport TEXT NOT NULL DEFAULT 'listener';`},
+		{name: "speaker", sql: `ALTER TABLE Sessions ADD COLUMN Speaker TEXT NOT NULL DEFAULT '';`},
+	}
+	for _, statement := range statements {
+		if found[statement.name] {
+			continue
+		}
+		if _, err := DBMS.DBConn.Exec(statement.sql); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func DBEventInsert(eventType string, data json.RawMessage, createdAt time.Time) (teamapi.EventRecord, error) {

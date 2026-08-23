@@ -35,10 +35,13 @@ func APIGetSession(name string) (teamapi.Session, error) {
 
 func (implant *Implant) apiSession() teamapi.Session {
 	alive, terminating, lastSeen := implant.implantLifecycleAt(time.Now())
+	transport, speaker := implant.sessionRoute()
 	return teamapi.Session{
 		Name:        implant.Name,
 		UUID:        implant.UUID,
 		PayloadType: implant.Metadata.Type,
+		Transport:   transport,
+		Speaker:     speaker,
 		User:        implant.Metadata.User,
 		Hostname:    implant.Metadata.Hostname,
 		Process:     implant.Metadata.Proc,
@@ -156,6 +159,7 @@ func APIRequestTermination(name string) (teamapi.Task, error) {
 	mutex.Unlock()
 	markTaskCreated(implant, task)
 	persistSession(implant)
+	implant.signalTaskReady()
 	return result, nil
 }
 

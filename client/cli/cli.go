@@ -579,9 +579,14 @@ func (cli *CLI) executeProfile(fields []string) error {
 			return err
 		}
 		table := tabby.New()
-		table.AddHeader("ID", "PROFILE", "STATUS", "ARTIFACT", "ERROR")
+		table.AddHeader("ID", "PROFILE", "STATUS", "ARTIFACT", "CREATED", "COMPLETED", "ERROR")
 		for _, item := range items {
-			table.AddLine(item.ID, item.Profile, item.Status, item.ArtifactName, item.Error)
+			completed := ""
+			if !item.CompletedAt.IsZero() {
+				completed = item.CompletedAt.Format(time.RFC3339)
+			}
+			table.AddLine(item.ID, item.Profile, item.Status, item.ArtifactName,
+				item.CreatedAt.Format(time.RFC3339), completed, item.Error)
 		}
 		table.Print()
 	case "download":
@@ -598,6 +603,12 @@ func (cli *CLI) executeProfile(fields []string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
 		return cli.client.Download(ctx, build.DownloadURL, fields[2])
+	case "delete-build":
+		if len(fields) != 2 {
+			return errorsNew("usage: delete-build build-id")
+		}
+		var build teamapi.Build
+		return cli.request(teamapi.AskBuildDelete, teamapi.BuildDeleteRequest{ID: fields[1]}, &build)
 	case "delete":
 		name, err := cli.profileName(fields[1:])
 		if err != nil {
@@ -613,7 +624,7 @@ func (cli *CLI) executeProfile(fields []string) error {
 		}
 		cli.mu.Unlock()
 	default:
-		return errorsNew("implant commands: list, new, select, options, set, generate, builds, download, delete, back")
+		return errorsNew("implant commands: list, new, select, options, set, generate, builds, download, delete-build, delete, back")
 	}
 	return nil
 }
@@ -719,6 +730,13 @@ func (cli *CLI) completeText(input string) []prompt.Suggest {
 			return prompt.FilterHasPrefix(suggestions, prefix, true)
 		}
 	case modeProfile:
+		if argumentIndex == 1 && isOneOf(command, "download", "delete-build") {
+			suggestions = nil
+			for _, item := range cli.snapshot.Builds {
+				suggestions = append(suggestions, prompt.Suggest{Text: item.ID, Description: item.Profile + " " + item.Status})
+			}
+			return prompt.FilterHasPrefix(suggestions, prefix, true)
+		}
 		if argumentIndex == 1 && isOneOf(command, "select", "interact", "generate", "delete", "options") {
 			suggestions = nil
 			for _, item := range cli.snapshot.Profiles {
@@ -733,6 +751,7 @@ func (cli *CLI) completeText(input string) []prompt.Suggest {
 			prompt.Suggest{Text: "interact", Description: "Select a profile"},
 			prompt.Suggest{Text: "builds", Description: "List implant builds"},
 			prompt.Suggest{Text: "download", Description: "Download a completed build"},
+			prompt.Suggest{Text: "delete-build", Description: "Delete a completed or failed build"},
 		)
 	}
 
@@ -789,6 +808,7 @@ func (cli *CLI) help() {
 		entries = append(entries,
 			core.HelpEntry{Command: "builds", Description: "List implant builds."},
 			core.HelpEntry{Command: "download", Description: "Download a build. Use `download <id> <destination>`."},
+			core.HelpEntry{Command: "delete-build", Description: "Delete build history and its stored artifact."},
 			core.HelpEntry{Command: "interact", Description: "Alias for `select <name>`."},
 		)
 	}

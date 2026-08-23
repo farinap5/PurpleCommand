@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"purpcmd/pkg/teamapi"
 	serverimplant "purpcmd/server/implant"
 
 	glua "github.com/yuin/gopher-lua"
@@ -135,6 +136,65 @@ end
 		if got := profile.state.GetGlobal(global).String(); got != "alpha" {
 			t.Fatalf("%s = %q", global, got)
 		}
+	}
+}
+
+func TestSpeakerBackedSessionUsesLuaTaskPipeline(t *testing.T) {
+	isolateLuaCommands(t)
+	previousImplants := serverimplant.ImplantMAP
+	previousCurrent := serverimplant.CurrentImplant
+	serverimplant.ImplantMAP = make(map[string]*serverimplant.Implant)
+	serverimplant.CurrentImplant = "none"
+	t.Cleanup(func() {
+		serverimplant.ImplantMAP = previousImplants
+		serverimplant.CurrentImplant = previousCurrent
+	})
+
+	profile := loadCommandTestProfile(t, "speaker.lua", `
+function speaker_echo(payload)
+    return add_task(42, payload)
+end
+command("bind.impl", "echo", "Speaker echo", speaker_echo)
+`)
+	profile.state.SetGlobal("add_task", profile.state.NewFunction(profile.implantAddGenericTask))
+
+	session := serverimplant.ImplantNew("bind-session")
+	session.Metadata.Type = "bind.impl"
+	session.ImplantSetSpeaker("bind-http")
+	session.ImplantAddImplant()
+
+	reply, err := APIExecuteCommand(teamapi.CommandExecuteRequest{
+		Session:   session.Name,
+		Name:      "echo",
+		Arguments: "hello through speaker",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reply.TaskIDs) != 1 {
+		t.Fatalf("created task IDs = %#v", reply.TaskIDs)
+	}
+	tasks, err := serverimplant.APIListTasks(session.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 || tasks[0].ID != reply.TaskIDs[0] || tasks[0].Code != 42 {
+		t.Fatalf("speaker session tasks = %#v", tasks)
+	}
+	if string(session.Task[0].Payload) != "hello through speaker" {
+		t.Fatalf("task payload = %q", session.Task[0].Payload)
+	}
+	select {
+	case <-session.TaskReady():
+	default:
+		t.Fatal("speaker dispatcher was not notified about the Lua task")
+	}
+	apiSession, err := serverimplant.APIGetSession(session.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if apiSession.Transport != teamapi.SessionTransportSpeaker || apiSession.Speaker != "bind-http" {
+		t.Fatalf("speaker session route = %#v", apiSession)
 	}
 }
 

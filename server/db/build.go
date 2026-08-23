@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"errors"
 	"time"
 
 	"purpcmd/pkg/teamapi"
@@ -17,6 +18,21 @@ func DBBuildSave(build teamapi.Build) error {
 		formatDBTime(build.CreatedAt), nullableDBTime(build.CompletedAt),
 	)
 	return err
+}
+
+func DBBuildDelete(id string) error {
+	result, err := DBMS.DBConn.Exec(`DELETE FROM BuildJobs WHERE ID = ?;`, id)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return errors.New("build not found")
+	}
+	return nil
 }
 
 func DBBuildList() ([]teamapi.Build, error) {

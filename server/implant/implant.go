@@ -7,6 +7,7 @@ import (
 	"purpcmd/implant"
 	"purpcmd/internal"
 	"purpcmd/internal/encrypt"
+	"purpcmd/pkg/teamapi"
 	"purpcmd/server/log"
 	"sync"
 	"time"
@@ -38,11 +39,35 @@ func ImplantNew(name string) *Implant {
 	return &Implant{
 		Name:      name,
 		UUID:      uuid.NewString(),
+		Transport: teamapi.SessionTransportListener,
 		Alive:     true,
 		LastSeen:  n,
 		FirstSeen: n,
 		TaskMap:   make(map[[8]byte]*Task),
 		taskMu:    &sync.Mutex{},
+		taskReady: make(chan struct{}, 1),
+	}
+}
+
+// ImplantSetSpeaker routes this session's queued tasks through the named
+// speaker. The session remains in the normal implant registry so command and
+// Lua task handling do not need a speaker-specific path.
+func (i *Implant) ImplantSetSpeaker(name string) {
+	mu := i.taskMutex()
+	mu.Lock()
+	i.Transport = teamapi.SessionTransportSpeaker
+	i.Speaker = name
+	pending := false
+	for _, task := range i.Task {
+		if !task.Done && !task.Processing {
+			pending = true
+			break
+		}
+	}
+	mu.Unlock()
+	persistSession(i)
+	if pending {
+		i.signalTaskReady()
 	}
 }
 
@@ -246,6 +271,7 @@ func (i *Implant) ImplantAddTask(task *Task) {
 	mu.Unlock()
 	markTaskCreated(i, task)
 	persistSession(i)
+	i.signalTaskReady()
 	log.PrintInfo("new task added: ", string(task.ID[:]))
 }
 

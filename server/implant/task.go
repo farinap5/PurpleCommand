@@ -26,6 +26,31 @@ func (i *Implant) taskMutex() *sync.Mutex {
 	return i.taskMu
 }
 
+func (i *Implant) taskReadyChannel() chan struct{} {
+	mu := i.taskMutex()
+	mu.Lock()
+	defer mu.Unlock()
+	if i.taskReady == nil {
+		i.taskReady = make(chan struct{}, 1)
+	}
+	return i.taskReady
+}
+
+// TaskReady reports that this session has work available for delivery. The
+// signal is edge-triggered and coalesced; consumers must inspect the task queue
+// and own any retry timing. Listener-backed sessions may safely ignore it.
+func (i *Implant) TaskReady() <-chan struct{} {
+	return i.taskReadyChannel()
+}
+
+func (i *Implant) signalTaskReady() {
+	ready := i.taskReadyChannel()
+	select {
+	case ready <- struct{}{}:
+	default:
+	}
+}
+
 func (i *Implant) taskRetryInterval() time.Duration {
 	retryAfter := 2 * time.Duration(i.Metadata.Sleep) * time.Second
 	if retryAfter < minimumTaskRetryInterval {

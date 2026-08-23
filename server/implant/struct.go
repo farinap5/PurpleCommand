@@ -3,24 +3,39 @@ package implant
 import (
 	"purpcmd/implant"
 	"purpcmd/internal/encrypt"
+	"purpcmd/pkg/teamapi"
 	"sync"
 	"time"
 )
 
 type Implant struct {
-	Name     string
-	UUID     string
-	Enc      encrypt.Encrypt
-	Metadata implant.ImplantMetadata
+	Name      string
+	UUID      string
+	Enc       encrypt.Encrypt
+	Metadata  implant.ImplantMetadata
+	Transport string
+	Speaker   string
 
 	Alive       bool
 	Terminating bool
 	LastSeen    time.Time
 	FirstSeen   time.Time
 
-	Task    []*Task
-	TaskMap map[[8]byte]*Task
-	taskMu  *sync.Mutex
+	Task      []*Task
+	TaskMap   map[[8]byte]*Task
+	taskMu    *sync.Mutex
+	taskReady chan struct{}
+}
+
+func (i *Implant) sessionRoute() (transport, speaker string) {
+	mu := i.taskMutex()
+	mu.Lock()
+	defer mu.Unlock()
+	transport = i.Transport
+	if transport == "" {
+		transport = teamapi.SessionTransportListener
+	}
+	return transport, i.Speaker
 }
 
 type Task struct {

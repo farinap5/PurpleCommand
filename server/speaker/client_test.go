@@ -19,6 +19,9 @@ import (
 
 func TestRequestEngineCustomRequest(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if !request.Close {
+			t.Error("default request did not close its connection")
+		}
 		if request.Method != http.MethodPatch {
 			t.Errorf("method = %q", request.Method)
 		}
@@ -100,6 +103,28 @@ func TestRequestEngineCustomRequest(t *testing.T) {
 	}
 	if response.Headers.Get("X-Response") != "present" {
 		t.Fatalf("response headers = %#v", response.Headers)
+	}
+}
+
+func TestRequestEngineConnectionReuseIsOptIn(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Close {
+			t.Error("opt-in reusable request asked to close its connection")
+		}
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	engine, err := NewRequestEngine(HTTPClientConfig{
+		BaseURL:          server.URL,
+		ReuseConnections: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer engine.CloseIdleConnections()
+	if _, err := engine.Do(context.Background(), RequestSpec{}); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -18,6 +18,7 @@ type Config struct {
 	RSAKey         string
 	Database       string
 	LootDir        string
+	BuildDir       string
 	ScriptDir      string
 	GeneratedToken bool
 }
@@ -32,6 +33,7 @@ func Parse(args []string) (Config, error) {
 	flags.StringVar(&configuration.RSAKey, "rsa-key", "server.key", "implant protocol RSA private key")
 	flags.StringVar(&configuration.Database, "database", "database.db", "SQLite state database")
 	flags.StringVar(&configuration.LootDir, "loot-dir", "loot", "loot storage directory")
+	flags.StringVar(&configuration.BuildDir, "build-dir", "builds", "completed build artifact directory")
 	flags.StringVar(&configuration.ScriptDir, "script-dir", "script/uploads", "uploaded Lua script directory")
 	if err := flags.Parse(args); err != nil {
 		return Config{}, err

@@ -72,6 +72,25 @@ func TestCompleteTextAddsCommandsForSelectedRemotePayload(t *testing.T) {
 	}
 }
 
+func TestCompleteTextSuggestsBuildIDs(t *testing.T) {
+	cli := &CLI{
+		mode: modeProfile,
+		snapshot: teamapi.Snapshot{Builds: []teamapi.Build{
+			{ID: "build-1", Profile: "linux", Status: "completed"},
+		}},
+	}
+
+	for _, input := range []string{"download ", "delete-build "} {
+		suggestion, ok := suggestionByText(cli.completeText(input), "build-1")
+		if !ok {
+			t.Fatalf("missing build suggestion for %q", input)
+		}
+		if suggestion.Description != "linux completed" {
+			t.Fatalf("build suggestion description = %q", suggestion.Description)
+		}
+	}
+}
+
 func suggestionByText(suggestions []prompt.Suggest, text string) (prompt.Suggest, bool) {
 	for _, suggestion := range suggestions {
 		if suggestion.Text == text {

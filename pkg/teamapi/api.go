@@ -49,6 +49,7 @@ const (
 	AskBuildCreate      = "ask.build.create"
 	AskBuildGet         = "ask.build.get"
 	AskBuildList        = "ask.build.list"
+	AskBuildDelete      = "ask.build.delete"
 	AskInteractiveOpen  = "ask.interactive.open"
 	AskInteractiveClose = "ask.interactive.close"
 	AskEventReplay      = "ask.event.replay"
@@ -59,14 +60,14 @@ const (
 	AskUserList         = "ask.user.list"
 	AskUserMessage      = "ask.user.message"
 
-	AskSpeakerList = "ask.speaker.list"
-	AskSpeakerGet = "ask.speaker.get"
-	AskSpeakerCreate = "ask.speaker.create"
-	AskSpeakerUpdate = "ask.speaker.update"
-	AskSpeakerStart = "ask.speaker.start"
-	AskSpeakerStop = "ask.speaker.stop"
+	AskSpeakerList    = "ask.speaker.list"
+	AskSpeakerGet     = "ask.speaker.get"
+	AskSpeakerCreate  = "ask.speaker.create"
+	AskSpeakerUpdate  = "ask.speaker.update"
+	AskSpeakerStart   = "ask.speaker.start"
+	AskSpeakerStop    = "ask.speaker.stop"
 	AskSpeakerRestart = "ask.speaker.restart"
-	AskSpeakerDelete = "ask.speaker.delete"
+	AskSpeakerDelete  = "ask.speaker.delete"
 )
 
 const (
@@ -89,6 +90,7 @@ const (
 	EventBuildOutput       = "evt.build.output"
 	EventBuildCompleted    = "evt.build.completed"
 	EventBuildFailed       = "evt.build.failed"
+	EventBuildDeleted      = "evt.build.deleted"
 	EventUserLogin         = "evt.user.login"
 	EventUserLogout        = "evt.user.logout"
 	EventUserCreated       = "evt.user.created"
@@ -96,12 +98,12 @@ const (
 	EventUserDeleted       = "evt.user.deleted"
 	EventUserMessage       = "evt.user.message"
 
-	EventSpeakerCreated = "evt.speaker.created"
-	EventSpeakerConnecting = "evt.speaker.connecting"
-	EventSpeakerConnected = "evt.speaker.connected"
+	EventSpeakerCreated      = "evt.speaker.created"
+	EventSpeakerConnecting   = "evt.speaker.connecting"
+	EventSpeakerConnected    = "evt.speaker.connected"
 	EventSpeakerDisconnected = "evt.speaker.disconnected"
-	EventSpeakerFailed = "evt.speaker.failed"
-	EventSpeakerStopped= "evt.speaker.stopped"
+	EventSpeakerFailed       = "evt.speaker.failed"
+	EventSpeakerStopped      = "evt.speaker.stopped"
 )
 
 type Envelope struct {
@@ -172,6 +174,8 @@ type Session struct {
 	Name        string    `json:"name"`
 	UUID        string    `json:"uuid"`
 	PayloadType string    `json:"payload_type"`
+	Transport   string    `json:"transport"`
+	Speaker     string    `json:"speaker,omitempty"`
 	User        string    `json:"user"`
 	Hostname    string    `json:"hostname"`
 	Process     string    `json:"process"`
@@ -184,158 +188,13 @@ type Session struct {
 	LastSeen    time.Time `json:"last_seen"`
 }
 
-type Command struct {
-	PayloadType string `json:"payload_type"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-}
-
-type CommandListRequest struct {
-	PayloadType string `json:"payload_type"`
-}
-
-type CommandExecuteRequest struct {
-	Session     string            `json:"session"`
-	Name        string            `json:"name"`
-	Arguments   string            `json:"arguments,omitempty"`
-	Attachments map[string]string `json:"attachments,omitempty"`
-}
-
-type CommandExecuteReply struct {
-	TaskIDs []string `json:"task_ids,omitempty"`
-	Message string   `json:"message,omitempty"`
-}
-
-type TaskCreateRequest struct {
-	Session string `json:"session"`
-	Code    uint16 `json:"code"`
-	Payload []byte `json:"payload,omitempty"`
-}
-
-type Task struct {
-	ID           string    `json:"id"`
-	Session      string    `json:"session"`
-	Code         uint16    `json:"code"`
-	Status       string    `json:"status"`
-	Attempts     uint32    `json:"attempts"`
-	Registered   time.Time `json:"registered"`
-	LastSent     time.Time `json:"last_sent,omitempty"`
-	ResponseTime time.Time `json:"response_time,omitempty"`
-	Response     []byte    `json:"response,omitempty"`
-}
-
-type TaskListRequest struct {
-	Session string `json:"session,omitempty"`
-}
-
-type TaskGetRequest struct {
-	Session string `json:"session"`
-	TaskID  string `json:"task_id"`
-}
-
-type LootRequest struct {
-	UUID string `json:"uuid"`
-}
-
-type LootGetReply struct {
-	Loot        Loot   `json:"loot"`
-	DownloadURL string `json:"download_url"`
-}
-
-type Loot struct {
-	UUID      string    `json:"uuid"`
-	Session   string    `json:"session"`
-	FileName  string    `json:"file_name"`
-	Size      int64     `json:"size"`
-	SHA256    string    `json:"sha256,omitempty"`
-	CreatedAt time.Time `json:"created_at,omitempty"`
-}
-
-type Script struct {
-	Name   string `json:"name"`
-	Path   string `json:"path"`
-	Loaded bool   `json:"loaded"`
-	SHA256 string `json:"sha256,omitempty"`
-}
-
-type ScriptLoadRequest struct {
-	Name     string `json:"name,omitempty"`
-	Path     string `json:"path,omitempty"`
-	UploadID string `json:"upload_id,omitempty"`
-}
-
-type Profile struct {
-	Name      string `json:"name"`
-	Type      string `json:"type"`
-	LHOST     string `json:"lhost"`
-	OS        string `json:"os"`
-	ARCH      string `json:"arch"`
-	URI       string `json:"uri"`
-	UA        string `json:"ua"`
-	Output    string `json:"output"`
-	Template  string `json:"template"`
-	PublicKey string `json:"public_key"`
-}
-
-type ProfileUpdateRequest struct {
-	Name  string `json:"name"`
-	Key   string `json:"key"`
-	Value string `json:"value"`
-}
-
-type BuildRequest struct {
-	Profile string `json:"profile"`
-}
-
-type Build struct {
-	ID           string    `json:"id"`
-	Profile      string    `json:"profile"`
-	Status       string    `json:"status"`
-	ArtifactName string    `json:"artifact_name,omitempty"`
-	Error        string    `json:"error,omitempty"`
-	CreatedAt    time.Time `json:"created_at"`
-	CompletedAt  time.Time `json:"completed_at,omitempty"`
-	DownloadURL  string    `json:"download_url,omitempty"`
-}
-
-type User struct {
-	Name      string    `json:"name"`
-	UUID      string    `json:"uuid"`
-	Admin     bool      `json:"admin"`
-	Connected bool      `json:"connected"`
-	Created   time.Time `json:"created"`
-	LastSeen  time.Time `json:"last_seen,omitempty"`
-}
-
-type UserCreateRequest struct {
-	Name string `json:"name"`
-}
-
-// UserUpdateRequest deliberately contains only the user name. Updating a user
-// rotates the token; no other user properties can be changed through this API.
-type UserUpdateRequest struct {
-	Name string `json:"name"`
-}
-
-type UserCredentials struct {
-	User  User   `json:"user"`
-	Token string `json:"token"`
-}
-
-type UserMessageRequest struct {
-	Message string `json:"message"`
-}
-
-type UserMessage struct {
-	User    string `json:"user"`
-	Message string `json:"message"`
-}
-
 type Snapshot struct {
 	Listeners     []Listener `json:"listeners"`
+	Speakers      []Speaker  `json:"speakers"`
 	Sessions      []Session  `json:"sessions"`
 	Scripts       []Script   `json:"scripts"`
 	Profiles      []Profile  `json:"profiles"`
+	Builds        []Build    `json:"builds"`
 	Commands      []Command  `json:"commands"`
 	Users         []User     `json:"users"`
 	EventSequence uint64     `json:"event_sequence"`

@@ -7,6 +7,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +21,7 @@ import (
 	"purpcmd/teamserver/events"
 	teamserver "purpcmd/teamserver/server"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 
@@ -137,49 +140,125 @@ func TestControlAcceptsBrowserAuthenticationSubprotocol(t *testing.T) {
 	}
 }
 
-func TestLootDownloadSupportsBrowserPreflightAndKeepsAuthentication(t *testing.T) {
+func TestDownloadsSupportBrowserPreflightAndKeepAuthentication(t *testing.T) {
 	const token = "browser-download-token-that-is-long-enough"
 	instance := teamserver.New(config.Config{Token: token, ScriptDir: t.TempDir()}, events.New())
 	httpServer := httptest.NewServer(instance.Handler())
 	defer httpServer.Close()
 
-	preflight, err := http.NewRequest(http.MethodOptions, httpServer.URL+"/api/v1/loot/test/content", nil)
-	if err != nil {
+	tests := []struct {
+		name string
+		path string
+	}{
+		{name: "loot", path: "/api/v1/loot/test/content"},
+		{name: "build", path: "/api/v1/builds/test/artifact"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			preflight, err := http.NewRequest(http.MethodOptions, httpServer.URL+test.path, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			preflight.Header.Set("Origin", "http://127.0.0.1:5173")
+			preflight.Header.Set("Access-Control-Request-Method", http.MethodGet)
+			preflight.Header.Set("Access-Control-Request-Headers", "authorization")
+			response, err := http.DefaultClient.Do(preflight)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = response.Body.Close()
+			if response.StatusCode != http.StatusNoContent {
+				t.Fatalf("preflight status = %d", response.StatusCode)
+			}
+			if response.Header.Get("Access-Control-Allow-Origin") != "*" {
+				t.Fatalf("allow origin = %q", response.Header.Get("Access-Control-Allow-Origin"))
+			}
+			if !strings.Contains(response.Header.Get("Access-Control-Allow-Headers"), "Authorization") {
+				t.Fatalf("allow headers = %q", response.Header.Get("Access-Control-Allow-Headers"))
+			}
+
+			request, err := http.NewRequest(http.MethodGet, httpServer.URL+test.path, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request.Header.Set("Origin", "http://127.0.0.1:5173")
+			response, err = http.DefaultClient.Do(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = response.Body.Close()
+			if response.StatusCode != http.StatusUnauthorized {
+				t.Fatalf("unauthenticated download status = %d", response.StatusCode)
+			}
+			if response.Header.Get("Access-Control-Allow-Origin") != "*" {
+				t.Fatalf("download allow origin = %q", response.Header.Get("Access-Control-Allow-Origin"))
+			}
+		})
+	}
+}
+
+func TestBuildListingSnapshotAndDeletion(t *testing.T) {
+	db.DatabasePath = t.TempDir() + "/builds.db"
+	if err := db.CheckDB(); err != nil {
 		t.Fatal(err)
 	}
-	preflight.Header.Set("Origin", "http://127.0.0.1:5173")
-	preflight.Header.Set("Access-Control-Request-Method", http.MethodGet)
-	preflight.Header.Set("Access-Control-Request-Headers", "authorization")
-	response, err := http.DefaultClient.Do(preflight)
-	if err != nil {
+	t.Cleanup(func() { _ = db.DBMS.DBConn.Close() })
+	if err := db.EnsureTeamserverSchema(); err != nil {
 		t.Fatal(err)
-	}
-	_ = response.Body.Close()
-	if response.StatusCode != http.StatusNoContent {
-		t.Fatalf("preflight status = %d", response.StatusCode)
-	}
-	if response.Header.Get("Access-Control-Allow-Origin") != "*" {
-		t.Fatalf("allow origin = %q", response.Header.Get("Access-Control-Allow-Origin"))
-	}
-	if !strings.Contains(response.Header.Get("Access-Control-Allow-Headers"), "Authorization") {
-		t.Fatalf("allow headers = %q", response.Header.Get("Access-Control-Allow-Headers"))
 	}
 
-	request, err := http.NewRequest(http.MethodGet, httpServer.URL+"/api/v1/loot/test/content", nil)
+	buildDirectory := t.TempDir()
+	job := teamapi.Build{
+		ID: uuid.NewString(), Profile: "linux", Status: "completed", ArtifactName: "agent",
+		CreatedAt: time.Now().UTC(), CompletedAt: time.Now().UTC(),
+	}
+	if err := db.DBBuildSave(job); err != nil {
+		t.Fatal(err)
+	}
+	artifactPath := filepath.Join(buildDirectory, job.ID)
+	if err := os.WriteFile(artifactPath, []byte("artifact"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	const token = "build-management-token-that-is-long-enough"
+	instance := teamserver.New(config.Config{Token: token, BuildDir: buildDirectory, ScriptDir: t.TempDir()}, events.New())
+	httpServer := httptest.NewServer(instance.Handler())
+	defer httpServer.Close()
+	client := clientapi.New(clientapi.Config{URL: httpServer.URL, Token: token, Timeout: 5 * time.Second})
+	defer client.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	builds, err := client.Builds(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	request.Header.Set("Origin", "http://127.0.0.1:5173")
-	response, err = http.DefaultClient.Do(request)
+	if len(builds) != 1 || builds[0].ID != job.ID || builds[0].DownloadURL == "" {
+		t.Fatalf("build list = %#v", builds)
+	}
+	snapshot, err := client.Snapshot(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = response.Body.Close()
-	if response.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("unauthenticated download status = %d", response.StatusCode)
+	if len(snapshot.Builds) != 1 || snapshot.Builds[0].ID != job.ID {
+		t.Fatalf("snapshot builds = %#v", snapshot.Builds)
 	}
-	if response.Header.Get("Access-Control-Allow-Origin") != "*" {
-		t.Fatalf("download allow origin = %q", response.Header.Get("Access-Control-Allow-Origin"))
+	deleted, err := client.DeleteBuild(ctx, job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deleted.ID != job.ID {
+		t.Fatalf("deleted build = %#v", deleted)
+	}
+	if _, err := os.Stat(artifactPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("deleted artifact stat error = %v", err)
+	}
+	builds, err = client.Builds(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(builds) != 0 {
+		t.Fatalf("build list after deletion = %#v", builds)
 	}
 }
 

@@ -40,11 +40,17 @@ func RestoreFromDB() error {
 			Name:        stored.Session.Name,
 			UUID:        stored.Session.UUID,
 			Metadata:    metadata,
+			Transport:   stored.Session.Transport,
+			Speaker:     stored.Session.Speaker,
 			Alive:       false,
 			Terminating: stored.Session.Terminating,
 			FirstSeen:   stored.Session.FirstSeen,
 			LastSeen:    stored.Session.LastSeen,
 			TaskMap:     make(map[[8]byte]*Task),
+			taskReady:   make(chan struct{}, 1),
+		}
+		if item.Transport == "" {
+			item.Transport = teamapi.SessionTransportListener
 		}
 		tasks, err := db.DBTaskList(item.Name)
 		if err != nil {
@@ -76,6 +82,14 @@ func RestoreFromDB() error {
 			item.TaskMap[id] = task
 		}
 		item.taskMutex()
+		if item.Transport == teamapi.SessionTransportSpeaker {
+			for _, task := range item.Task {
+				if !task.Done {
+					item.signalTaskReady()
+					break
+				}
+			}
+		}
 		implantMapMu.Lock()
 		if ImplantMAP[item.Name] == nil {
 			ImplantMAP[item.Name] = item

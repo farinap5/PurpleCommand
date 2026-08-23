@@ -327,6 +327,18 @@ func (client *Client) DeleteUser(ctx context.Context, name string) (teamapi.User
 	return user, err
 }
 
+func (client *Client) Builds(ctx context.Context) ([]teamapi.Build, error) {
+	var builds []teamapi.Build
+	err := client.Request(ctx, teamapi.AskBuildList, struct{}{}, &builds)
+	return builds, err
+}
+
+func (client *Client) DeleteBuild(ctx context.Context, id string) (teamapi.Build, error) {
+	var build teamapi.Build
+	err := client.Request(ctx, teamapi.AskBuildDelete, teamapi.BuildDeleteRequest{ID: id}, &build)
+	return build, err
+}
+
 func (client *Client) Download(ctx context.Context, remotePath, destination string) error {
 	endpoint, err := client.endpoint(remotePath, false)
 	if err != nil {

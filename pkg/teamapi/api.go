@@ -58,6 +58,15 @@ const (
 	AskUserDelete       = "ask.user.delete"
 	AskUserList         = "ask.user.list"
 	AskUserMessage      = "ask.user.message"
+
+	AskSpeakerList = "ask.speaker.list"
+	AskSpeakerGet = "ask.speaker.get"
+	AskSpeakerCreate = "ask.speaker.create"
+	AskSpeakerUpdate = "ask.speaker.update"
+	AskSpeakerStart = "ask.speaker.start"
+	AskSpeakerStop = "ask.speaker.stop"
+	AskSpeakerRestart = "ask.speaker.restart"
+	AskSpeakerDelete = "ask.speaker.delete"
 )
 
 const (
@@ -86,6 +95,13 @@ const (
 	EventUserUpdated       = "evt.user.updated"
 	EventUserDeleted       = "evt.user.deleted"
 	EventUserMessage       = "evt.user.message"
+
+	EventSpeakerCreated = "evt.speaker.created"
+	EventSpeakerConnecting = "evt.speaker.connecting"
+	EventSpeakerConnected = "evt.speaker.connected"
+	EventSpeakerDisconnected = "evt.speaker.disconnected"
+	EventSpeakerFailed = "evt.speaker.failed"
+	EventSpeakerStopped= "evt.speaker.stopped"
 )
 
 type Envelope struct {
@@ -150,29 +166,6 @@ type HelloReply struct {
 
 type NameRequest struct {
 	Name string `json:"name"`
-}
-
-type Listener struct {
-	Name         string `json:"name"`
-	UUID         string `json:"uuid"`
-	Host         string `json:"host"`
-	Port         string `json:"port"`
-	Running      bool   `json:"running"`
-	Persistent   bool   `json:"persistent"`
-	Associations int    `json:"associations"`
-}
-
-type ListenerCreateRequest struct {
-	Name       string `json:"name"`
-	Host       string `json:"host,omitempty"`
-	Port       string `json:"port,omitempty"`
-	Persistent *bool  `json:"persistent,omitempty"`
-}
-
-type ListenerUpdateRequest struct {
-	Name  string `json:"name"`
-	Key   string `json:"key"`
-	Value string `json:"value"`
 }
 
 type Session struct {

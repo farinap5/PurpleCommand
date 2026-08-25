@@ -2,6 +2,7 @@ package lua
 
 import (
 	"fmt"
+	"time"
 
 	"purpcmd/server/implant"
 	"purpcmd/server/log"
@@ -85,12 +86,7 @@ func LuaOnCheck(taskID [8]byte, data string, item implant.Implant) {
 func LuaOnResponse(taskID [8]byte, data string, item implant.Implant) {
 	taskIDString := string(taskID[:])
 	for _, profile := range scriptSnapshot() {
-		profile.TaskCallbacksMutex.Lock()
-		taskCallback := profile.TaskCallbacks[taskIDString]
-		if taskCallback != nil {
-			delete(profile.TaskCallbacks, taskIDString)
-		}
-		profile.TaskCallbacksMutex.Unlock()
+		taskCallback := profile.takeTaskCallback(item.Name, taskIDString, time.Now())
 		if taskCallback != nil {
 			callLifecycle(profile, item.Name, taskCallback,
 				lua.LString(taskIDString),

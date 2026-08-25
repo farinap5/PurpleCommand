@@ -9,7 +9,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-func TestEnsureImplantProfileTypeColumnMigratesExistingDatabase(t *testing.T) {
+func TestEnsureGenericImplantProfileSchemaMigratesExistingDatabase(t *testing.T) {
 	connection, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
 		t.Fatal(err)
@@ -35,10 +35,10 @@ VALUES ('old', '127.0.0.1:1', 'linux', 'amd64', '/', 'ua', 'out', './template', 
 		t.Fatal(err)
 	}
 
-	if err := definition.ensureImplantProfileTypeColumn(); err != nil {
-		t.Fatalf("migrate type column: %v", err)
+	if err := definition.ensureGenericImplantProfileSchema(); err != nil {
+		t.Fatalf("migrate generic profile schema: %v", err)
 	}
-	if err := definition.ensureImplantProfileTypeColumn(); err != nil {
+	if err := definition.ensureGenericImplantProfileSchema(); err != nil {
 		t.Fatalf("repeat migration: %v", err)
 	}
 	var payloadType string
@@ -47,5 +47,30 @@ VALUES ('old', '127.0.0.1:1', 'linux', 'amd64', '/', 'ua', 'out', './template', 
 	}
 	if payloadType != internal.DefaultPayloadType {
 		t.Fatalf("migrated payload type = %q", payloadType)
+	}
+	columns, err := definition.tableColumns("ImplantProfiles")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if columns["uri"] || columns["ua"] {
+		t.Fatalf("protocol-specific columns survived migration: %#v", columns)
+	}
+	var osOptions, archOptions string
+	if err := connection.QueryRow(
+		`SELECT OSOptionsJSON, ARCHOptionsJSON FROM ImplantProfiles WHERE Name = 'old'`,
+	).Scan(&osOptions, &archOptions); err != nil {
+		t.Fatal(err)
+	}
+	if osOptions != `["linux"]` || archOptions != `["amd64"]` {
+		t.Fatalf("target suggestions = %s / %s", osOptions, archOptions)
+	}
+	var options string
+	if err := connection.QueryRow(
+		`SELECT OptionsJSON FROM ImplantDefinitions WHERE Name = 'old'`,
+	).Scan(&options); err != nil {
+		t.Fatal(err)
+	}
+	if options != `{"path":"/","header":{"User-Agent":"ua"}}` {
+		t.Fatalf("migrated protocol options = %s", options)
 	}
 }

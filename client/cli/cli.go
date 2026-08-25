@@ -93,7 +93,7 @@ func (cli *CLI) eventLoop() {
 		}
 		log.AsyncWriteStdoutInfo(message + "\n")*/
 		// handle and show information
-		eventHandler(event)
+		eventHandler(cli, event)
 		_ = cli.refresh()
 	}
 }
@@ -863,9 +863,9 @@ func printTasks(items []teamapi.Task) {
 }
 func printProfiles(items []teamapi.Profile) {
 	table := tabby.New()
-	table.AddHeader("NAME", "TYPE", "LHOST", "OS/ARCH", "URI", "OUTPUT", "TEMPLATE")
+	table.AddHeader("NAME", "TYPE", "LHOST", "OS/ARCH", "OUTPUT", "TEMPLATE")
 	for _, item := range items {
-		table.AddLine(item.Name, item.Type, item.LHOST, item.OS+"/"+item.ARCH, item.URI, item.Output, item.Template)
+		table.AddLine(item.Name, item.Type, item.LHOST, item.OS+"/"+item.ARCH, item.Output, item.Template)
 	}
 	table.Print()
 }

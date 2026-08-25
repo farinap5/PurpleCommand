@@ -78,6 +78,7 @@ const (
 	EventSessionRegistered = "evt.session.registered"
 	EventSessionCheckin    = "evt.session.checkin"
 	EventSessionDeleted    = "evt.session.deleted"
+	EventSessionOutput     = "evt.session.output"
 	EventTaskCreated       = "evt.task.created"
 	EventTaskDispatched    = "evt.task.dispatched"
 	EventTaskCompleted     = "evt.task.completed"

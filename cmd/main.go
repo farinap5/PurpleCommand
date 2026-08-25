@@ -75,8 +75,9 @@ func startServer(a []string) {
 		fmt.Fprintln(os.Stderr, "restore sessions:", err)
 		os.Exit(1)
 	}
-	lua.ScriptsReloadFromDB()
 	implantbuilder.ProfilesReloadFromDB()
+	lua.ImplantDefinitionsReloadFromDB()
+	lua.ScriptsReloadFromDB()
 	if err := listener.ListenerInitFromDB(); err != nil {
 		fmt.Fprintln(os.Stderr, "listeners:", err)
 		os.Exit(1)

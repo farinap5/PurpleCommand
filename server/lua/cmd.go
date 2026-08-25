@@ -124,17 +124,21 @@ func (profile *LuaProfile) implantAddUploadFileCommand(state *lua.LState) int {
 	if err != nil {
 		state.Push(lua.LNil)
 		state.Push(lua.LString("could not read upload source: " + err.Error()))
-		return 2
+		state.Push(lua.LString(session))
+		return 3
 	}
 	taskID, result := implant.ImplantAddUploadTaskFor(session, code, destination, content)
 	if result != 0 {
 		state.Push(lua.LNil)
 		state.Push(lua.LString("could not create task"))
-		return 2
+		state.Push(lua.LString(session))
+		return 3
 	}
 	profile.rememberTask(taskID)
 	state.Push(lua.LString(taskID))
-	return 1
+	state.Push(lua.LNil)
+	state.Push(lua.LString(session))
+	return 3
 }
 
 func (profile *LuaProfile) implantAddSendBuffer(state *lua.LState) int {
@@ -146,11 +150,14 @@ func (profile *LuaProfile) implantAddSendBuffer(state *lua.LState) int {
 	if result != 0 {
 		state.Push(lua.LNil)
 		state.Push(lua.LString("could not create task"))
-		return 2
+		state.Push(lua.LString(session))
+		return 3
 	}
 	profile.rememberTask(taskID)
 	state.Push(lua.LString(taskID))
-	return 1
+	state.Push(lua.LNil)
+	state.Push(lua.LString(session))
+	return 3
 }
 
 func (profile *LuaProfile) implantAddGenericTask(state *lua.LState) int {
@@ -161,20 +168,14 @@ func (profile *LuaProfile) implantAddGenericTask(state *lua.LState) int {
 	if result != 0 {
 		state.Push(lua.LNil)
 		state.Push(lua.LString("could not create task"))
-		return 2
+		state.Push(lua.LString(session))
+		return 3
 	}
 	profile.rememberTask(taskID)
 	state.Push(lua.LString(taskID))
-	return 1
-}
-
-func (profile *LuaProfile) registerTaskCallback(state *lua.LState) int {
-	taskID := state.CheckString(1)
-	callback := state.CheckFunction(2)
-	profile.TaskCallbacksMutex.Lock()
-	profile.TaskCallbacks[taskID] = callback
-	profile.TaskCallbacksMutex.Unlock()
-	return 0
+	state.Push(lua.LNil)
+	state.Push(lua.LString(session))
+	return 3
 }
 
 func LuaPrint(state *lua.LState) int {

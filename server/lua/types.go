@@ -3,6 +3,7 @@ package lua
 import (
 	"context"
 	"sync"
+	"time"
 
 	"purpcmd/server/types"
 
@@ -24,8 +25,18 @@ type LuaProfile struct {
 	executionSession string
 	createdTaskIDs   []string
 
-	TaskCallbacks      map[string]*lua.LFunction
+	TaskCallbacks      map[taskCallbackKey]taskCallbackRegistration
 	TaskCallbacksMutex sync.RWMutex
+}
+
+type taskCallbackKey struct {
+	Session string
+	TaskID  string
+}
+
+type taskCallbackRegistration struct {
+	Function  *lua.LFunction
+	ExpiresAt time.Time
 }
 
 type commandKey struct {

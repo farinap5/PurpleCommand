@@ -24,8 +24,9 @@ func Start() {
 		log.PrintAlert(err.Error())
 		return
 	}
-	lua.ScriptsReloadFromDB()
 	implantbuilder.ProfilesReloadFromDB()
+	lua.ImplantDefinitionsReloadFromDB()
+	lua.ScriptsReloadFromDB()
 	err = listener.ListenerInitFromDB()
 	if err != nil {
 		log.PrintAlert(err.Error())

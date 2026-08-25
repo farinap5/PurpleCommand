@@ -4,8 +4,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"purpcmd/pkg/teamapi"
+	"purpcmd/server/db"
 	serverimplant "purpcmd/server/implant"
 
 	glua "github.com/yuin/gopher-lua"
@@ -27,15 +29,38 @@ func isolateLuaCommands(t *testing.T) {
 	})
 }
 
+func isolateLuaDatabase(t *testing.T) {
+	t.Helper()
+	previousPath := db.DatabasePath
+	previousDatabase := db.DBMS
+	db.DatabasePath = filepath.Join(t.TempDir(), "lua.db")
+	if err := db.CheckDB(); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.EnsureTeamserverSchema(); err != nil {
+		_ = db.DBMS.DBConn.Close()
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.DBMS.DBConn.Close()
+		db.DBMS = previousDatabase
+		db.DatabasePath = previousPath
+	})
+}
+
 func loadCommandTestProfile(t *testing.T, scriptName, source string) *LuaProfile {
 	t.Helper()
 	state := glua.NewState()
 	profile := &LuaProfile{
 		script:        scriptName,
 		state:         state,
-		TaskCallbacks: make(map[string]*glua.LFunction),
+		TaskCallbacks: make(map[taskCallbackKey]taskCallbackRegistration),
 	}
 	state.SetGlobal("command", state.NewFunction(profile.command))
+	state.SetGlobal("add_task", state.NewFunction(profile.implantAddGenericTask))
+	state.SetGlobal("register_task_callback", state.NewFunction(profile.registerTaskCallback))
+	state.SetGlobal("session", state.NewFunction(profile.session))
+	state.SetGlobal("session_print", state.NewFunction(profile.sessionPrint))
 	if err := state.DoString(source); err != nil {
 		state.Close()
 		t.Fatal(err)
@@ -141,6 +166,7 @@ end
 
 func TestSpeakerBackedSessionUsesLuaTaskPipeline(t *testing.T) {
 	isolateLuaCommands(t)
+	isolateLuaDatabase(t)
 	previousImplants := serverimplant.ImplantMAP
 	previousCurrent := serverimplant.CurrentImplant
 	serverimplant.ImplantMAP = make(map[string]*serverimplant.Implant)
@@ -198,8 +224,197 @@ command("bind.impl", "echo", "Speaker echo", speaker_echo)
 	}
 }
 
+func TestTaskCallbackUsesSessionMetadataAndDefaultTimeout(t *testing.T) {
+	isolateLuaCommands(t)
+	isolateLuaDatabase(t)
+	previousImplants := serverimplant.ImplantMAP
+	previousCurrent := serverimplant.CurrentImplant
+	serverimplant.ImplantMAP = make(map[string]*serverimplant.Implant)
+	serverimplant.CurrentImplant = "none"
+	t.Cleanup(func() {
+		serverimplant.ImplantMAP = previousImplants
+		serverimplant.CurrentImplant = previousCurrent
+	})
+
+	profile := loadCommandTestProfile(t, "task-callback.lua", `
+callback_called = false
+callback_task = ""
+callback_session = ""
+function OnResponse(...) global_response_called = true end
+`)
+	item := serverimplant.ImplantNew("677222")
+	item.Metadata.Sleep = 10
+	item.Metadata.PID = 1234
+	item.Metadata.Type = "impl"
+	item.Metadata.Hostname = "workstation"
+	item.Metadata.User = "operator"
+	item.Metadata.Proc = "agent"
+	item.ImplantAddImplant()
+
+	profile.executionSession = item.Name
+	registeredAt := time.Now()
+	err := profile.state.DoString(`
+task_id, task_err, task_session_id = add_task(42, "payload")
+session_info, session_err = session(tonumber(task_session_id))
+missing_session_info, missing_session_err = session("missing-session")
+register_task_callback(task_id, function(task_id, response, name, uuid, hostname, user, payload_type)
+    callback_called = true
+    callback_task = task_id
+    callback_response = response
+    callback_session = name
+    callback_type = payload_type
+end)
+`)
+	profile.executionSession = ""
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	taskID := profile.state.GetGlobal("task_id").String()
+	if len(taskID) != 8 {
+		t.Fatalf("task ID = %q", taskID)
+	}
+	if profile.state.GetGlobal("task_err") != glua.LNil {
+		t.Fatalf("task error = %s", profile.state.GetGlobal("task_err"))
+	}
+	if got := profile.state.GetGlobal("task_session_id").String(); got != item.Name {
+		t.Fatalf("returned session ID = %q", got)
+	}
+	info, ok := profile.state.GetGlobal("session_info").(*glua.LTable)
+	if !ok {
+		t.Fatalf("session metadata = %s", profile.state.GetGlobal("session_info"))
+	}
+	if got := info.RawGetString("sleep").String(); got != "10" {
+		t.Fatalf("session sleep = %q", got)
+	}
+	if got := info.RawGetString("hostname").String(); got != "workstation" {
+		t.Fatalf("session hostname = %q", got)
+	}
+	if got := info.RawGetString("pid").String(); got != "1234" {
+		t.Fatalf("session PID = %q", got)
+	}
+	if got := info.RawGetString("session_id").String(); got != item.Name {
+		t.Fatalf("session metadata ID = %q", got)
+	}
+	if got := info.RawGetString("status").String(); got != "alive" {
+		t.Fatalf("session status = %q", got)
+	}
+	if profile.state.GetGlobal("session_err") != glua.LNil {
+		t.Fatalf("session error = %s", profile.state.GetGlobal("session_err"))
+	}
+	if profile.state.GetGlobal("missing_session_info") != glua.LNil || profile.state.GetGlobal("missing_session_err") == glua.LNil {
+		t.Fatalf("missing session result = %s, %s", profile.state.GetGlobal("missing_session_info"), profile.state.GetGlobal("missing_session_err"))
+	}
+
+	key := taskCallbackKey{Session: item.Name, TaskID: taskID}
+	profile.TaskCallbacksMutex.RLock()
+	registration, found := profile.TaskCallbacks[key]
+	profile.TaskCallbacksMutex.RUnlock()
+	if !found {
+		t.Fatal("task callback was not registered")
+	}
+	wantExpiry := registeredAt.Add(25 * time.Second)
+	if registration.ExpiresAt.Before(wantExpiry.Add(-time.Second)) || registration.ExpiresAt.After(wantExpiry.Add(time.Second)) {
+		t.Fatalf("callback expiry = %s, want approximately %s", registration.ExpiresAt, wantExpiry)
+	}
+	item.Metadata.Sleep = 0
+	if got := defaultTaskCallbackTimeout(item.Name); got != zeroSleepCallbackTimeout {
+		t.Fatalf("zero-sleep callback timeout = %s", got)
+	}
+
+	var responseID [8]byte
+	copy(responseID[:], taskID)
+	LuaOnResponse(responseID, "done", *item)
+	if profile.state.GetGlobal("callback_called") != glua.LTrue {
+		t.Fatal("task callback was not called")
+	}
+	if got := profile.state.GetGlobal("callback_task").String(); got != taskID {
+		t.Fatalf("callback task ID = %q", got)
+	}
+	if got := profile.state.GetGlobal("callback_response").String(); got != "done" {
+		t.Fatalf("callback response = %q", got)
+	}
+	if got := profile.state.GetGlobal("callback_session").String(); got != item.Name {
+		t.Fatalf("callback session = %q", got)
+	}
+	if got := profile.state.GetGlobal("callback_type").String(); got != "impl" {
+		t.Fatalf("callback payload type = %q", got)
+	}
+	if profile.state.GetGlobal("global_response_called") == glua.LTrue {
+		t.Fatal("global response callback ran instead of the task callback")
+	}
+	profile.TaskCallbacksMutex.RLock()
+	_, found = profile.TaskCallbacks[key]
+	profile.TaskCallbacksMutex.RUnlock()
+	if found {
+		t.Fatal("used task callback was not removed")
+	}
+}
+
+func TestTaskCallbackExplicitTimeoutExpiresWithoutResponse(t *testing.T) {
+	isolateLuaCommands(t)
+	isolateLuaDatabase(t)
+	previousImplants := serverimplant.ImplantMAP
+	serverimplant.ImplantMAP = make(map[string]*serverimplant.Implant)
+	t.Cleanup(func() { serverimplant.ImplantMAP = previousImplants })
+
+	profile := loadCommandTestProfile(t, "callback-timeout.lua", `
+callback_called = false
+global_response_called = false
+function OnResponse(...) global_response_called = true end
+`)
+	item := serverimplant.ImplantNew("timeout-session")
+	item.Metadata.Sleep = 60
+	item.ImplantAddImplant()
+	profile.executionSession = item.Name
+	registeredAt := time.Now()
+	err := profile.state.DoString(`
+task_id, task_err, task_session_id = add_task(7, "")
+register_task_callback(task_id, function() callback_called = true end, 1.5)
+`)
+	profile.executionSession = ""
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	taskID := profile.state.GetGlobal("task_id").String()
+	key := taskCallbackKey{Session: item.Name, TaskID: taskID}
+	profile.TaskCallbacksMutex.RLock()
+	registration, found := profile.TaskCallbacks[key]
+	profile.TaskCallbacksMutex.RUnlock()
+	if !found {
+		t.Fatal("explicit-timeout callback was not registered")
+	}
+	wantExpiry := registeredAt.Add(1500 * time.Millisecond)
+	if registration.ExpiresAt.Before(wantExpiry.Add(-time.Second)) || registration.ExpiresAt.After(wantExpiry.Add(time.Second)) {
+		t.Fatalf("explicit callback expiry = %s, want approximately %s", registration.ExpiresAt, wantExpiry)
+	}
+	if removed := profile.expireTaskCallbacks(registration.ExpiresAt); removed != 1 {
+		t.Fatalf("expired callbacks removed = %d", removed)
+	}
+	profile.TaskCallbacksMutex.RLock()
+	remaining := len(profile.TaskCallbacks)
+	profile.TaskCallbacksMutex.RUnlock()
+	if remaining != 0 {
+		t.Fatalf("expired callback remains in memory: %d", remaining)
+	}
+	if len(item.Task) != 1 || item.Task[0].Done {
+		t.Fatalf("callback expiration changed underlying task: %#v", item.Task)
+	}
+	var responseID [8]byte
+	copy(responseID[:], taskID)
+	LuaOnResponse(responseID, "late", *item)
+	if profile.state.GetGlobal("callback_called") == glua.LTrue {
+		t.Fatal("expired task callback was called")
+	}
+	if profile.state.GetGlobal("global_response_called") != glua.LTrue {
+		t.Fatal("late response did not fall back to global OnResponse")
+	}
+}
+
 func TestBundledLuaScriptRegistersDefaultPayloadCommands(t *testing.T) {
 	isolateLuaCommands(t)
+	isolateLuaDatabase(t)
 	path := filepath.Join("..", "..", "script", "main.lua")
 	profile, err := LuaNew(path)
 	if err != nil {

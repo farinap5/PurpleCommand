@@ -91,6 +91,20 @@ func TestCompleteTextSuggestsBuildIDs(t *testing.T) {
 	}
 }
 
+func TestSessionOutputIsRoutedOnlyToSelectedSession(t *testing.T) {
+	cli := &CLI{mode: modeSession, selectedSession: "677222"}
+	if !cli.shouldShowSessionOutput("677222") {
+		t.Fatal("output for the selected session was hidden")
+	}
+	if cli.shouldShowSessionOutput("other") {
+		t.Fatal("output for another session was shown")
+	}
+	cli.mode = modeMain
+	if cli.shouldShowSessionOutput("677222") {
+		t.Fatal("session output was shown outside the session view")
+	}
+}
+
 func suggestionByText(suggestions []prompt.Suggest, text string) (prompt.Suggest, bool) {
 	for _, suggestion := range suggestions {
 		if suggestion.Text == text {

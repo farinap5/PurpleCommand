@@ -20,15 +20,15 @@ import (
 
 // Profile holds the build configuration for a single implant binary.
 type Profile struct {
-	Type      string
-	LHOST     string
-	OS        string
-	ARCH      string
-	URI       string
-	UA        string
-	Output    string
-	Template  string
-	PublicKey string // Path to server public key (e.g., server.pub)
+	Type        string
+	LHOST       string
+	OS          string
+	ARCH        string
+	OSOptions   []string
+	ARCHOptions []string
+	Output      string
+	Template    string
+	PublicKey   string // Path to server public key (e.g., server.pub)
 }
 
 var (
@@ -41,15 +41,15 @@ var (
 // defaultProfile returns a Profile with sensible defaults.
 func defaultProfile() *Profile {
 	return &Profile{
-		Type:      internal.DefaultPayloadType,
-		LHOST:     "",
-		OS:        "linux",
-		ARCH:      "amd64",
-		URI:       "/",
-		UA:        "Mozilla PurpCMD",
-		Output:    "implant",
-		Template:  "./template",
-		PublicKey: "server.pub",
+		Type:        internal.DefaultPayloadType,
+		LHOST:       "",
+		OS:          "linux",
+		ARCH:        "amd64",
+		OSOptions:   []string{"linux"},
+		ARCHOptions: []string{"amd64"},
+		Output:      "implant",
+		Template:    "./template",
+		PublicKey:   "server.pub",
 	}
 }
 
@@ -82,7 +82,7 @@ func RegisterProfile(name string, p Profile) error {
 	if err := internal.ValidatePayloadType(p.Type); err != nil {
 		return fmt.Errorf("profile %q: %w", name, err)
 	}
-	copy := p
+	copy := cloneProfile(p)
 	ProfileMap[name] = &copy
 	if err := db.DBImplantProfileInsert(profileToDBRow(name, &copy)); err != nil {
 		log.PrintAlert("DB: could not save profile: " + err.Error())
@@ -152,8 +152,8 @@ func ShowOptions() {
 	t.AddLine("LHOST", p.LHOST, "Listener callback address (host:port)")
 	t.AddLine("OS", p.OS, "Target OS (linux, windows, darwin)")
 	t.AddLine("ARCH", p.ARCH, "Target architecture (amd64, 386, arm64)")
-	t.AddLine("URI", p.URI, "HTTP callback URI path")
-	t.AddLine("UA", p.UA, "HTTP User-Agent string")
+	t.AddLine("OS OPTIONS", strings.Join(p.OSOptions, ", "), "Target suggestions supplied by the implant definition")
+	t.AddLine("ARCH OPTIONS", strings.Join(p.ARCHOptions, ", "), "Architecture suggestions supplied by the implant definition")
 	t.AddLine("OUTPUT", p.Output, "Output binary filename")
 	t.AddLine("PUBLICKEY", p.PublicKey, "Path to server RSA public key file")
 	t.AddLine("TEMPLATE", p.Template, "Path to implant template directory")
@@ -177,12 +177,10 @@ func SetOption(key, value string) error {
 		p.LHOST = value
 	case "OS":
 		p.OS = value
+		p.OSOptions = appendSuggestion(p.OSOptions, value)
 	case "ARCH":
 		p.ARCH = value
-	case "URI":
-		p.URI = value
-	case "UA":
-		p.UA = value
+		p.ARCHOptions = appendSuggestion(p.ARCHOptions, value)
 	case "OUTPUT":
 		p.Output = value
 	case "PUBLICKEY":
@@ -201,16 +199,16 @@ func SetOption(key, value string) error {
 // profileToDBRow converts an in-memory profile to a DB row struct.
 func profileToDBRow(name string, p *Profile) db.ImplantProfile {
 	return db.ImplantProfile{
-		Name:      name,
-		Type:      p.Type,
-		LHOST:     p.LHOST,
-		OS:        p.OS,
-		ARCH:      p.ARCH,
-		URI:       p.URI,
-		UA:        p.UA,
-		Output:    p.Output,
-		Template:  p.Template,
-		PublicKey: p.PublicKey,
+		Name:        name,
+		Type:        p.Type,
+		LHOST:       p.LHOST,
+		OS:          p.OS,
+		ARCH:        p.ARCH,
+		OSOptions:   cloneStrings(p.OSOptions),
+		ARCHOptions: cloneStrings(p.ARCHOptions),
+		Output:      p.Output,
+		Template:    p.Template,
+		PublicKey:   p.PublicKey,
 	}
 }
 
@@ -227,15 +225,15 @@ func ProfilesReloadFromDB() {
 			continue // already in map (e.g. from a Lua script that ran first)
 		}
 		p := &Profile{
-			Type:      r.Type,
-			LHOST:     r.LHOST,
-			OS:        r.OS,
-			ARCH:      r.ARCH,
-			URI:       r.URI,
-			UA:        r.UA,
-			Output:    r.Output,
-			Template:  r.Template,
-			PublicKey: r.PublicKey,
+			Type:        r.Type,
+			LHOST:       r.LHOST,
+			OS:          r.OS,
+			ARCH:        r.ARCH,
+			OSOptions:   cloneStrings(r.OSOptions),
+			ARCHOptions: cloneStrings(r.ARCHOptions),
+			Output:      r.Output,
+			Template:    r.Template,
+			PublicKey:   r.PublicKey,
 		}
 		if p.Type == "" {
 			p.Type = internal.DefaultPayloadType
@@ -307,8 +305,6 @@ func generateWithMakefile(name string, p *Profile, absTemplateDir, absOutput, ab
 		fmt.Sprintf("LHOST=%s", p.LHOST),
 		fmt.Sprintf("OS=%s", p.OS),
 		fmt.Sprintf("ARCH=%s", p.ARCH),
-		fmt.Sprintf("URI=%s", p.URI),
-		fmt.Sprintf("UA=%s", p.UA),
 		fmt.Sprintf("TYPE=%s", p.Type),
 		fmt.Sprintf("PUBLICKEY=%s", absPublicKey),
 	)
@@ -362,8 +358,6 @@ func generateGo(name string, p *Profile, absTemplateDir, absOutput string) error
 	modified := string(src)
 	modified = strings.Replace(modified, `"LHOST"`, fmt.Sprintf("%q", p.LHOST), 1)
 	modified = strings.Replace(modified, `"IMPLANT_TYPE"`, fmt.Sprintf("%q", p.Type), 1)
-	modified = strings.Replace(modified, `"/"`, fmt.Sprintf("%q", p.URI), 1)
-	modified = strings.Replace(modified, `"Mozilla PurpCMD"`, fmt.Sprintf("%q", p.UA), 1)
 
 	// Embed the public key as a byte array
 	if len(pubKeyDER) > 0 {
@@ -414,4 +408,36 @@ func ProfileNamesForSuggestions() [][]string {
 		out = append(out, []string{name, p.Type + " " + p.OS + "/" + p.ARCH + " -> " + p.Output})
 	}
 	return out
+}
+
+func cloneProfile(source Profile) Profile {
+	source.OSOptions = cloneStrings(source.OSOptions)
+	source.ARCHOptions = cloneStrings(source.ARCHOptions)
+	return source
+}
+
+func cloneStrings(source []string) []string {
+	return append([]string(nil), source...)
+}
+
+func appendSuggestion(suggestions []string, value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return suggestions
+	}
+	for _, suggestion := range suggestions {
+		if suggestion == value {
+			return suggestions
+		}
+	}
+	return append(suggestions, value)
+}
+
+func containsSuggestion(suggestions []string, value string) bool {
+	for _, suggestion := range suggestions {
+		if suggestion == value {
+			return true
+		}
+	}
+	return false
 }

@@ -113,7 +113,7 @@ func LuaNew(path string) (*LuaProfile, error) {
 	profile := &LuaProfile{
 		script:        path,
 		state:         lua.NewState(),
-		TaskCallbacks: make(map[string]*lua.LFunction),
+		TaskCallbacks: make(map[taskCallbackKey]taskCallbackRegistration),
 	}
 	profile.state.OpenLibs()
 	profile.state.SetGlobal("command", profile.state.NewFunction(profile.command))
@@ -122,6 +122,8 @@ func LuaNew(path string) (*LuaProfile, error) {
 	profile.state.SetGlobal("add_task_send_buffer", profile.state.NewFunction(profile.implantAddSendBuffer))
 	profile.state.SetGlobal("implant_register_profile", profile.state.NewFunction(LuaRegisterImplantProfile))
 	profile.state.SetGlobal("register_task_callback", profile.state.NewFunction(profile.registerTaskCallback))
+	profile.state.SetGlobal("session", profile.state.NewFunction(profile.session))
+	profile.state.SetGlobal("session_print", profile.state.NewFunction(profile.sessionPrint))
 	profile.state.SetGlobal("lua_print", profile.state.NewFunction(LuaPrint))
 	if err := profile.state.DoFile(path); err != nil {
 		removeCommandsForScript(path)
@@ -151,6 +153,7 @@ func loadScript(path string, persist bool) (*LuaProfile, error) {
 		}
 	}
 	profile.Running = true
+	profile.startTaskCallbackCleaner()
 	ScriptMAP[path] = profile
 	scriptMapMu.Unlock()
 	go profile.LuaRunMain()
@@ -186,6 +189,7 @@ func unloadScript(path string, persist bool) error {
 	scriptMapMu.Unlock()
 
 	removeCommandsForScript(path)
+	profile.stopTaskCallbackCleaner()
 	profile.stateMu.Lock()
 	profile.Running = false
 	if profile.state != nil {

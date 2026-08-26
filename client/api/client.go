@@ -249,7 +249,11 @@ func (client *Client) Hello(ctx context.Context) (teamapi.HelloReply, error) {
 				return teamapi.HelloReply{}, err
 			}
 			if len(records) == 0 {
+				reply.HistoryTruncated = true
 				break
+			}
+			if eventReplayPageHasGap(cursor, records) {
+				reply.HistoryTruncated = true
 			}
 			for _, record := range records {
 				client.acceptEvent(teamapi.Envelope{
@@ -262,8 +266,24 @@ func (client *Client) Hello(ctx context.Context) (teamapi.HelloReply, error) {
 				break
 			}
 		}
+		if cursor < reply.EventSequence {
+			reply.HistoryTruncated = true
+		}
 	}
 	return reply, nil
+}
+
+func eventReplayPageHasGap(after uint64, records []teamapi.EventRecord) bool {
+	cursor := after
+	for _, record := range records {
+		if record.Sequence > cursor && record.Sequence-cursor > 1 {
+			return true
+		}
+		if record.Sequence > cursor {
+			cursor = record.Sequence
+		}
+	}
+	return false
 }
 
 func (client *Client) acceptEvent(envelope teamapi.Envelope) {

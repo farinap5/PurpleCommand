@@ -127,6 +127,43 @@ A slow WebSocket subscriber is disconnected instead of blocking implant
 callbacks or other operators. The client reconnects on the next request and
 uses persisted request IDs/replies and event replay to recover safely.
 
+### Event retention
+
+The teamserver prunes expired event-replay records at startup and once per
+hour. Policies live in the SQLite `EventRetentionConfiguration` table, one row
+per event type. `RetentionSeconds` is authoritative; `RetentionTier` is a
+human-readable grouping. Setting `RetentionSeconds` to `0` disables expiration
+for that event type. Unconfigured event types are retained so a newly added or
+extension event is never deleted before it has an explicit policy.
+
+Default policies are:
+
+| Tier | Retention | Event classes |
+| --- | ---: | --- |
+| `short` | 24 hours | Session check-ins |
+| `standard` | 7 days | Reconstructible listener, session, task, loot, script, build, and speaker lifecycle notifications |
+| `important` | 30 days | Failures, completions, and user audit events |
+| `archive` | 90 days | User messages and session, script, or build output |
+
+Configuration changes survive restarts because schema initialization uses
+`INSERT OR IGNORE` for defaults. For example, this keeps user messages for one
+year:
+
+```sql
+UPDATE EventRetentionConfiguration
+SET RetentionTier = 'archive',
+    RetentionSeconds = 31536000,
+    UpdatedAt = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE EventType = 'evt.user.message';
+```
+
+Cleanup uses indexed batches of 1,000 rows per transaction. Deleting records
+makes their SQLite pages reusable but does not immediately shrink the database
+file; file compaction should be performed separately during maintenance.
+Event sequence watermarks remain monotonic even if every retained row expires.
+When a client detects a gap caused by retention, `HelloReply.HistoryTruncated`
+is set locally and the CLI's normal post-hello snapshot restores current state.
+
 ## Resource ownership and persistence
 
 The teamserver owns all long-lived state:

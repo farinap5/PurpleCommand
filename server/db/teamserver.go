@@ -26,6 +26,12 @@ func EnsureTeamserverSchema() error {
 			CreatedAt TEXT NOT NULL,
 			PRIMARY KEY (ClientID, RequestID)
 		);`,
+		`CREATE TABLE IF NOT EXISTS EventRetentionConfiguration (
+			EventType TEXT PRIMARY KEY,
+			RetentionTier TEXT NOT NULL,
+			RetentionSeconds INTEGER NOT NULL CHECK (RetentionSeconds >= 0),
+			UpdatedAt TEXT NOT NULL
+		);`,
 		`CREATE TABLE IF NOT EXISTS Sessions (
 			Name TEXT PRIMARY KEY,
 			Uuid TEXT NOT NULL,
@@ -70,11 +76,15 @@ func EnsureTeamserverSchema() error {
 		);`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS UsersUuid ON Users (Uuid);`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS UsersToken ON Users (Token);`,
+		`CREATE INDEX IF NOT EXISTS EventsTypeCreatedAt ON Events (Type, CreatedAt);`,
 	}
 	for _, statement := range statements {
 		if _, err := DBMS.DBConn.Exec(statement); err != nil {
 			return err
 		}
+	}
+	if err := ensureDefaultEventRetentionConfigurations(); err != nil {
+		return err
 	}
 	if err := ensureSessionRoutingColumns(); err != nil {
 		return err
@@ -178,14 +188,17 @@ func DBEventList(after uint64, limit int) ([]teamapi.EventRecord, error) {
 }
 
 func DBEventLatestSequence() (uint64, error) {
-	var sequence sql.NullInt64
-	if err := DBMS.DBConn.QueryRow(`SELECT MAX(Sequence) FROM Events;`).Scan(&sequence); err != nil {
+	var sequence int64
+	if err := DBMS.DBConn.QueryRow(`
+		SELECT COALESCE(
+			(SELECT seq FROM sqlite_sequence WHERE name = 'Events'),
+			(SELECT MAX(Sequence) FROM Events),
+			0
+		);
+	`).Scan(&sequence); err != nil {
 		return 0, err
 	}
-	if !sequence.Valid {
-		return 0, nil
-	}
-	return uint64(sequence.Int64), nil
+	return uint64(sequence), nil
 }
 
 func DBRequestGet(clientID, requestID string) ([]byte, bool, error) {

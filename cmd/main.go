@@ -68,6 +68,22 @@ func startServer(a []string) {
 	}
 
 	eventBus := events.New()
+	retentionContext, stopRetention := context.WithCancel(context.Background())
+	defer stopRetention()
+	go eventBus.RunRetentionCleanup(
+		retentionContext,
+		events.DefaultRetentionCleanupInterval,
+		events.DefaultRetentionCleanupBatch,
+		func(deleted int64, cleanupErr error) {
+			if cleanupErr != nil {
+				fmt.Fprintln(os.Stderr, "event retention cleanup:", cleanupErr)
+				return
+			}
+			if deleted > 0 {
+				fmt.Printf("Event retention cleanup: removed %d expired events\n", deleted)
+			}
+		},
+	)
 	runtimeevents.SetPublisher(func(eventType string, value any) {
 		_, _ = eventBus.Publish(eventType, value)
 	})

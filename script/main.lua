@@ -116,11 +116,25 @@ function cd(payload)
 end
 
 function ls(payload)
-    local task_id, err = add_task(CODE.LS, payload)
+    local task_id, err, session_id = add_task(CODE.LS, payload)
     if err then
         lua_print("Error: " .. err)
         return
     end
+
+    local session_info, session_err = session(session_id)
+    if session_err then
+        lua_print("Error: " .. session_err)
+        return
+    end
+    local timeout = session_info.sleep + session_info.sleep * 1.5
+    if timeout <= 0 then
+        timeout = 30
+    end
+
+    register_task_callback(task_id, function(task_id, response, name, uuid, hostname, user, payload_type)
+        session_print(session_info.id, response, task_id)
+    end, timeout)
 end
 
 function memexec(payload)

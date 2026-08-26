@@ -160,11 +160,12 @@ type HelloRequest struct {
 }
 
 type HelloReply struct {
-	ServerID       string `json:"server_id"`
-	ServerVersion  string `json:"server_version"`
-	Protocol       int    `json:"protocol"`
-	EventSequence  uint64 `json:"event_sequence"`
-	ResyncRequired bool   `json:"resync_required,omitempty"`
+	ServerID         string `json:"server_id"`
+	ServerVersion    string `json:"server_version"`
+	Protocol         int    `json:"protocol"`
+	EventSequence    uint64 `json:"event_sequence"`
+	ResyncRequired   bool   `json:"resync_required,omitempty"`
+	HistoryTruncated bool   `json:"-"`
 }
 
 type NameRequest struct {

@@ -2,3 +2,4 @@ database.db
 loot/*
 bin/
 script/uploads/
+database.db*

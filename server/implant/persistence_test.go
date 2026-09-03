@@ -38,6 +38,11 @@ func TestSessionAndTaskHistoryRestoresAsInactive(t *testing.T) {
 	if err := item.TaskCompleteResponse(task.ID, []byte("pong")); err != nil {
 		t.Fatal(err)
 	}
+	listenerItem := ImplantNew("listener-persisted")
+	listenerItem.Metadata.Type = "impl"
+	listenerItem.Metadata.Sleep = 60
+	listenerItem.ImplantSetListener("main-http", "stable-listener-id")
+	listenerItem.ImplantAddImplant()
 
 	implantMapMu.Lock()
 	ImplantMAP = make(map[string]*Implant)
@@ -55,6 +60,13 @@ func TestSessionAndTaskHistoryRestoresAsInactive(t *testing.T) {
 	if session.Transport != "speaker" || session.Speaker != "bind-http" {
 		t.Fatalf("restored session route = %q/%q", session.Transport, session.Speaker)
 	}
+	listenerSession, err := APIGetSession("listener-persisted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if listenerSession.Transport != "listener" || listenerSession.Listener != "main-http" || listenerSession.ListenerUUID != "stable-listener-id" {
+		t.Fatalf("restored listener route = %#v", listenerSession)
+	}
 	restoredTask, err := APIGetTask("persisted", string(task.ID[:]))
 	if err != nil {
 		t.Fatal(err)
@@ -63,6 +75,9 @@ func TestSessionAndTaskHistoryRestoresAsInactive(t *testing.T) {
 		t.Fatalf("restored task = %#v", restoredTask)
 	}
 	if err := APIDeleteSession("persisted"); err != nil {
+		t.Fatal(err)
+	}
+	if err := APIDeleteSession("listener-persisted"); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -25,6 +25,7 @@ type Profile struct {
 	Output              string          `json:"output"`
 	Template            string          `json:"template"`
 	PublicKey           string          `json:"public_key"`
+	Builder             string          `json:"builder"`
 }
 
 type ProfileUpdateRequest struct {

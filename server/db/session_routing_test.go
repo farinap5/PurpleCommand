@@ -55,4 +55,19 @@ CREATE TABLE Sessions (
 	if len(sessions) != 1 || sessions[0].Session.Transport != teamapi.SessionTransportSpeaker || sessions[0].Session.Speaker != "bind-http" {
 		t.Fatalf("persisted route = %#v", sessions)
 	}
+
+	if err := DBSessionSave(teamapi.Session{
+		Name: "listener-session", UUID: "listener-uuid", PayloadType: "impl",
+		Transport: teamapi.SessionTransportListener, Listener: "main-http", ListenerUUID: "stable-listener-id",
+		Alive: true, FirstSeen: now, LastSeen: now,
+	}, []byte(`{"type":"impl"}`)); err != nil {
+		t.Fatal(err)
+	}
+	sessions, err = DBSessionList()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 2 || sessions[1].Session.Listener != "main-http" || sessions[1].Session.ListenerUUID != "stable-listener-id" {
+		t.Fatalf("persisted listener association = %#v", sessions)
+	}
 }

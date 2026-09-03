@@ -65,7 +65,7 @@ func HelpEntries(state int) []HelpEntry {
 			HelpEntry{Command: "select", Description: "Select a profile. Use `select <name>`."},
 			HelpEntry{Command: "options", Description: "Show current profile options."},
 			HelpEntry{Command: "set", Description: "Set option on current profile. Use `set <key> <value>`."},
-			HelpEntry{Command: "generate", Description: "Build implant. Use `generate [name]` or `generate` for current."},
+			HelpEntry{Command: "generate", Description: "Build implant. Use `generate [profile] [builder]` or `generate` for current."},
 			HelpEntry{Command: "delete", Description: "Delete a profile. Use `delete <name>`."},
 			HelpEntry{Command: "back", Description: "Exit implant builder mode."},
 		)

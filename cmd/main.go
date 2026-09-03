@@ -94,12 +94,19 @@ func startServer(a []string) {
 	implantbuilder.ProfilesReloadFromDB()
 	lua.ImplantDefinitionsReloadFromDB()
 	lua.ScriptsReloadFromDB()
-	if err := listener.ListenerInitFromDB(); err != nil {
+	listenerManager, err := listener.NewHTTPManager(listener.DBStore{}, listener.TeamEventPublisher(func(eventType string, value any) {
+		_, _ = eventBus.Publish(eventType, value)
+	}))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "listener manager:", err)
+		os.Exit(1)
+	}
+	if err := listenerManager.Restore(); err != nil {
 		fmt.Fprintln(os.Stderr, "listeners:", err)
 		os.Exit(1)
 	}
 
-	server := teamserver.New(configuration, eventBus)
+	server := teamserver.NewWithListenerManager(configuration, eventBus, listenerManager)
 	scheme := "http"
 	if configuration.TLS() {
 		scheme = "https"

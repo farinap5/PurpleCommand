@@ -70,11 +70,54 @@ replies use `rpy.resource.operation`. Asynchronous events use
 
 ```text
 ask.listener.list   -> rpy.listener.list
+ask.listener.delete -> rpy.listener.delete + evt.listener.deleted
 ask.task.create     -> rpy.task.create
                      + evt.task.created
                      + evt.task.dispatched
                      + evt.task.completed
 ```
+
+The payload-builder registry has an explicit listing operation. Its reply uses
+the requested `rpl` prefix as a scoped protocol exception:
+
+```text
+ask.payload-builder.list -> rpl.payload-builder.list
+```
+
+The reply data is a name-sorted array of `{name, description, source}` objects
+for builders registered by currently loaded Lua scripts.
+
+The complete listener UI wire contract, including every listener request,
+reply, event, DTO, state transition, HTTP option, route, carrier, and reconnect
+rule, is documented in [`LISTENER_UI_CONTRACT.md`](LISTENER_UI_CONTRACT.md).
+
+Builder registration and build jobs use the following complete lifecycle:
+
+```text
+evt.payload-builder.registered
+evt.payload-builder.unregistered
+
+ask.build.create {"profile":"linux-impl","builder":"implant-builder-linux-amd64"}
+                 -> rpy.build.create (status=queued)
+                   + evt.build.queued
+                   + evt.build.started
+                   + evt.build.output      (zero or more)
+                   + evt.build.completed   OR evt.build.failed
+
+ask.build.get    -> rpy.build.get
+ask.build.list   -> rpy.build.list
+ask.build.delete -> rpy.build.delete + evt.build.deleted
+```
+
+Queued, started, completed, failed, and deleted event data is a `Build` object.
+The `builder` request field is optional; when omitted, the profile's persisted
+builder is snapshotted into the job. An explicit builder overrides that job
+only, must currently be registered, and does not mutate the profile.
+Output event data is `{build_id, profile, builder, message}`, so every message
+can be correlated to its job. Makefile, built-in Go, and Lua commands all use
+the same output event. At most 256 KiB is retained per command; the full output
+still appears on the teamserver console and retained output is marked when
+truncated. Jobs remain `queued` until they acquire the serialized build slot.
 
 The task-create reply means that the task was queued, not completed. Request
 IDs are persisted with their serialized reply, so retrying the same
@@ -178,6 +221,10 @@ The teamserver owns all long-lived state:
   metadata are persisted.
 - Build jobs run asynchronously and artifacts are downloaded through an
   authenticated endpoint.
+- Profiles may opt into a registered Lua `payload_build` handler. Profiles with
+  no builder retain the existing Makefile or built-in Go build path. Lua
+  `os.write` uses a caller-selected path and creates its missing parent
+  directories; it does not allocate or remove a random build workspace.
 - Each Lua state is serialized. Command execution receives the target session
   explicitly; it never depends on another client's selected session.
 - Lua paths are stored canonically. When a database is moved with the checkout,

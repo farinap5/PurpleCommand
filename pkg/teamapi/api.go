@@ -26,6 +26,9 @@ const (
 	AskListenerStop     = "ask.listener.stop"
 	AskListenerRestart  = "ask.listener.restart"
 	AskListenerDelete   = "ask.listener.delete"
+	AskListenerTypeList = "ask.listener-type.list"
+	AskListenerTypeGet  = "ask.listener-type.get"
+	AskCarrierTypeList  = "ask.listener-carrier.list"
 	AskSessionList      = "ask.session.list"
 	AskSessionGet       = "ask.session.get"
 	AskSessionTerminate = "ask.session.terminate"
@@ -71,9 +74,18 @@ const (
 )
 
 const (
+	AskPayloadBuilderList   = "ask.payload-builder.list"
+	ReplyPayloadBuilderList = "rpl.payload-builder.list"
+)
+
+const (
 	EventListenerCreated   = "evt.listener.created"
 	EventListenerStarted   = "evt.listener.started"
 	EventListenerStopped   = "evt.listener.stopped"
+	EventListenerDeleted   = "evt.listener.deleted"
+	EventListenerUpdated   = "evt.listener.updated"
+	EventListenerStarting  = "evt.listener.starting"
+	EventListenerStopping  = "evt.listener.stopping"
 	EventListenerFailed    = "evt.listener.failed"
 	EventSessionRegistered = "evt.session.registered"
 	EventSessionCheckin    = "evt.session.checkin"
@@ -87,6 +99,7 @@ const (
 	EventScriptLoaded      = "evt.script.loaded"
 	EventScriptUnloaded    = "evt.script.unloaded"
 	EventScriptOutput      = "evt.script.output"
+	EventBuildQueued       = "evt.build.queued"
 	EventBuildStarted      = "evt.build.started"
 	EventBuildOutput       = "evt.build.output"
 	EventBuildCompleted    = "evt.build.completed"
@@ -105,6 +118,11 @@ const (
 	EventSpeakerDisconnected = "evt.speaker.disconnected"
 	EventSpeakerFailed       = "evt.speaker.failed"
 	EventSpeakerStopped      = "evt.speaker.stopped"
+)
+
+const (
+	EventPayloadBuilderRegistered   = "evt.payload-builder.registered"
+	EventPayloadBuilderUnregistered = "evt.payload-builder.unregistered"
 )
 
 type Envelope struct {
@@ -135,6 +153,9 @@ func (e *APIError) Error() string {
 func ReplyType(requestType string) (string, error) {
 	if !strings.HasPrefix(requestType, "ask.") {
 		return "", errors.New("request type must begin with ask.")
+	}
+	if requestType == AskPayloadBuilderList {
+		return ReplyPayloadBuilderList, nil
 	}
 	return "rpy." + strings.TrimPrefix(requestType, "ask."), nil
 }
@@ -173,21 +194,23 @@ type NameRequest struct {
 }
 
 type Session struct {
-	Name        string    `json:"name"`
-	UUID        string    `json:"uuid"`
-	PayloadType string    `json:"payload_type"`
-	Transport   string    `json:"transport"`
-	Speaker     string    `json:"speaker,omitempty"`
-	User        string    `json:"user"`
-	Hostname    string    `json:"hostname"`
-	Process     string    `json:"process"`
-	Socket      string    `json:"socket"`
-	PID         uint32    `json:"pid"`
-	Sleep       uint32    `json:"sleep"`
-	Alive       bool      `json:"alive"`
-	Terminating bool      `json:"terminating"`
-	FirstSeen   time.Time `json:"first_seen"`
-	LastSeen    time.Time `json:"last_seen"`
+	Name         string    `json:"name"`
+	UUID         string    `json:"uuid"`
+	PayloadType  string    `json:"payload_type"`
+	Transport    string    `json:"transport"`
+	Speaker      string    `json:"speaker,omitempty"`
+	Listener     string    `json:"listener,omitempty"`
+	ListenerUUID string    `json:"listener_uuid,omitempty"`
+	User         string    `json:"user"`
+	Hostname     string    `json:"hostname"`
+	Process      string    `json:"process"`
+	Socket       string    `json:"socket"`
+	PID          uint32    `json:"pid"`
+	Sleep        uint32    `json:"sleep"`
+	Alive        bool      `json:"alive"`
+	Terminating  bool      `json:"terminating"`
+	FirstSeen    time.Time `json:"first_seen"`
+	LastSeen     time.Time `json:"last_seen"`
 }
 
 type Snapshot struct {

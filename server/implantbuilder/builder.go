@@ -6,29 +6,36 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"purpcmd/internal"
+	"purpcmd/pkg/teamapi"
 	"purpcmd/server/db"
 	"purpcmd/server/log"
+	"purpcmd/server/runtimeevents"
 
 	"github.com/cheynewallace/tabby"
 )
 
 // Profile holds the build configuration for a single implant binary.
 type Profile struct {
-	Type        string
-	LHOST       string
-	OS          string
-	ARCH        string
-	OSOptions   []string
-	ARCHOptions []string
-	Output      string
-	Template    string
-	PublicKey   string // Path to server public key (e.g., server.pub)
+	Type            string
+	LHOST           string
+	OS              string
+	ARCH            string
+	OSOptions       []string
+	ARCHOptions     []string
+	Output          string
+	Template        string
+	PublicKey       string                    // Path to server public key (e.g., server.pub)
+	Builder         string                    // Optional registered Lua payload builder name.
+	ProfileName     string                    // Execution-only profile name; never persisted.
+	BuildID         string                    // Execution-only build job ID; never persisted.
+	OutputPublisher func(teamapi.BuildOutput) // Execution-only event sink; never persisted.
 }
 
 var (
@@ -157,6 +164,7 @@ func ShowOptions() {
 	t.AddLine("OUTPUT", p.Output, "Output binary filename")
 	t.AddLine("PUBLICKEY", p.PublicKey, "Path to server RSA public key file")
 	t.AddLine("TEMPLATE", p.Template, "Path to implant template directory")
+	t.AddLine("BUILDER", p.Builder, "Registered Lua payload builder (empty uses the legacy builder)")
 	t.Print()
 	print("\n")
 }
@@ -187,6 +195,13 @@ func SetOption(key, value string) error {
 		p.PublicKey = value
 	case "TEMPLATE":
 		p.Template = value
+	case "BUILDER":
+		if value != "" {
+			if err := internal.ValidateCommandName(value); err != nil {
+				return fmt.Errorf("builder: %w", err)
+			}
+		}
+		p.Builder = value
 	default:
 		return fmt.Errorf("unknown option: %s", key)
 	}
@@ -209,6 +224,7 @@ func profileToDBRow(name string, p *Profile) db.ImplantProfile {
 		Output:      p.Output,
 		Template:    p.Template,
 		PublicKey:   p.PublicKey,
+		Builder:     p.Builder,
 	}
 }
 
@@ -234,6 +250,7 @@ func ProfilesReloadFromDB() {
 			Output:      r.Output,
 			Template:    r.Template,
 			PublicKey:   r.PublicKey,
+			Builder:     r.Builder,
 		}
 		if p.Type == "" {
 			p.Type = internal.DefaultPayloadType
@@ -261,6 +278,9 @@ func Generate() error {
 }
 
 func generate(name string, p *Profile) error {
+	executionProfile := cloneProfile(*p)
+	executionProfile.ProfileName = name
+	p = &executionProfile
 	if err := internal.ValidatePayloadType(p.Type); err != nil {
 		return fmt.Errorf("profile %q: %w", name, err)
 	}
@@ -282,6 +302,13 @@ func generate(name string, p *Profile) error {
 		if err != nil {
 			return err
 		}
+	}
+	if p.Builder != "" {
+		configured := cloneProfile(*p)
+		configured.Template = absTemplateDir
+		configured.Output = absOutput
+		configured.PublicKey = absPublicKey
+		return generateWithPayloadBuilder(name, &configured)
 	}
 
 	// If the template contains a Makefile, delegate the entire build to make.
@@ -313,10 +340,7 @@ func generateWithMakefile(name string, p *Profile, absTemplateDir, absOutput, ab
 		"GOARCH="+p.ARCH,
 		"CGO_ENABLED=0",
 	)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
+	if err := runBuildCommand(cmd, *p, "makefile"); err != nil {
 		return fmt.Errorf("make build failed: %w", err)
 	}
 
@@ -327,55 +351,17 @@ func generateWithMakefile(name string, p *Profile, absTemplateDir, absOutput, ab
 // generateGo performs the default Go build: substitutes placeholders in main.go,
 // writes a temporary main_build.go, compiles it, then removes the temp file.
 func generateGo(name string, p *Profile, absTemplateDir, absOutput string) error {
-	// Read and validate the public key
-	var pubKeyDER []byte
-	if p.PublicKey != "" {
-		data, err := os.ReadFile(p.PublicKey)
-		if err != nil {
-			return fmt.Errorf("cannot read public key %s: %w", p.PublicKey, err)
-		}
-		block, _ := pem.Decode(data)
-		if block == nil {
-			return fmt.Errorf("no PEM block in public key file %s", p.PublicKey)
-		}
-		key, err := x509.ParsePKIXPublicKey(block.Bytes)
-		if err != nil {
-			return fmt.Errorf("cannot parse public key: %w", err)
-		}
-		if _, ok := key.(*rsa.PublicKey); !ok {
-			return fmt.Errorf("public key is not RSA")
-		}
-		pubKeyDER = block.Bytes
-	}
-
-	mainSrc := filepath.Join(p.Template, "main.go")
+	mainSrc := filepath.Join(absTemplateDir, "main.go")
 	src, err := os.ReadFile(mainSrc)
 	if err != nil {
 		return fmt.Errorf("cannot read template main.go: %w", err)
 	}
-
-	// Substitute placeholder values in the template source.
-	modified := string(src)
-	modified = strings.Replace(modified, `"LHOST"`, fmt.Sprintf("%q", p.LHOST), 1)
-	modified = strings.Replace(modified, `"IMPLANT_TYPE"`, fmt.Sprintf("%q", p.Type), 1)
-
-	// Embed the public key as a byte array
-	if len(pubKeyDER) > 0 {
-		pubKeyStr := "[]byte{"
-		for i, b := range pubKeyDER {
-			if i > 0 {
-				pubKeyStr += ","
-			}
-			if i%16 == 0 {
-				pubKeyStr += "\n\t\t"
-			}
-			pubKeyStr += fmt.Sprintf("0x%02x", b)
-		}
-		pubKeyStr += ",\n\t}"
-		modified = strings.Replace(modified, `var publicKeyDER []byte`, "var publicKeyDER = "+pubKeyStr, 1)
+	modified, err := RenderGoSource(*p, string(src))
+	if err != nil {
+		return err
 	}
 
-	tmpSrc := filepath.Join(p.Template, "main_build.go")
+	tmpSrc := filepath.Join(absTemplateDir, "main_build.go")
 	if err := os.WriteFile(tmpSrc, []byte(modified), 0600); err != nil {
 		return fmt.Errorf("cannot write build source: %w", err)
 	}
@@ -388,16 +374,92 @@ func generateGo(name string, p *Profile, absTemplateDir, absOutput string) error
 		"GOARCH="+p.ARCH,
 		"CGO_ENABLED=0",
 	)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
 	log.PrintInfo(fmt.Sprintf("[%s] Building implant for %s/%s -> %s", name, p.OS, p.ARCH, p.Output))
-	if err := cmd.Run(); err != nil {
+	if err := runBuildCommand(cmd, *p, "go"); err != nil {
 		return fmt.Errorf("build failed: %w", err)
 	}
 
 	log.PrintSuccs(fmt.Sprintf("[%s] Implant written to: %s", name, p.Output))
 	return nil
+}
+
+func runBuildCommand(command *exec.Cmd, profile Profile, builder string) error {
+	var output BuildOutputCapture
+	combined := io.MultiWriter(os.Stdout, &output)
+	command.Stdout = combined
+	command.Stderr = combined
+	err := command.Run()
+	PublishBuildOutput(profile, builder, output.String())
+	return err
+}
+
+// PublishBuildOutput emits correlated command output through the teamserver's
+// runtime event publisher. Empty output does not create an event record.
+func PublishBuildOutput(profile Profile, builder, message string) {
+	if strings.TrimSpace(message) == "" {
+		return
+	}
+	output := teamapi.BuildOutput{
+		BuildID: profile.BuildID,
+		Profile: profile.ProfileName,
+		Builder: builder,
+		Message: message,
+	}
+	if profile.OutputPublisher != nil {
+		profile.OutputPublisher(output)
+		return
+	}
+	runtimeevents.Publish(teamapi.EventBuildOutput, output)
+}
+
+// RenderGoSource applies the standard payload-profile substitutions and embeds
+// the configured RSA public key as DER bytes. Both the legacy Go builder and
+// Lua os.write use this function so Lua builds preserve the old Makefile's key
+// embedding behavior without invoking Python.
+func RenderGoSource(profile Profile, source string) (string, error) {
+	var publicKeyDER []byte
+	if profile.PublicKey != "" {
+		data, err := os.ReadFile(profile.PublicKey)
+		if err != nil {
+			return "", fmt.Errorf("cannot read public key %s: %w", profile.PublicKey, err)
+		}
+		block, _ := pem.Decode(data)
+		if block == nil {
+			return "", fmt.Errorf("no PEM block in public key file %s", profile.PublicKey)
+		}
+		key, err := x509.ParsePKIXPublicKey(block.Bytes)
+		if err != nil {
+			return "", fmt.Errorf("cannot parse public key: %w", err)
+		}
+		if _, ok := key.(*rsa.PublicKey); !ok {
+			return "", errors.New("public key is not RSA")
+		}
+		publicKeyDER = block.Bytes
+	}
+
+	modified := strings.Replace(source, `"LHOST"`, fmt.Sprintf("%q", profile.LHOST), 1)
+	modified = strings.Replace(modified, `"IMPLANT_TYPE"`, fmt.Sprintf("%q", profile.Type), 1)
+	if len(publicKeyDER) == 0 {
+		return modified, nil
+	}
+	publicKeyDeclaration := "[]byte{"
+	for index, value := range publicKeyDER {
+		if index > 0 {
+			publicKeyDeclaration += ","
+		}
+		if index%16 == 0 {
+			publicKeyDeclaration += "\n\t\t"
+		}
+		publicKeyDeclaration += fmt.Sprintf("0x%02x", value)
+	}
+	publicKeyDeclaration += ",\n\t}"
+	modified = strings.Replace(
+		modified,
+		`var publicKeyDER []byte`,
+		"var publicKeyDER = "+publicKeyDeclaration,
+		1,
+	)
+	return modified, nil
 }
 
 // ProfileNamesForSuggestions returns a slice of [name, description] pairs

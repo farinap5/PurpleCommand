@@ -34,6 +34,7 @@ type ImplantProtocolOptions struct {
 type LuaImplantDefinition struct {
 	Protocol         string
 	Type             string
+	Builder          string
 	OperatingSystems []string
 	Architectures    []string
 	Options          ImplantProtocolOptions
@@ -135,6 +136,7 @@ func LuaRegisterImplantProfile(L *lua.LState) int {
 		request := teamapi.Profile{
 			Name:        name,
 			Type:        definition.Type,
+			Builder:     definition.Builder,
 			OS:          definition.OperatingSystems[0],
 			ARCH:        definition.Architectures[0],
 			OSOptions:   cloneStrings(definition.OperatingSystems),
@@ -190,10 +192,21 @@ func decodeStructuredImplantDefinition(tbl *lua.LTable) (LuaImplantDefinition, e
 	if err := internal.ValidatePayloadType(payloadType); err != nil {
 		return LuaImplantDefinition{}, err
 	}
+	builder, err := luaStringField(tbl, "BUILDER", "")
+	if err != nil {
+		return LuaImplantDefinition{}, err
+	}
+	builder = strings.TrimSpace(builder)
+	if builder != "" {
+		if err := internal.ValidateCommandName(builder); err != nil {
+			return LuaImplantDefinition{}, fmt.Errorf("BUILDER: %w", err)
+		}
+	}
 
 	definition := LuaImplantDefinition{
 		Protocol:         protocol,
 		Type:             payloadType,
+		Builder:          builder,
 		OperatingSystems: operatingSystems,
 		Architectures:    architectures,
 		Options: ImplantProtocolOptions{
@@ -311,15 +324,20 @@ func registerLegacyImplantProfile(L *lua.LState, name string, tbl *lua.LTable) i
 	if v := tbl.RawGetString("template"); v != lua.LNil {
 		p.Template = v.String()
 	}
+	if v := tbl.RawGetString("builder"); v != lua.LNil {
+		p.Builder = v.String()
+	}
 
 	request := teamapi.Profile{
 		Name: name, Type: p.Type, LHOST: p.LHOST, OS: p.OS, ARCH: p.ARCH,
 		OSOptions: p.OSOptions, ARCHOptions: p.ARCHOptions, Output: p.Output,
 		Template: p.Template, PublicKey: p.PublicKey,
+		Builder: p.Builder,
 	}
 	definition := LuaImplantDefinition{
 		Protocol:         "http",
 		Type:             p.Type,
+		Builder:          p.Builder,
 		OperatingSystems: cloneStrings(p.OSOptions),
 		Architectures:    cloneStrings(p.ARCHOptions),
 		Options: ImplantProtocolOptions{
@@ -355,6 +373,7 @@ func isStructuredImplantDefinition(tbl *lua.LTable) bool {
 		tbl.RawGetString("ARCH") != lua.LNil ||
 		tbl.RawGetString("PROTOCOL") != lua.LNil ||
 		tbl.RawGetString("TYPE") != lua.LNil ||
+		tbl.RawGetString("BUILDER") != lua.LNil ||
 		tbl.RawGetString("OPTIONS") != lua.LNil ||
 		tbl.RawGetString("OTS") != lua.LNil
 }
@@ -638,9 +657,8 @@ func cacheImplantDefinition(name string, definition LuaImplantDefinition) {
 	luaImplantDefinitionsMu.Unlock()
 }
 
-// syncBuildProfile maintains the subset still consumed by the legacy builder.
-// It intentionally uses the existing public API instead of extending
-// teamapi.Profile before that API is ready for protocol-specific options.
+// syncBuildProfile maintains generic build metadata shared by the legacy and
+// registered Lua builders. Protocol-specific options remain in the definition.
 func syncBuildProfile(request teamapi.Profile, definition LuaImplantDefinition) (bool, error) {
 	_, err := implantbuilder.APIGetProfile(request.Name)
 	created := false
@@ -654,6 +672,7 @@ func syncBuildProfile(request teamapi.Profile, definition LuaImplantDefinition) 
 	if _, err := implantbuilder.APISyncProfileDefinition(
 		request.Name,
 		definition.Type,
+		definition.Builder,
 		definition.OperatingSystems,
 		definition.Architectures,
 	); err != nil {

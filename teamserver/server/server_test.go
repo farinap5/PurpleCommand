@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -16,7 +17,7 @@ import (
 	clientapi "purpcmd/client/api"
 	"purpcmd/pkg/teamapi"
 	"purpcmd/server/db"
-	"purpcmd/server/listener"
+	"purpcmd/server/implantbuilder"
 	"purpcmd/teamserver/config"
 	"purpcmd/teamserver/events"
 	teamserver "purpcmd/teamserver/server"
@@ -24,6 +25,33 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
+
+func cleanupTeamserver(t *testing.T, instance *teamserver.Server) {
+	t.Helper()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = instance.Shutdown(ctx)
+	})
+}
+
+func setupTeamserverDatabase(t *testing.T, name string) {
+	t.Helper()
+	previousPath := db.DatabasePath
+	previousDatabase := db.DBMS
+	db.DatabasePath = filepath.Join(t.TempDir(), name)
+	if err := db.CheckDB(); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.EnsureTeamserverSchema(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.DBMS.DBConn.Close()
+		db.DBMS = previousDatabase
+		db.DatabasePath = previousPath
+	})
+}
 
 func TestControlAuthenticationCorrelationDeduplicationAndReplay(t *testing.T) {
 	db.DatabasePath = t.TempDir() + "/teamserver.db"
@@ -39,6 +67,7 @@ func TestControlAuthenticationCorrelationDeduplicationAndReplay(t *testing.T) {
 	eventBus := events.New()
 	configuration := config.Config{Token: token, ScriptDir: t.TempDir()}
 	instance := teamserver.New(configuration, eventBus)
+	cleanupTeamserver(t, instance)
 	httpServer := httptest.NewServer(instance.Handler())
 	defer httpServer.Close()
 
@@ -91,6 +120,37 @@ func TestControlAuthenticationCorrelationDeduplicationAndReplay(t *testing.T) {
 	if count != 1 {
 		t.Fatalf("deduplicated create produced %d listeners", count)
 	}
+	var driverTypes []teamapi.ListenerDriverDefinition
+	if err := client.Request(ctx, teamapi.AskListenerTypeList, struct{}{}, &driverTypes); err != nil {
+		t.Fatal(err)
+	}
+	if len(driverTypes) != 1 || driverTypes[0].ID != "http" || len(driverTypes[0].Options) == 0 {
+		t.Fatalf("listener driver definitions = %#v", driverTypes)
+	}
+	var carrierTypes []teamapi.ListenerCarrierDefinition
+	if err := client.Request(ctx, teamapi.AskCarrierTypeList, struct{}{}, &carrierTypes); err != nil {
+		t.Fatal(err)
+	}
+	if len(carrierTypes) != 5 {
+		t.Fatalf("listener carrier definitions = %#v", carrierTypes)
+	}
+	var current teamapi.Listener
+	for _, item := range listeners {
+		if item.Name == "integration" {
+			current = item
+			break
+		}
+	}
+	var updated teamapi.Listener
+	if err := client.Request(ctx, teamapi.AskListenerUpdate, teamapi.ListenerUpdateRequest{
+		Name: "integration", ExpectedConfigVersion: current.ConfigVersion,
+		Options: json.RawMessage(`{"bind":{"host":"127.0.0.1","port":"0"},"response_headers":{"X-Milestone":"six"}}`),
+	}, &updated); err != nil {
+		t.Fatal(err)
+	}
+	if updated.ConfigVersion <= current.ConfigVersion {
+		t.Fatalf("listener update did not advance version: before=%d after=%d", current.ConfigVersion, updated.ConfigVersion)
+	}
 
 	replayClient := clientapi.New(clientapi.Config{URL: httpServer.URL, Token: token, Timeout: 5 * time.Second})
 	defer replayClient.Close()
@@ -112,14 +172,286 @@ replayLoop:
 			t.Fatal("replayed listener event was not delivered")
 		}
 	}
-	if err := listener.APIDelete("integration"); err != nil {
+	var started teamapi.Listener
+	if err := client.Request(ctx, teamapi.AskListenerStart, teamapi.NameRequest{Name: "integration"}, &started); err != nil {
 		t.Fatal(err)
+	}
+	if !started.Running {
+		t.Fatalf("started listener = %#v", started)
+	}
+	callbackResponse, err := http.Post("http://"+started.Address+"/", "application/octet-stream", strings.NewReader("not-base64"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = callbackResponse.Body.Close()
+	if callbackResponse.StatusCode != http.StatusBadRequest || callbackResponse.Header.Get("X-Milestone") != "six" {
+		t.Fatalf("configured listener response = %d %#v", callbackResponse.StatusCode, callbackResponse.Header)
+	}
+	var deleted teamapi.NameRequest
+	if err := client.Request(ctx, teamapi.AskListenerDelete, teamapi.NameRequest{Name: "integration"}, &deleted); err != nil {
+		t.Fatal(err)
+	}
+	if deleted.Name != "integration" {
+		t.Fatalf("listener delete reply = %#v", deleted)
+	}
+	if _, err := db.DBListenerConfigGet("integration"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("deleted listener remains persisted: %v", err)
+	}
+	if response, err := http.Post("http://"+started.Address+"/", "application/octet-stream", strings.NewReader("not-base64")); err == nil {
+		_ = response.Body.Close()
+		t.Fatal("deleted listener still accepts HTTP connections")
+	}
+	for {
+		select {
+		case event := <-replayClient.Events():
+			if event.Type != teamapi.EventListenerDeleted {
+				continue
+			}
+			var eventData teamapi.NameRequest
+			if err := teamapi.DecodeData(event, &eventData); err != nil {
+				t.Fatal(err)
+			}
+			if eventData.Name != "integration" {
+				t.Fatalf("listener deleted event = %#v", eventData)
+			}
+			return
+		case <-ctx.Done():
+			t.Fatal("listener deleted event was not delivered")
+		}
+	}
+}
+
+func TestListenerControlContractAllOperationsAndEvents(t *testing.T) {
+	setupTeamserverDatabase(t, "listener-contract.db")
+	const token = "listener-contract-token-that-is-long-enough"
+	instance := teamserver.New(config.Config{Token: token, ScriptDir: t.TempDir()}, events.New())
+	cleanupTeamserver(t, instance)
+	httpServer := httptest.NewServer(instance.Handler())
+	defer httpServer.Close()
+
+	client := clientapi.New(clientapi.Config{URL: httpServer.URL, Token: token, Timeout: 5 * time.Second})
+	defer client.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := client.Connect(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	var driverTypes []teamapi.ListenerDriverDefinition
+	if err := client.Request(ctx, teamapi.AskListenerTypeList, struct{}{}, &driverTypes); err != nil {
+		t.Fatal(err)
+	}
+	if len(driverTypes) != 1 || driverTypes[0].ID != "http" || len(driverTypes[0].Options) == 0 {
+		t.Fatalf("listener types = %#v", driverTypes)
+	}
+	var httpType teamapi.ListenerDriverDefinition
+	if err := client.Request(ctx, teamapi.AskListenerTypeGet, teamapi.NameRequest{Name: " HTTP "}, &httpType); err != nil {
+		t.Fatal(err)
+	}
+	if httpType.ID != "http" || len(httpType.Capabilities) == 0 || len(httpType.Options) == 0 {
+		t.Fatalf("HTTP listener type = %#v", httpType)
+	}
+	var carrierTypes []teamapi.ListenerCarrierDefinition
+	if err := client.Request(ctx, teamapi.AskCarrierTypeList, struct{}{}, &carrierTypes); err != nil {
+		t.Fatal(err)
+	}
+	carrierIDs := make([]string, len(carrierTypes))
+	for index, carrier := range carrierTypes {
+		carrierIDs[index] = carrier.ID
+	}
+	if got, want := strings.Join(carrierIDs, ","), "body,cookie,header,image,query"; got != want {
+		t.Fatalf("carrier IDs = %q, want %q", got, want)
+	}
+
+	var listed []teamapi.Listener
+	if err := client.Request(ctx, teamapi.AskListenerList, struct{}{}, &listed); err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 0 {
+		t.Fatalf("initial listener list = %#v", listed)
+	}
+
+	var created teamapi.Listener
+	if err := client.Request(ctx, teamapi.AskListenerCreate, teamapi.ListenerCreateRequest{
+		Name: "contract", Options: json.RawMessage(`{"bind":{"host":"127.0.0.1","port":"0"}}`),
+	}, &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Name != "contract" || created.UUID == "" || created.Driver != "http" ||
+		created.State != "stopped" || created.DesiredState != "stopped" || created.Running ||
+		!created.Persistent || created.ConfigVersion < 1 || created.Host != "127.0.0.1" || created.Port != "0" {
+		t.Fatalf("created listener = %#v", created)
+	}
+
+	var got teamapi.Listener
+	if err := client.Request(ctx, teamapi.AskListenerGet, teamapi.NameRequest{Name: "contract"}, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.UUID != created.UUID || got.ConfigVersion != created.ConfigVersion {
+		t.Fatalf("listener get = %#v, created = %#v", got, created)
+	}
+
+	var updated teamapi.Listener
+	if err := client.Request(ctx, teamapi.AskListenerUpdate, teamapi.ListenerUpdateRequest{
+		Name: "contract", ExpectedConfigVersion: created.ConfigVersion,
+		Options: json.RawMessage(`{"bind":{"host":"127.0.0.1","port":"0"},"response_headers":{"X-Contract":"yes"}}`),
+	}, &updated); err != nil {
+		t.Fatal(err)
+	}
+	if updated.ConfigVersion <= created.ConfigVersion || !strings.Contains(string(updated.Options), "X-Contract") {
+		t.Fatalf("updated listener = %#v", updated)
+	}
+	var ignored teamapi.Listener
+	err := client.Request(ctx, teamapi.AskListenerUpdate, teamapi.ListenerUpdateRequest{
+		Name: "contract", ExpectedConfigVersion: created.ConfigVersion,
+		Options: json.RawMessage(`{"bind":{"host":"127.0.0.1","port":"1"}}`),
+	}, &ignored)
+	var apiError *teamapi.APIError
+	if !errors.As(err, &apiError) || apiError.Code != "request_failed" || !strings.Contains(apiError.Message, "configuration changed") {
+		t.Fatalf("stale listener update error = %#v", err)
+	}
+
+	var started teamapi.Listener
+	if err := client.Request(ctx, teamapi.AskListenerStart, teamapi.NameRequest{Name: "contract"}, &started); err != nil {
+		t.Fatal(err)
+	}
+	if !started.Running || started.State != "running" || started.Address == "" {
+		t.Fatalf("started listener = %#v", started)
+	}
+	var restarted teamapi.Listener
+	if err := client.Request(ctx, teamapi.AskListenerRestart, teamapi.NameRequest{Name: "contract"}, &restarted); err != nil {
+		t.Fatal(err)
+	}
+	if !restarted.Running || restarted.State != "running" || restarted.Address == "" {
+		t.Fatalf("restarted listener = %#v", restarted)
+	}
+	var stopped teamapi.Listener
+	if err := client.Request(ctx, teamapi.AskListenerStop, teamapi.NameRequest{Name: "contract"}, &stopped); err != nil {
+		t.Fatal(err)
+	}
+	if stopped.Running || stopped.State != "stopped" || stopped.DesiredState != "stopped" || stopped.Address != "" {
+		t.Fatalf("stopped listener = %#v", stopped)
+	}
+	if err := client.Request(ctx, teamapi.AskListenerStart, teamapi.NameRequest{Name: "contract"}, &started); err != nil {
+		t.Fatal(err)
+	}
+	var deleted teamapi.NameRequest
+	if err := client.Request(ctx, teamapi.AskListenerDelete, teamapi.NameRequest{Name: "contract"}, &deleted); err != nil {
+		t.Fatal(err)
+	}
+	if deleted.Name != "contract" {
+		t.Fatalf("deleted listener reply = %#v", deleted)
+	}
+	if _, err := db.DBListenerConfigGet("contract"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("deleted listener remains persisted: %v", err)
+	}
+	if err := client.Request(ctx, teamapi.AskListenerGet, teamapi.NameRequest{Name: "contract"}, &got); err == nil {
+		t.Fatal("deleted listener remained reachable through ask.listener.get")
+	}
+
+	missingDirectory := t.TempDir()
+	failureOptions, err := json.Marshal(map[string]any{
+		"bind": map[string]string{"host": "127.0.0.1", "port": "0"},
+		"tls": map[string]any{
+			"enabled":   true,
+			"cert_file": filepath.Join(missingDirectory, "missing.crt"),
+			"key_file":  filepath.Join(missingDirectory, "missing.key"),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var failure teamapi.Listener
+	if err := client.Request(ctx, teamapi.AskListenerCreate, teamapi.ListenerCreateRequest{
+		Name: "failure", Options: failureOptions,
+	}, &failure); err != nil {
+		t.Fatal(err)
+	}
+	err = client.Request(ctx, teamapi.AskListenerStart, teamapi.NameRequest{Name: "failure"}, &failure)
+	apiError = nil
+	if !errors.As(err, &apiError) || apiError.Code != "request_failed" {
+		t.Fatalf("failed listener start error = %#v", err)
+	}
+	if err := client.Request(ctx, teamapi.AskListenerGet, teamapi.NameRequest{Name: "failure"}, &failure); err != nil {
+		t.Fatal(err)
+	}
+	if failure.State != "failed" || failure.LastError == "" || failure.DesiredState != "running" {
+		t.Fatalf("failed listener = %#v", failure)
+	}
+	if err := client.Request(ctx, teamapi.AskListenerDelete, teamapi.NameRequest{Name: "failure"}, &deleted); err != nil {
+		t.Fatal(err)
+	}
+
+	expected := map[string][]string{
+		"contract": {
+			"evt.listener.created:stopped", "evt.listener.updated:stopped",
+			"evt.listener.starting:starting", "evt.listener.started:running",
+			"evt.listener.stopping:stopping", "evt.listener.stopped:stopped",
+			"evt.listener.starting:starting", "evt.listener.started:running",
+			"evt.listener.stopping:stopping", "evt.listener.stopped:stopped",
+			"evt.listener.starting:starting", "evt.listener.started:running",
+			"evt.listener.stopping:stopping", "evt.listener.stopped:stopped",
+			"evt.listener.deleted",
+		},
+		"failure": {
+			"evt.listener.created:stopped", "evt.listener.starting:starting",
+			"evt.listener.failed:failed", "evt.listener.deleted",
+		},
+	}
+	observed := map[string][]string{"contract": {}, "failure": {}}
+	for len(observed["contract"]) < len(expected["contract"]) || len(observed["failure"]) < len(expected["failure"]) {
+		select {
+		case event := <-client.Events():
+			name, state, listenerEvent, decodeErr := decodeListenerContractEvent(event)
+			if decodeErr != nil {
+				t.Fatal(decodeErr)
+			}
+			if !listenerEvent || (name != "contract" && name != "failure") {
+				continue
+			}
+			observation := event.Type
+			if state != "" {
+				observation += ":" + state
+			}
+			observed[name] = append(observed[name], observation)
+		case <-ctx.Done():
+			t.Fatalf("timed out collecting listener events: %#v", observed)
+		}
+	}
+	for name, wanted := range expected {
+		if got := strings.Join(observed[name], ","); got != strings.Join(wanted, ",") {
+			t.Fatalf("%s events = %q, want %q", name, got, strings.Join(wanted, ","))
+		}
+	}
+}
+
+func decodeListenerContractEvent(event teamapi.Envelope) (name, state string, listenerEvent bool, err error) {
+	switch event.Type {
+	case teamapi.EventListenerCreated, teamapi.EventListenerUpdated,
+		teamapi.EventListenerStarting, teamapi.EventListenerStarted,
+		teamapi.EventListenerStopping, teamapi.EventListenerStopped,
+		teamapi.EventListenerFailed:
+		var item teamapi.Listener
+		if err := teamapi.DecodeData(event, &item); err != nil {
+			return "", "", true, err
+		}
+		return item.Name, item.State, true, nil
+	case teamapi.EventListenerDeleted:
+		var item teamapi.NameRequest
+		if err := teamapi.DecodeData(event, &item); err != nil {
+			return "", "", true, err
+		}
+		return item.Name, "", true, nil
+	default:
+		return "", "", false, nil
 	}
 }
 
 func TestControlAcceptsBrowserAuthenticationSubprotocol(t *testing.T) {
+	setupTeamserverDatabase(t, "browser-auth.db")
 	const token = "browser-token-that-is-long-enough"
 	instance := teamserver.New(config.Config{Token: token, ScriptDir: t.TempDir()}, events.New())
+	cleanupTeamserver(t, instance)
 	httpServer := httptest.NewServer(instance.Handler())
 	defer httpServer.Close()
 
@@ -141,8 +473,10 @@ func TestControlAcceptsBrowserAuthenticationSubprotocol(t *testing.T) {
 }
 
 func TestDownloadsSupportBrowserPreflightAndKeepAuthentication(t *testing.T) {
+	setupTeamserverDatabase(t, "browser-downloads.db")
 	const token = "browser-download-token-that-is-long-enough"
 	instance := teamserver.New(config.Config{Token: token, ScriptDir: t.TempDir()}, events.New())
+	cleanupTeamserver(t, instance)
 	httpServer := httptest.NewServer(instance.Handler())
 	defer httpServer.Close()
 
@@ -221,13 +555,35 @@ func TestBuildListingSnapshotAndDeletion(t *testing.T) {
 	}
 
 	const token = "build-management-token-that-is-long-enough"
-	instance := teamserver.New(config.Config{Token: token, BuildDir: buildDirectory, ScriptDir: t.TempDir()}, events.New())
+	bus := events.New()
+	records, unsubscribe := bus.Subscribe(32)
+	defer unsubscribe()
+	instance := teamserver.New(config.Config{Token: token, BuildDir: buildDirectory, ScriptDir: t.TempDir()}, bus)
+	cleanupTeamserver(t, instance)
 	httpServer := httptest.NewServer(instance.Handler())
 	defer httpServer.Close()
 	client := clientapi.New(clientapi.Config{URL: httpServer.URL, Token: token, Timeout: 5 * time.Second})
 	defer client.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
+	const builderSource = "payload-builder-list-test.lua"
+	implantbuilder.UnregisterPayloadBuilders(builderSource)
+	if err := implantbuilder.RegisterPayloadBuilder(
+		"linux-test-builder", "test payload builder", builderSource,
+		func(string, implantbuilder.Profile) error { return nil },
+	); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { implantbuilder.UnregisterPayloadBuilders(builderSource) })
+	builders, err := client.PayloadBuilders(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(builders) != 1 || builders[0].Name != "linux-test-builder" ||
+		builders[0].Description != "test payload builder" || builders[0].Source != builderSource {
+		t.Fatalf("payload builder list = %#v", builders)
+	}
 
 	builds, err := client.Builds(ctx)
 	if err != nil {
@@ -260,6 +616,130 @@ func TestBuildListingSnapshotAndDeletion(t *testing.T) {
 	if len(builds) != 0 {
 		t.Fatalf("build list after deletion = %#v", builds)
 	}
+	if err := client.Close(); err != nil {
+		t.Fatal(err)
+	}
+	waitForServerEvent(t, records, teamapi.EventUserLogout)
+	httpServer.Close()
+}
+
+func TestBuildCreateAcceptsAndRoutesBuilderOverride(t *testing.T) {
+	previousDatabasePath := db.DatabasePath
+	previousDatabase := db.DBMS
+	db.DatabasePath = filepath.Join(t.TempDir(), "builder-override.db")
+	if err := db.CheckDB(); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.EnsureTeamserverSchema(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.DBMS.DBConn.Close()
+		db.DBMS = previousDatabase
+		db.DatabasePath = previousDatabasePath
+	})
+
+	previousProfiles := implantbuilder.ProfileMap
+	previousCurrentName := implantbuilder.CurrentName
+	implantbuilder.ProfileMap = make(map[string]*implantbuilder.Profile)
+	implantbuilder.CurrentName = ""
+	t.Cleanup(func() {
+		implantbuilder.ProfileMap = previousProfiles
+		implantbuilder.CurrentName = previousCurrentName
+	})
+
+	const builderName = "request-override-builder"
+	const builderSource = "request-override-builder.lua"
+	implantbuilder.UnregisterPayloadBuilders(builderSource)
+	if err := implantbuilder.RegisterPayloadBuilder(
+		builderName, "request override test", builderSource,
+		func(_ string, profile implantbuilder.Profile) error {
+			if profile.Builder != builderName {
+				return errors.New("builder override was not applied")
+			}
+			return os.WriteFile(profile.Output, []byte("override artifact"), 0600)
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { implantbuilder.UnregisterPayloadBuilders(builderSource) })
+
+	output := filepath.Join(t.TempDir(), "implant")
+	implantbuilder.ProfileMap["linux-impl"] = &implantbuilder.Profile{
+		Type: "impl", LHOST: "127.0.0.1:4444", OS: "linux", ARCH: "amd64",
+		Template: t.TempDir(), Output: output,
+	}
+
+	const token = "build-override-token-that-is-long-enough"
+	bus := events.New()
+	records, unsubscribe := bus.Subscribe(32)
+	defer unsubscribe()
+	instance := teamserver.New(config.Config{Token: token, BuildDir: t.TempDir(), ScriptDir: t.TempDir()}, bus)
+	cleanupTeamserver(t, instance)
+	httpServer := httptest.NewServer(instance.Handler())
+	defer httpServer.Close()
+	client := clientapi.New(clientapi.Config{URL: httpServer.URL, Token: token, Timeout: 5 * time.Second})
+	defer client.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	queued, err := client.CreateBuild(ctx, "linux-impl", builderName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if queued.Profile != "linux-impl" || queued.Builder != builderName || queued.Status != "queued" {
+		t.Fatalf("queued override build = %#v", queued)
+	}
+
+	var completed teamapi.Build
+	for {
+		completed, err = client.GetBuild(ctx, queued.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if completed.Status == "completed" || completed.Status == "failed" {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	if completed.Status != "completed" || completed.Builder != builderName || completed.DownloadURL == "" {
+		t.Fatalf("completed override build = %#v", completed)
+	}
+	profile, err := implantbuilder.APIGetProfile("linux-impl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.Builder != "" {
+		t.Fatalf("request override mutated profile builder to %q", profile.Builder)
+	}
+	if _, err := client.CreateBuild(ctx, "linux-impl", "missing-builder"); err == nil || !strings.Contains(err.Error(), "not registered") {
+		t.Fatalf("missing builder error = %v", err)
+	}
+	if err := client.Close(); err != nil {
+		t.Fatal(err)
+	}
+	waitForServerEvent(t, records, teamapi.EventUserLogout)
+	httpServer.Close()
+}
+
+func waitForServerEvent(t *testing.T, records <-chan teamapi.EventRecord, wanted string) {
+	t.Helper()
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case record := <-records:
+			if record.Type == wanted {
+				return
+			}
+		case <-timer.C:
+			t.Fatalf("timed out waiting for %s", wanted)
+		}
+	}
 }
 
 func TestUserManagementAuthorizationTokensAndConnections(t *testing.T) {
@@ -274,6 +754,7 @@ func TestUserManagementAuthorizationTokensAndConnections(t *testing.T) {
 
 	const adminToken = "admin-token-that-is-long-enough"
 	instance := teamserver.New(config.Config{Token: adminToken, ScriptDir: t.TempDir()}, events.New())
+	cleanupTeamserver(t, instance)
 	httpServer := httptest.NewServer(instance.Handler())
 	defer httpServer.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

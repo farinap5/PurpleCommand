@@ -6,17 +6,21 @@ import (
 	"time"
 
 	"purpcmd/internal"
+	"purpcmd/server/db"
 )
 
 func isolateImplants(t *testing.T) {
 	t.Helper()
 	previousMap := ImplantMAP
 	previousCurrent := CurrentImplant
+	previousDatabase := db.DBMS
 	ImplantMAP = make(map[string]*Implant)
 	CurrentImplant = "none"
+	db.DBMS = db.DBDef{}
 	t.Cleanup(func() {
 		ImplantMAP = previousMap
 		CurrentImplant = previousCurrent
+		db.DBMS = previousDatabase
 	})
 }
 

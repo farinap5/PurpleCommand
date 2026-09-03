@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"purpcmd/internal"
 	"purpcmd/server/log"
@@ -63,7 +64,14 @@ func (db *DBDef) dbCreateDs() error {
 		Port 	TEXT NOT NULL,
 
 		Persist	BOOLEAN NOT NULL,
-		Running	BOOLEAN NOT NULL
+		Running	BOOLEAN NOT NULL,
+		Driver TEXT NOT NULL DEFAULT 'http',
+		OptionsJSON TEXT NOT NULL DEFAULT '{}',
+		RoutesJSON TEXT NOT NULL DEFAULT '[]',
+		DesiredState TEXT NOT NULL DEFAULT 'stopped',
+		ConfigVersion INTEGER NOT NULL DEFAULT 1,
+		CreatedAt TEXT NOT NULL DEFAULT '',
+		UpdatedAt TEXT NOT NULL DEFAULT ''
 	);
 	`)
 	if err != nil {
@@ -110,7 +118,8 @@ func (db *DBDef) dbCreateDs() error {
 		ARCHOptionsJSON	TEXT NOT NULL DEFAULT '["amd64"]',
 		Output		TEXT NOT NULL,
 		Template	TEXT NOT NULL,
-		PublicKey	TEXT NOT NULL
+		PublicKey	TEXT NOT NULL,
+		Builder		TEXT NOT NULL DEFAULT ''
 	);
 	`)
 	if err != nil {
@@ -119,7 +128,69 @@ func (db *DBDef) dbCreateDs() error {
 		sttm.Exec()
 	}
 
+	if err := db.ensureGenericListenerSchema(); err != nil {
+		return err
+	}
 	return db.ensureGenericImplantProfileSchema()
+}
+
+func (db *DBDef) ensureGenericListenerSchema() error {
+	columns, err := db.tableColumns("Listeners")
+	if err != nil {
+		return err
+	}
+	additions := []struct {
+		name string
+		sql  string
+	}{
+		{name: "driver", sql: `ALTER TABLE Listeners ADD COLUMN Driver TEXT NOT NULL DEFAULT 'http';`},
+		{name: "optionsjson", sql: `ALTER TABLE Listeners ADD COLUMN OptionsJSON TEXT NOT NULL DEFAULT '{}';`},
+		{name: "routesjson", sql: `ALTER TABLE Listeners ADD COLUMN RoutesJSON TEXT NOT NULL DEFAULT '[]';`},
+		{name: "desiredstate", sql: `ALTER TABLE Listeners ADD COLUMN DesiredState TEXT NOT NULL DEFAULT 'stopped';`},
+		{name: "configversion", sql: `ALTER TABLE Listeners ADD COLUMN ConfigVersion INTEGER NOT NULL DEFAULT 1;`},
+		{name: "createdat", sql: `ALTER TABLE Listeners ADD COLUMN CreatedAt TEXT NOT NULL DEFAULT '';`},
+		{name: "updatedat", sql: `ALTER TABLE Listeners ADD COLUMN UpdatedAt TEXT NOT NULL DEFAULT '';`},
+	}
+	for _, addition := range additions {
+		if columns[addition.name] {
+			continue
+		}
+		if _, err := db.DBConn.Exec(addition.sql); err != nil {
+			return err
+		}
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	if _, err := db.DBConn.Exec(`
+UPDATE Listeners
+SET Driver = 'http'
+WHERE trim(Driver) = '';
+UPDATE Listeners
+SET OptionsJSON = json_object(
+    'bind', json_object('host', Host, 'port', Port),
+    'advertise', json_object('host', Host, 'port', Port)
+)
+WHERE OptionsJSON = '{}' OR NOT json_valid(OptionsJSON) OR json_type(OptionsJSON) != 'object';
+UPDATE Listeners
+SET RoutesJSON = '[]'
+WHERE NOT json_valid(RoutesJSON) OR json_type(RoutesJSON) != 'array';
+UPDATE Listeners
+SET DesiredState = CASE WHEN Running THEN 'running' ELSE 'stopped' END
+WHERE DesiredState NOT IN ('running', 'stopped')
+   OR (DesiredState = 'stopped' AND Running = 1);
+UPDATE Listeners
+SET ConfigVersion = 1
+WHERE ConfigVersion < 1;
+UPDATE Listeners
+SET CreatedAt = ?
+WHERE CreatedAt = '';
+UPDATE Listeners
+SET UpdatedAt = CreatedAt
+WHERE UpdatedAt = '';
+`, now); err != nil {
+		return err
+	}
+	_, err = db.DBConn.Exec(`CREATE INDEX IF NOT EXISTS idx_listeners_driver ON Listeners(Driver);`)
+	return err
 }
 
 func (db *DBDef) ensureGenericImplantProfileSchema() error {
@@ -129,6 +200,9 @@ func (db *DBDef) ensureGenericImplantProfileSchema() error {
 	if err := db.ensureImplantProfileTargetOptionColumns(); err != nil {
 		return err
 	}
+	if err := db.ensureImplantProfileBuilderColumn(); err != nil {
+		return err
+	}
 	if err := db.ensureImplantDefinitionsTable(); err != nil {
 		return err
 	}
@@ -136,6 +210,18 @@ func (db *DBDef) ensureGenericImplantProfileSchema() error {
 		return err
 	}
 	return db.migrateImplantProfileProtocolColumns()
+}
+
+func (db *DBDef) ensureImplantProfileBuilderColumn() error {
+	columns, err := db.tableColumns("ImplantProfiles")
+	if err != nil {
+		return err
+	}
+	if columns["builder"] {
+		return nil
+	}
+	_, err = db.DBConn.Exec(`ALTER TABLE ImplantProfiles ADD COLUMN Builder TEXT NOT NULL DEFAULT '';`)
+	return err
 }
 
 // ensureImplantProfileTypeColumn migrates databases created before payload

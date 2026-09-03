@@ -164,7 +164,7 @@ func PromptSuggestions(state int) []prompt.Suggest {
 			prompt.Suggest{Text: "select", Description: "Select a profile: select <name>"},
 			prompt.Suggest{Text: "options", Description: "Show current profile options"},
 			prompt.Suggest{Text: "set", Description: "Set option on current profile"},
-			prompt.Suggest{Text: "generate", Description: "Build implant: generate [name]"},
+			prompt.Suggest{Text: "generate", Description: "Build implant: generate [profile] [builder]"},
 			prompt.Suggest{Text: "delete", Description: "Delete a profile: delete <name>"},
 		)
 	default:

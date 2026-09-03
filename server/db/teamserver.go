@@ -38,6 +38,8 @@ func EnsureTeamserverSchema() error {
 			PayloadType TEXT NOT NULL,
 			Transport TEXT NOT NULL DEFAULT 'listener',
 			Speaker TEXT NOT NULL DEFAULT '',
+			Listener TEXT NOT NULL DEFAULT '',
+			ListenerUuid TEXT NOT NULL DEFAULT '',
 			Metadata BLOB NOT NULL,
 			Alive BOOLEAN NOT NULL,
 			Terminating BOOLEAN NOT NULL,
@@ -60,6 +62,7 @@ func EnsureTeamserverSchema() error {
 		`CREATE TABLE IF NOT EXISTS BuildJobs (
 			ID TEXT PRIMARY KEY,
 			Profile TEXT NOT NULL,
+			Builder TEXT NOT NULL DEFAULT '',
 			Status TEXT NOT NULL,
 			ArtifactName TEXT,
 			Error TEXT,
@@ -89,7 +92,22 @@ func EnsureTeamserverSchema() error {
 	if err := ensureSessionRoutingColumns(); err != nil {
 		return err
 	}
+	if err := ensureBuildJobBuilderColumn(); err != nil {
+		return err
+	}
 	_, err := DBMS.DBConn.Exec(`PRAGMA journal_mode=WAL;`)
+	return err
+}
+
+func ensureBuildJobBuilderColumn() error {
+	columns, err := DBMS.tableColumns("BuildJobs")
+	if err != nil {
+		return err
+	}
+	if columns["builder"] {
+		return nil
+	}
+	_, err = DBMS.DBConn.Exec(`ALTER TABLE BuildJobs ADD COLUMN Builder TEXT NOT NULL DEFAULT '';`)
 	return err
 }
 
@@ -124,6 +142,8 @@ func ensureSessionRoutingColumns() error {
 	}{
 		{name: "transport", sql: `ALTER TABLE Sessions ADD COLUMN Transport TEXT NOT NULL DEFAULT 'listener';`},
 		{name: "speaker", sql: `ALTER TABLE Sessions ADD COLUMN Speaker TEXT NOT NULL DEFAULT '';`},
+		{name: "listener", sql: `ALTER TABLE Sessions ADD COLUMN Listener TEXT NOT NULL DEFAULT '';`},
+		{name: "listeneruuid", sql: `ALTER TABLE Sessions ADD COLUMN ListenerUuid TEXT NOT NULL DEFAULT '';`},
 	}
 	for _, statement := range statements {
 		if found[statement.name] {

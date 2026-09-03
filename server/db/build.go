@@ -10,11 +10,11 @@ import (
 
 func DBBuildSave(build teamapi.Build) error {
 	_, err := DBMS.DBConn.Exec(
-		`INSERT INTO BuildJobs (ID, Profile, Status, ArtifactName, Error, CreatedAt, CompletedAt)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)
-		 ON CONFLICT(ID) DO UPDATE SET Status=excluded.Status, ArtifactName=excluded.ArtifactName,
+		`INSERT INTO BuildJobs (ID, Profile, Builder, Status, ArtifactName, Error, CreatedAt, CompletedAt)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(ID) DO UPDATE SET Builder=excluded.Builder, Status=excluded.Status, ArtifactName=excluded.ArtifactName,
 		 Error=excluded.Error, CompletedAt=excluded.CompletedAt;`,
-		build.ID, build.Profile, build.Status, build.ArtifactName, build.Error,
+		build.ID, build.Profile, build.Builder, build.Status, build.ArtifactName, build.Error,
 		formatDBTime(build.CreatedAt), nullableDBTime(build.CompletedAt),
 	)
 	return err
@@ -37,7 +37,7 @@ func DBBuildDelete(id string) error {
 
 func DBBuildList() ([]teamapi.Build, error) {
 	rows, err := DBMS.DBConn.Query(
-		`SELECT ID, Profile, Status, ArtifactName, Error, CreatedAt, CompletedAt
+		`SELECT ID, Profile, Builder, Status, ArtifactName, Error, CreatedAt, CompletedAt
 		 FROM BuildJobs ORDER BY CreatedAt DESC;`,
 	)
 	if err != nil {
@@ -49,7 +49,7 @@ func DBBuildList() ([]teamapi.Build, error) {
 		var build teamapi.Build
 		var created string
 		var completed sql.NullString
-		if err := rows.Scan(&build.ID, &build.Profile, &build.Status, &build.ArtifactName,
+		if err := rows.Scan(&build.ID, &build.Profile, &build.Builder, &build.Status, &build.ArtifactName,
 			&build.Error, &created, &completed); err != nil {
 			return nil, err
 		}

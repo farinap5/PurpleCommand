@@ -19,6 +19,7 @@ type ImplantProfile struct {
 	Output      string
 	Template    string
 	PublicKey   string
+	Builder     string
 }
 
 func DBImplantProfileExists(name string) bool {
@@ -41,9 +42,9 @@ func DBImplantProfileInsert(p ImplantProfile) error {
 	}
 	_, err = DBMS.DBConn.Exec(
 		`INSERT INTO ImplantProfiles
-		 (Name, Type, LHOST, OS, ARCH, OSOptionsJSON, ARCHOptionsJSON, Output, Template, PublicKey)
-		 VALUES (?,?,?,?,?,?,?,?,?,?);`,
-		p.Name, p.Type, p.LHOST, p.OS, p.ARCH, osOptionsJSON, archOptionsJSON, p.Output, p.Template, p.PublicKey,
+		 (Name, Type, LHOST, OS, ARCH, OSOptionsJSON, ARCHOptionsJSON, Output, Template, PublicKey, Builder)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?);`,
+		p.Name, p.Type, p.LHOST, p.OS, p.ARCH, osOptionsJSON, archOptionsJSON, p.Output, p.Template, p.PublicKey, p.Builder,
 	)
 	return err
 }
@@ -62,9 +63,9 @@ func DBImplantProfileUpdate(p ImplantProfile) error {
 	}
 	_, err = DBMS.DBConn.Exec(
 		`UPDATE ImplantProfiles
-		 SET Type=?, LHOST=?, OS=?, ARCH=?, OSOptionsJSON=?, ARCHOptionsJSON=?, Output=?, Template=?, PublicKey=?
+		 SET Type=?, LHOST=?, OS=?, ARCH=?, OSOptionsJSON=?, ARCHOptionsJSON=?, Output=?, Template=?, PublicKey=?, Builder=?
 		 WHERE Name=?;`,
-		p.Type, p.LHOST, p.OS, p.ARCH, osOptionsJSON, archOptionsJSON, p.Output, p.Template, p.PublicKey, p.Name,
+		p.Type, p.LHOST, p.OS, p.ARCH, osOptionsJSON, archOptionsJSON, p.Output, p.Template, p.PublicKey, p.Builder, p.Name,
 	)
 	return err
 }
@@ -95,7 +96,7 @@ func DBImplantProfileDelete(name string) error {
 func DBImplantProfileGetAll() ([]ImplantProfile, error) {
 	var profiles []ImplantProfile
 	rows, err := DBMS.DBConn.Query(
-		`SELECT Name, Type, LHOST, OS, ARCH, OSOptionsJSON, ARCHOptionsJSON, Output, Template, PublicKey
+		`SELECT Name, Type, LHOST, OS, ARCH, OSOptionsJSON, ARCHOptionsJSON, Output, Template, PublicKey, Builder
 		 FROM ImplantProfiles;`,
 	)
 	if err != nil {
@@ -108,7 +109,7 @@ func DBImplantProfileGetAll() ([]ImplantProfile, error) {
 		var osOptionsJSON, archOptionsJSON string
 		if err := rows.Scan(
 			&p.Name, &p.Type, &p.LHOST, &p.OS, &p.ARCH, &osOptionsJSON, &archOptionsJSON,
-			&p.Output, &p.Template, &p.PublicKey,
+			&p.Output, &p.Template, &p.PublicKey, &p.Builder,
 		); err != nil {
 			return nil, err
 		}

@@ -564,12 +564,19 @@ func (cli *CLI) executeProfile(fields []string) error {
 		var item teamapi.Profile
 		return cli.request(teamapi.AskProfileUpdate, teamapi.ProfileUpdateRequest{Name: name, Key: fields[1], Value: fields[2]}, &item)
 	case "generate":
+		if len(fields) > 3 {
+			return errorsNew("usage: generate [profile] [builder]")
+		}
 		name, err := cli.profileName(fields[1:])
 		if err != nil {
 			return err
 		}
+		builder := ""
+		if len(fields) == 3 {
+			builder = fields[2]
+		}
 		var build teamapi.Build
-		if err := cli.request(teamapi.AskBuildCreate, teamapi.BuildRequest{Profile: name}, &build); err != nil {
+		if err := cli.request(teamapi.AskBuildCreate, teamapi.BuildRequest{Profile: name, Builder: builder}, &build); err != nil {
 			return err
 		}
 		fmt.Println("build queued:", build.ID)
@@ -579,14 +586,25 @@ func (cli *CLI) executeProfile(fields []string) error {
 			return err
 		}
 		table := tabby.New()
-		table.AddHeader("ID", "PROFILE", "STATUS", "ARTIFACT", "CREATED", "COMPLETED", "ERROR")
+		table.AddHeader("ID", "PROFILE", "BUILDER", "STATUS", "ARTIFACT", "CREATED", "COMPLETED", "ERROR")
 		for _, item := range items {
 			completed := ""
 			if !item.CompletedAt.IsZero() {
 				completed = item.CompletedAt.Format(time.RFC3339)
 			}
-			table.AddLine(item.ID, item.Profile, item.Status, item.ArtifactName,
+			table.AddLine(item.ID, item.Profile, item.Builder, item.Status, item.ArtifactName,
 				item.CreatedAt.Format(time.RFC3339), completed, item.Error)
+		}
+		table.Print()
+	case "builders":
+		var items []teamapi.PayloadBuilder
+		if err := cli.request(teamapi.AskPayloadBuilderList, struct{}{}, &items); err != nil {
+			return err
+		}
+		table := tabby.New()
+		table.AddHeader("NAME", "DESCRIPTION", "SOURCE")
+		for _, item := range items {
+			table.AddLine(item.Name, item.Description, item.Source)
 		}
 		table.Print()
 	case "download":
@@ -624,7 +642,7 @@ func (cli *CLI) executeProfile(fields []string) error {
 		}
 		cli.mu.Unlock()
 	default:
-		return errorsNew("implant commands: list, new, select, options, set, generate, builds, download, delete-build, delete, back")
+		return errorsNew("implant commands: list, new, select, options, set, generate, builders, builds, download, delete-build, delete, back")
 	}
 	return nil
 }
@@ -749,6 +767,7 @@ func (cli *CLI) completeText(input string) []prompt.Suggest {
 		}
 		suggestions = append(suggestions,
 			prompt.Suggest{Text: "interact", Description: "Select a profile"},
+			prompt.Suggest{Text: "builders", Description: "List registered payload builders"},
 			prompt.Suggest{Text: "builds", Description: "List implant builds"},
 			prompt.Suggest{Text: "download", Description: "Download a completed build"},
 			prompt.Suggest{Text: "delete-build", Description: "Delete a completed or failed build"},
@@ -806,6 +825,7 @@ func (cli *CLI) help() {
 		)
 	case modeProfile:
 		entries = append(entries,
+			core.HelpEntry{Command: "builders", Description: "List registered Lua payload builders."},
 			core.HelpEntry{Command: "builds", Description: "List implant builds."},
 			core.HelpEntry{Command: "download", Description: "Download a build. Use `download <id> <destination>`."},
 			core.HelpEntry{Command: "delete-build", Description: "Delete build history and its stored artifact."},
@@ -863,9 +883,13 @@ func printTasks(items []teamapi.Task) {
 }
 func printProfiles(items []teamapi.Profile) {
 	table := tabby.New()
-	table.AddHeader("NAME", "TYPE", "LHOST", "OS/ARCH", "OUTPUT", "TEMPLATE")
+	table.AddHeader("NAME", "TYPE", "LHOST", "OS/ARCH", "BUILDER", "OUTPUT", "TEMPLATE")
 	for _, item := range items {
-		table.AddLine(item.Name, item.Type, item.LHOST, item.OS+"/"+item.ARCH, item.Output, item.Template)
+		builder := item.Builder
+		if builder == "" {
+			builder = "legacy"
+		}
+		table.AddLine(item.Name, item.Type, item.LHOST, item.OS+"/"+item.ARCH, builder, item.Output, item.Template)
 	}
 	table.Print()
 }

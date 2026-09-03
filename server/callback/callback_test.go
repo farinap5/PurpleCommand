@@ -113,6 +113,36 @@ func TestRegistrationRejectsInvalidPayloadType(t *testing.T) {
 	}
 }
 
+func TestRegistrationRecordsTransportListenerAssociation(t *testing.T) {
+	previousMap := serverimplant.ImplantMAP
+	serverimplant.ImplantMAP = make(map[string]*serverimplant.Implant)
+	t.Cleanup(func() { serverimplant.ImplantMAP = previousMap })
+
+	packet := new(bytes.Buffer)
+	writeMetadata(t, packet, 24680)
+	_ = binary.Write(packet, binary.BigEndian, [16]byte{1})
+	_ = binary.Write(packet, binary.BigEndian, [16]byte{2})
+	data := bytes.Join([][]byte{[]byte("proc"), []byte("host"), []byte("user"), []byte("impl")}, internal.SEP)
+	_ = binary.Write(packet, binary.BigEndian, uint16(len(data)))
+	packet.Write(data)
+
+	err := ParseAndRegWithContext(bytes.NewReader(packet.Bytes()), TransportContext{
+		ListenerName: "main-http", ListenerUUID: "stable-listener-id",
+		Transport: "http", RemoteAddress: "192.0.2.10:54321",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := serverimplant.APIGetSession("24680")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.Listener != "main-http" || session.ListenerUUID != "stable-listener-id" ||
+		session.Transport != "listener" || session.Socket != "192.0.2.10:54321" {
+		t.Fatalf("registered session = %#v", session)
+	}
+}
+
 func TestParseCallbackRejectsInvalidFramingWithoutPanicking(t *testing.T) {
 	previousMap := serverimplant.ImplantMAP
 	serverimplant.ImplantMAP = make(map[string]*serverimplant.Implant)

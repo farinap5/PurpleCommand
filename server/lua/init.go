@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"purpcmd/server/db"
+	"purpcmd/server/implantbuilder"
 	"purpcmd/server/log"
 
 	lua "github.com/yuin/gopher-lua"
@@ -117,6 +118,8 @@ func LuaNew(path string) (*LuaProfile, error) {
 	}
 	profile.state.OpenLibs()
 	profile.state.SetGlobal("command", profile.state.NewFunction(profile.command))
+	profile.state.SetGlobal("payload_build", profile.state.NewFunction(profile.payloadBuild))
+	profile.state.SetGlobal("implant_profile", profile.state.NewFunction(profile.implantProfile))
 	profile.state.SetGlobal("add_task", profile.state.NewFunction(profile.implantAddGenericTask))
 	profile.state.SetGlobal("add_task_upload_file", profile.state.NewFunction(profile.implantAddUploadFileCommand))
 	profile.state.SetGlobal("add_task_send_buffer", profile.state.NewFunction(profile.implantAddSendBuffer))
@@ -125,8 +128,13 @@ func LuaNew(path string) (*LuaProfile, error) {
 	profile.state.SetGlobal("session", profile.state.NewFunction(profile.session))
 	profile.state.SetGlobal("session_print", profile.state.NewFunction(profile.sessionPrint))
 	profile.state.SetGlobal("lua_print", profile.state.NewFunction(LuaPrint))
+	if err := installPayloadBuildOSFunctions(profile); err != nil {
+		profile.state.Close()
+		return nil, err
+	}
 	if err := profile.state.DoFile(path); err != nil {
 		removeCommandsForScript(path)
+		implantbuilder.UnregisterPayloadBuilders(path)
 		profile.state.Close()
 		return nil, err
 	}
@@ -147,6 +155,7 @@ func loadScript(path string, persist bool) (*LuaProfile, error) {
 	if persist {
 		if err := db.DBScriptInsert(path); err != nil {
 			removeCommandsForScript(path)
+			implantbuilder.UnregisterPayloadBuilders(path)
 			profile.state.Close()
 			scriptMapMu.Unlock()
 			return nil, err
@@ -189,6 +198,7 @@ func unloadScript(path string, persist bool) error {
 	scriptMapMu.Unlock()
 
 	removeCommandsForScript(path)
+	implantbuilder.UnregisterPayloadBuilders(path)
 	profile.stopTaskCallbackCleaner()
 	profile.stateMu.Lock()
 	profile.Running = false

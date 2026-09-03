@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"purpcmd/server/implantbuilder"
 	"purpcmd/server/types"
 
 	lua "github.com/yuin/gopher-lua"
@@ -24,9 +25,18 @@ type LuaProfile struct {
 
 	executionSession string
 	createdTaskIDs   []string
+	executionBuild   *payloadBuildExecution
 
 	TaskCallbacks      map[taskCallbackKey]taskCallbackRegistration
 	TaskCallbacksMutex sync.RWMutex
+}
+
+type payloadBuildExecution struct {
+	BuilderName string
+	ProfileName string
+	Workspace   string
+	ProjectRoot string
+	Profile     implantbuilder.Profile
 }
 
 type taskCallbackKey struct {

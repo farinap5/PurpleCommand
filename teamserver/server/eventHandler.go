@@ -17,6 +17,15 @@ import (
 	"purpcmd/server/lua"
 )
 
+func (server *Server) listenerList() []teamapi.Listener {
+	snapshots := server.listeners.List()
+	result := make([]teamapi.Listener, len(snapshots))
+	for index, snapshot := range snapshots {
+		result[index] = listener.ListenerSnapshotToAPI(snapshot)
+	}
+	return result
+}
+
 func (server *Server) dispatch(envelope teamapi.Envelope, actor principal) (any, *teamapi.APIError) {
 	fail := func(err error) (any, *teamapi.APIError) {
 		return nil, &teamapi.APIError{Code: "request_failed", Message: err.Error()}
@@ -50,86 +59,116 @@ func (server *Server) dispatch(envelope teamapi.Envelope, actor principal) (any,
 			return fail(err)
 		}
 		return teamapi.Snapshot{
-			Listeners: listener.APIList(), Sessions: implant.APIListSessions(),
+			Listeners: server.listenerList(), Sessions: implant.APIListSessions(),
 			Scripts: lua.APIListScripts(), Profiles: implantbuilder.APIListProfiles(),
 			Builds: server.builds.List(), Commands: lua.APIListCommands(""),
 			Users: users, EventSequence: latest,
 		}, nil
 	case teamapi.AskListenerList:
-		return listener.APIList(), nil
+		return server.listenerList(), nil
 	case teamapi.AskListenerGet:
 		var request teamapi.NameRequest
 		if err := teamapi.DecodeData(envelope, &request); err != nil {
 			return fail(err)
 		}
-		item, err := listener.APIGet(request.Name)
+		snapshot, err := server.listeners.Get(request.Name)
 		if err != nil {
 			return fail(err)
 		}
-		return item, nil
+		return listener.ListenerSnapshotToAPI(snapshot), nil
 	case teamapi.AskListenerCreate:
 		var request teamapi.ListenerCreateRequest
 		if err := teamapi.DecodeData(envelope, &request); err != nil {
 			return fail(err)
 		}
-		item, err := listener.APICreate(request)
+		configuration, err := listener.ListenerCreateFromAPI(request)
 		if err != nil {
 			return fail(err)
 		}
-		publish(teamapi.EventListenerCreated, item)
-		return item, nil
+		snapshot, err := server.listeners.Create(configuration)
+		if err != nil {
+			return fail(err)
+		}
+		if request.Start {
+			snapshot, err = server.listeners.Start(configuration.Name)
+			if err != nil {
+				return fail(err)
+			}
+		}
+		return listener.ListenerSnapshotToAPI(snapshot), nil
 	case teamapi.AskListenerUpdate:
 		var request teamapi.ListenerUpdateRequest
 		if err := teamapi.DecodeData(envelope, &request); err != nil {
 			return fail(err)
 		}
-		item, err := listener.APIUpdate(request)
+		current, err := server.listeners.Get(request.Name)
 		if err != nil {
 			return fail(err)
 		}
-		return item, nil
+		configuration, err := listener.ListenerUpdateFromAPI(current, request)
+		if err != nil {
+			return fail(err)
+		}
+		snapshot, err := server.listeners.Update(configuration, request.ExpectedConfigVersion)
+		if err != nil {
+			return fail(err)
+		}
+		return listener.ListenerSnapshotToAPI(snapshot), nil
 	case teamapi.AskListenerStart:
 		var request teamapi.NameRequest
 		if err := teamapi.DecodeData(envelope, &request); err != nil {
 			return fail(err)
 		}
-		item, err := listener.APIStart(request.Name)
+		snapshot, err := server.listeners.Start(request.Name)
 		if err != nil {
 			return fail(err)
 		}
-		publish(teamapi.EventListenerStarted, item)
-		return item, nil
+		return listener.ListenerSnapshotToAPI(snapshot), nil
 	case teamapi.AskListenerStop:
 		var request teamapi.NameRequest
 		if err := teamapi.DecodeData(envelope, &request); err != nil {
 			return fail(err)
 		}
-		item, err := listener.APIStop(request.Name)
+		snapshot, err := server.listeners.Stop(request.Name)
 		if err != nil {
 			return fail(err)
 		}
-		publish(teamapi.EventListenerStopped, item)
-		return item, nil
+		return listener.ListenerSnapshotToAPI(snapshot), nil
 	case teamapi.AskListenerRestart:
 		var request teamapi.NameRequest
 		if err := teamapi.DecodeData(envelope, &request); err != nil {
 			return fail(err)
 		}
-		item, err := listener.APIRestart(request.Name)
+		snapshot, err := server.listeners.Restart(request.Name)
 		if err != nil {
 			return fail(err)
 		}
-		publish(teamapi.EventListenerStarted, item)
-		return item, nil
+		return listener.ListenerSnapshotToAPI(snapshot), nil
 	case teamapi.AskListenerDelete:
 		var request teamapi.NameRequest
 		if err := teamapi.DecodeData(envelope, &request); err != nil {
 			return fail(err)
 		}
-		if err := listener.APIDelete(request.Name); err != nil {
+		if _, err := server.listeners.Delete(request.Name); err != nil {
 			return fail(err)
 		}
-		return map[string]string{"name": request.Name}, nil
+		deleted := map[string]string{"name": request.Name}
+		return deleted, nil
+	case teamapi.AskListenerTypeList:
+		return listener.ListenerDriverDefinitionsToAPI(server.listeners.DriverDefinitions()), nil
+	case teamapi.AskListenerTypeGet:
+		var request teamapi.NameRequest
+		if err := teamapi.DecodeData(envelope, &request); err != nil {
+			return fail(err)
+		}
+		for _, definition := range listener.ListenerDriverDefinitionsToAPI(server.listeners.DriverDefinitions()) {
+			if definition.ID == strings.ToLower(strings.TrimSpace(request.Name)) {
+				return definition, nil
+			}
+		}
+		return fail(errors.New("listener type not found"))
+	case teamapi.AskCarrierTypeList:
+		return listener.ListenerCarrierDefinitionsToAPI(server.listeners.CarrierDefinitions()), nil
 	case teamapi.AskSessionList:
 		return implant.APIListSessions(), nil
 	case teamapi.AskSessionGet:
@@ -303,7 +342,7 @@ func (server *Server) dispatch(envelope teamapi.Envelope, actor principal) (any,
 		if err := teamapi.DecodeData(envelope, &request); err != nil {
 			return fail(err)
 		}
-		item, err := server.builds.Create(request.Profile)
+		item, err := server.builds.Create(request.Profile, request.Builder)
 		if err != nil {
 			return fail(err)
 		}
@@ -320,6 +359,8 @@ func (server *Server) dispatch(envelope teamapi.Envelope, actor principal) (any,
 		return item, nil
 	case teamapi.AskBuildList:
 		return server.builds.List(), nil
+	case teamapi.AskPayloadBuilderList:
+		return implantbuilder.APIListPayloadBuilders(), nil
 	case teamapi.AskBuildDelete:
 		var request teamapi.BuildDeleteRequest
 		if err := teamapi.DecodeData(envelope, &request); err != nil {

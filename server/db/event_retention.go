@@ -36,8 +36,12 @@ type EventRetentionConfiguration struct {
 
 var defaultEventRetentionConfigurations = []EventRetentionConfiguration{
 	{EventType: teamapi.EventListenerCreated, Tier: EventRetentionTierStandard, Retention: eventRetentionStandard},
+	{EventType: teamapi.EventListenerUpdated, Tier: EventRetentionTierStandard, Retention: eventRetentionStandard},
+	{EventType: teamapi.EventListenerStarting, Tier: EventRetentionTierStandard, Retention: eventRetentionStandard},
 	{EventType: teamapi.EventListenerStarted, Tier: EventRetentionTierStandard, Retention: eventRetentionStandard},
+	{EventType: teamapi.EventListenerStopping, Tier: EventRetentionTierStandard, Retention: eventRetentionStandard},
 	{EventType: teamapi.EventListenerStopped, Tier: EventRetentionTierStandard, Retention: eventRetentionStandard},
+	{EventType: teamapi.EventListenerDeleted, Tier: EventRetentionTierStandard, Retention: eventRetentionStandard},
 	{EventType: teamapi.EventListenerFailed, Tier: EventRetentionTierImportant, Retention: eventRetentionImportant},
 	{EventType: teamapi.EventSessionRegistered, Tier: EventRetentionTierStandard, Retention: eventRetentionStandard},
 	{EventType: teamapi.EventSessionCheckin, Tier: EventRetentionTierShort, Retention: eventRetentionShort},
@@ -51,6 +55,9 @@ var defaultEventRetentionConfigurations = []EventRetentionConfiguration{
 	{EventType: teamapi.EventScriptLoaded, Tier: EventRetentionTierStandard, Retention: eventRetentionStandard},
 	{EventType: teamapi.EventScriptUnloaded, Tier: EventRetentionTierStandard, Retention: eventRetentionStandard},
 	{EventType: teamapi.EventScriptOutput, Tier: EventRetentionTierArchive, Retention: eventRetentionArchive},
+	{EventType: teamapi.EventPayloadBuilderRegistered, Tier: EventRetentionTierStandard, Retention: eventRetentionStandard},
+	{EventType: teamapi.EventPayloadBuilderUnregistered, Tier: EventRetentionTierStandard, Retention: eventRetentionStandard},
+	{EventType: teamapi.EventBuildQueued, Tier: EventRetentionTierStandard, Retention: eventRetentionStandard},
 	{EventType: teamapi.EventBuildStarted, Tier: EventRetentionTierStandard, Retention: eventRetentionStandard},
 	{EventType: teamapi.EventBuildOutput, Tier: EventRetentionTierArchive, Retention: eventRetentionArchive},
 	{EventType: teamapi.EventBuildCompleted, Tier: EventRetentionTierImportant, Retention: eventRetentionImportant},

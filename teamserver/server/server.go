@@ -21,6 +21,7 @@ import (
 	"purpcmd/pkg/teamapi"
 	"purpcmd/server/db"
 	"purpcmd/server/interactive"
+	"purpcmd/server/listener"
 	"purpcmd/server/loot"
 	"purpcmd/server/uploads"
 	"purpcmd/server/utils"
@@ -33,17 +34,22 @@ import (
 )
 
 type Server struct {
-	config        config.Config
-	id            string
-	started       time.Time
-	events        *events.Bus
-	builds        *builds.Manager
-	http          *http.Server
-	dedupeMu      sync.Mutex
-	connectionsMu sync.RWMutex
-	connections   map[string]map[*websocket.Conn]struct{}
-	lastSeen      map[string]time.Time
-	upgrader      websocket.Upgrader
+	config             config.Config
+	id                 string
+	started            time.Time
+	events             *events.Bus
+	builds             *builds.Manager
+	listeners          *listener.Manager
+	http               *http.Server
+	dedupeMu           sync.Mutex
+	connectionsMu      sync.RWMutex
+	connections        map[string]map[*websocket.Conn]struct{}
+	lastSeen           map[string]time.Time
+	controlMu          sync.Mutex
+	controlConnections map[*websocket.Conn]struct{}
+	controlWG          sync.WaitGroup
+	shuttingDown       bool
+	upgrader           websocket.Upgrader
 }
 
 type principal struct {
@@ -55,14 +61,26 @@ type principal struct {
 const adminPrincipalID = "admin"
 
 func New(configuration config.Config, eventBus *events.Bus) *Server {
+	listenerManager, err := listener.NewHTTPManager(listener.DBStore{}, listener.TeamEventPublisher(func(eventType string, value any) {
+		_, _ = eventBus.Publish(eventType, value)
+	}))
+	if err != nil {
+		panic(fmt.Sprintf("initialize HTTP listener manager: %v", err))
+	}
+	return NewWithListenerManager(configuration, eventBus, listenerManager)
+}
+
+func NewWithListenerManager(configuration config.Config, eventBus *events.Bus, listenerManager *listener.Manager) *Server {
 	server := &Server{
-		config:      configuration,
-		id:          uuid.NewString(),
-		started:     time.Now().UTC(),
-		events:      eventBus,
-		builds:      builds.New(eventBus, configuration.BuildDir),
-		connections: make(map[string]map[*websocket.Conn]struct{}),
-		lastSeen:    make(map[string]time.Time),
+		config:             configuration,
+		id:                 uuid.NewString(),
+		started:            time.Now().UTC(),
+		events:             eventBus,
+		builds:             builds.New(eventBus, configuration.BuildDir),
+		listeners:          listenerManager,
+		connections:        make(map[string]map[*websocket.Conn]struct{}),
+		lastSeen:           make(map[string]time.Time),
+		controlConnections: make(map[*websocket.Conn]struct{}),
 	}
 	server.upgrader = websocket.Upgrader{
 		Subprotocols: []string{teamapi.Subprotocol},
@@ -113,7 +131,11 @@ func (server *Server) ListenAndServe() error {
 }
 
 func (server *Server) Shutdown(ctx context.Context) error {
-	return server.http.Shutdown(ctx)
+	server.closeControlConnections()
+	listenerErr := server.listeners.Shutdown(ctx)
+	httpErr := server.http.Shutdown(ctx)
+	controlErr := server.waitForControlConnections(ctx)
+	return errors.Join(listenerErr, httpErr, controlErr)
 }
 
 func setCors(next http.Handler) http.Handler {
@@ -195,6 +217,11 @@ func (server *Server) control(writer http.ResponseWriter, request *http.Request)
 	if err != nil {
 		return
 	}
+	if !server.trackControlConnection(connection) {
+		_ = connection.Close()
+		return
+	}
+	defer server.releaseControlConnection(connection)
 	defer connection.Close()
 	connection.SetReadLimit(teamapi.MaxControlMessage)
 	_ = connection.SetReadDeadline(time.Now().Add(90 * time.Second))
@@ -253,6 +280,51 @@ func (server *Server) control(writer http.ResponseWriter, request *http.Request)
 		case <-ctx.Done():
 			return
 		}
+	}
+}
+
+func (server *Server) trackControlConnection(connection *websocket.Conn) bool {
+	server.controlMu.Lock()
+	defer server.controlMu.Unlock()
+	if server.shuttingDown {
+		return false
+	}
+	server.controlConnections[connection] = struct{}{}
+	server.controlWG.Add(1)
+	return true
+}
+
+func (server *Server) releaseControlConnection(connection *websocket.Conn) {
+	server.controlMu.Lock()
+	delete(server.controlConnections, connection)
+	server.controlMu.Unlock()
+	server.controlWG.Done()
+}
+
+func (server *Server) closeControlConnections() {
+	server.controlMu.Lock()
+	server.shuttingDown = true
+	connections := make([]*websocket.Conn, 0, len(server.controlConnections))
+	for connection := range server.controlConnections {
+		connections = append(connections, connection)
+	}
+	server.controlMu.Unlock()
+	for _, connection := range connections {
+		_ = connection.Close()
+	}
+}
+
+func (server *Server) waitForControlConnections(ctx context.Context) error {
+	done := make(chan struct{})
+	go func() {
+		server.controlWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 

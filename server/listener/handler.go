@@ -36,7 +36,7 @@ func (l *Listener) root(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a, task, err := processPayload(w, r)
+	a, task, err := l.processPayload(w, r)
 	if err != nil {
 		status := http.StatusBadRequest
 		if errors.Is(err, errUnsupportedCallbackMethod) {
@@ -65,7 +65,7 @@ func (l *Listener) root(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("Hi!"))
 }
 
-func processPayload(w http.ResponseWriter, r *http.Request) (uint16, []byte, error) {
+func (l *Listener) processPayload(w http.ResponseWriter, r *http.Request) (uint16, []byte, error) {
 	var data []byte
 
 	name := r.URL.Query().Get("a")
@@ -88,5 +88,11 @@ func processPayload(w http.ResponseWriter, r *http.Request) (uint16, []byte, err
 		return internal.NIL, nil, errUnsupportedCallbackMethod
 	}
 
-	return callback.ParseCallback(data, r, name)
+	transport := l.Proto
+	if transport == "" {
+		transport = "http"
+	}
+	return callback.ParseCallbackWithContext(data, callback.TransportContext{
+		ListenerName: l.Name, ListenerUUID: l.UUID, Transport: transport, RemoteAddress: r.RemoteAddr,
+	}, name)
 }

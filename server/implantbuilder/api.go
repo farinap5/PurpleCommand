@@ -103,6 +103,8 @@ func APIUpdateProfile(request teamapi.ProfileUpdateRequest) (teamapi.Profile, er
 		updated.Template = request.Value
 	case "PUBLICKEY":
 		updated.PublicKey = request.Value
+	case "BUILDER":
+		updated.Builder = request.Value
 	default:
 		return teamapi.Profile{}, fmt.Errorf("unknown option %q", request.Key)
 	}
@@ -133,6 +135,23 @@ func APIDeleteProfile(name string) error {
 }
 
 func APIGenerateProfile(name string) error {
+	return apiGenerateProfile(name, "", nil, nil)
+}
+
+// APIGenerateProfileForBuild compiles a profile with a build job correlation
+// ID that is propagated to every build-output event.
+func APIGenerateProfileForBuild(name, buildID string) error {
+	return apiGenerateProfile(name, strings.TrimSpace(buildID), nil, nil)
+}
+
+// APIGenerateProfileForBuildWithOutput additionally routes typed output to the
+// supplied job event sink.
+func APIGenerateProfileForBuildWithOutput(name, buildID, builder string, publisher func(teamapi.BuildOutput)) error {
+	selectedBuilder := strings.TrimSpace(builder)
+	return apiGenerateProfile(name, strings.TrimSpace(buildID), &selectedBuilder, publisher)
+}
+
+func apiGenerateProfile(name, buildID string, builderOverride *string, publisher func(teamapi.BuildOutput)) error {
 	profileAPIMu.Lock()
 	profile := ProfileMap[name]
 	if profile == nil {
@@ -140,6 +159,11 @@ func APIGenerateProfile(name string) error {
 		return errors.New("profile not found")
 	}
 	copy := cloneProfile(*profile)
+	copy.BuildID = buildID
+	copy.OutputPublisher = publisher
+	if builderOverride != nil {
+		copy.Builder = *builderOverride
+	}
 	profileAPIMu.Unlock()
 	return generate(name, &copy)
 }
@@ -147,7 +171,7 @@ func APIGenerateProfile(name string) error {
 // APISyncProfileDefinition updates the generic build metadata supplied by a
 // Lua implant definition. The selected target is preserved while it remains
 // supported; otherwise the first registered suggestion becomes the default.
-func APISyncProfileDefinition(name, payloadType string, osOptions, archOptions []string) (teamapi.Profile, error) {
+func APISyncProfileDefinition(name, payloadType, builder string, osOptions, archOptions []string) (teamapi.Profile, error) {
 	profileAPIMu.Lock()
 	defer profileAPIMu.Unlock()
 	profile := ProfileMap[name]
@@ -156,6 +180,7 @@ func APISyncProfileDefinition(name, payloadType string, osOptions, archOptions [
 	}
 	updated := cloneProfile(*profile)
 	updated.Type = payloadType
+	updated.Builder = builder
 	updated.OSOptions = normalizeSuggestions(osOptions)
 	updated.ARCHOptions = normalizeSuggestions(archOptions)
 	if len(updated.OSOptions) == 0 || len(updated.ARCHOptions) == 0 {
@@ -182,7 +207,7 @@ func profileDTO(name string, profile *Profile) teamapi.Profile {
 		Name: name, Type: profile.Type, LHOST: profile.LHOST, OS: profile.OS,
 		ARCH: profile.ARCH, OSOptions: cloneStrings(profile.OSOptions),
 		ARCHOptions: cloneStrings(profile.ARCHOptions), Output: profile.Output,
-		Template: profile.Template, PublicKey: profile.PublicKey,
+		Template: profile.Template, PublicKey: profile.PublicKey, Builder: profile.Builder,
 	}
 	definition, err := db.DBImplantDefinitionGet(name)
 	if err != nil {
@@ -231,6 +256,9 @@ func applyProfileDTO(profile *Profile, request teamapi.Profile) {
 	if request.PublicKey != "" {
 		profile.PublicKey = request.PublicKey
 	}
+	if request.Builder != "" {
+		profile.Builder = request.Builder
+	}
 }
 
 func validateProfile(profile *Profile) error {
@@ -239,6 +267,11 @@ func validateProfile(profile *Profile) error {
 	}
 	if strings.TrimSpace(profile.OS) == "" || strings.TrimSpace(profile.ARCH) == "" {
 		return errors.New("OS and ARCH are required")
+	}
+	if profile.Builder != "" {
+		if err := internal.ValidateCommandName(profile.Builder); err != nil {
+			return fmt.Errorf("builder: %w", err)
+		}
 	}
 	return nil
 }

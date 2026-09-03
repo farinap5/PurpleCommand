@@ -91,6 +91,15 @@ func TestEventRetentionDefaultsAndOverrides(t *testing.T) {
 	if configuration := byType[teamapi.EventUserMessage]; configuration.Tier != EventRetentionTierArchive || configuration.Retention != 90*24*time.Hour {
 		t.Fatalf("user message retention = %#v", configuration)
 	}
+	if configuration := byType[teamapi.EventBuildQueued]; configuration.Tier != EventRetentionTierStandard || configuration.Retention != 7*24*time.Hour {
+		t.Fatalf("queued build retention = %#v", configuration)
+	}
+	if configuration := byType[teamapi.EventPayloadBuilderRegistered]; configuration.Tier != EventRetentionTierStandard || configuration.Retention != 7*24*time.Hour {
+		t.Fatalf("payload builder registration retention = %#v", configuration)
+	}
+	if configuration := byType[teamapi.EventListenerDeleted]; configuration.Tier != EventRetentionTierStandard || configuration.Retention != 7*24*time.Hour {
+		t.Fatalf("listener deletion retention = %#v", configuration)
+	}
 
 	if err := DBEventRetentionSet(teamapi.EventSessionCheckin, "custom", 2*time.Hour); err != nil {
 		t.Fatal(err)

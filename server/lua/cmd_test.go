@@ -9,6 +9,7 @@ import (
 	"purpcmd/pkg/teamapi"
 	"purpcmd/server/db"
 	serverimplant "purpcmd/server/implant"
+	"purpcmd/server/implantbuilder"
 
 	glua "github.com/yuin/gopher-lua"
 )
@@ -422,6 +423,7 @@ func TestBundledLuaScriptRegistersDefaultPayloadCommands(t *testing.T) {
 	}
 	t.Cleanup(profile.state.Close)
 	t.Cleanup(func() { removeCommandsForScript(path) })
+	t.Cleanup(func() { implantbuilder.UnregisterPayloadBuilders(path) })
 
 	commands := LuaGetCommandDescriptions("impl")
 	if len(commands) != 11 {
@@ -429,5 +431,16 @@ func TestBundledLuaScriptRegistersDefaultPayloadCommands(t *testing.T) {
 	}
 	if commands[0][0] != "cat" || commands[len(commands)-1][0] != "upload" {
 		t.Fatalf("bundled commands are not sorted: %#v", commands)
+	}
+	builders := implantbuilder.PayloadBuilderDescriptions()
+	if len(builders) != 1 || builders[0][0] != "implant-builder-linux-amd64" {
+		t.Fatalf("bundled payload builders = %#v", builders)
+	}
+	buildProfile, err := implantbuilder.APIGetProfile("linux-impl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if buildProfile.Builder != "implant-builder-linux-amd64" {
+		t.Fatalf("bundled profile builder = %q", buildProfile.Builder)
 	}
 }

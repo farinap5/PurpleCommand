@@ -620,6 +620,129 @@ Existing build profiles are migrated with `TYPE=impl`. Operators can configure
 a different type with `set TYPE <payload-type>` or the `type` field of
 `implant_register_profile`.
 
+### Lua Payload Builders
+
+A build profile can select a Lua builder through its `BUILDER` option. An empty
+builder preserves the existing behavior: a profile with a `Makefile` uses that
+Makefile, and other profiles use the built-in Go source builder. Existing
+profiles are migrated with an empty builder, so enabling Lua builds is opt-in.
+
+Register a builder in a trusted Lua script with:
+
+```lua
+payload_build(
+    "implant-builder-linux-amd64",
+    "implant builder for linux amd64; no compression",
+    impl_build
+)
+```
+
+The handler receives the selected profile name. `implant_profile(name)` returns
+the resolved build specification, including `name`, `type`, `lhost`, `os`,
+`arch`, `output`, `template`, `public_key`, `builder`, `protocol`,
+`options_json`, `os_options`, and `arch_options`. During a build it also
+provides the `workspace` used as the `os.exec` working directory and the nearest
+`project_root` containing `go.mod`, plus the correlated `build_id`.
+
+```lua
+function impl_build(profile_name)
+    local profile = implant_profile(profile_name)
+    local source = [[
+package main
+
+import (
+    "purpcmd/implant/core"
+)
+
+var publicKeyDER []byte
+
+func main() {
+    remoteAdd := "LHOST"
+    payloadType := "IMPLANT_TYPE"
+    if len(publicKeyDER) > 0 {
+        if err := core.SetPublicKeyDER(publicKeyDER); err != nil {
+            panic(err)
+        }
+    }
+    core.Start(remoteAdd, payloadType)
+}
+]]
+
+    local source_path = os.tmpname() .. ".go"
+    local write_err = os.write(source, source_path)
+    if write_err then
+        os.remove(source_path)
+        error("os.write: " .. write_err)
+    end
+    if profile.project_root == "" then
+        error("could not locate the Go project root")
+    end
+    local build_ok, build_result = pcall(os.exec,
+        "cd " .. os.quote(profile.project_root) ..
+        " && go build -ldflags '-s -w' -o " .. os.quote(profile.output) ..
+        " " .. os.quote(source_path)
+    )
+    local removed, remove_err = os.remove(source_path)
+    if not build_ok then
+        error(build_result)
+    end
+    if not removed then
+        error("could not remove temporary build source: " .. remove_err)
+    end
+end
+```
+
+`os.write(source, path)` performs the same address, payload-type, and public-key
+rendering as the built-in builder, creates missing parent directories, and
+writes exactly to the caller-selected path. It returns `nil` on success or an
+error string on failure. Relative paths resolve from `workspace`; absolute paths
+such as `/tmp/my-build/main.go` are used directly. No random directory is
+created and caller-selected source files are not automatically removed.
+The bundled builder deliberately chooses a random `os.tmpname()` path and
+removes that source after each build attempt.
+
+`os.exec` runs from the nearest Go project root, or the template directory when
+no project root exists, with `GOOS`, `GOARCH`, `CGO_ENABLED=0`, and `PURPCMD_*`
+profile environment variables set. `os.quote` safely quotes a value for the
+shell used by the builder example. The builder must create the exact profile
+output file, or the build fails. Command failures are included in build output
+and fail the job. Builder registrations are removed when their owning script is
+unloaded; a profile that names an unavailable builder fails clearly instead of
+falling back to another build process. Lua build scripts are trusted server
+configuration because `os.exec` can execute shell commands.
+
+Structured Lua implant definitions may set `BUILDER`, and an existing profile
+can be changed with `set BUILDER <builder-name>`.
+
+Authenticated operators can list all builders registered by loaded scripts:
+
+```text
+ask.payload-builder.list -> rpl.payload-builder.list
+```
+
+The reply contains a name-sorted array of `name`, `description`, and `source`
+objects. The implant-menu CLI command `builders` displays the same data.
+
+A build can use the profile's configured builder or select one for only that
+job:
+
+```text
+ask.build.create
+{"profile":"linux-impl","builder":"implant-builder-linux-amd64"}
+```
+
+`builder` is optional for compatibility with older clients. Explicit values
+must name a currently registered builder and are persisted on the build job,
+without changing the underlying profile. The CLI equivalent is
+`generate linux-impl implant-builder-linux-amd64`.
+
+Loading and unloading scripts emits `evt.payload-builder.registered` and
+`evt.payload-builder.unregistered`. Build execution emits `evt.build.queued`,
+`evt.build.started`, zero or more correlated `evt.build.output` records, and
+exactly one of `evt.build.completed` or `evt.build.failed`. Output records
+contain `build_id`, `profile`, `builder`, and `message`; command output retained
+in an event is capped at 256 KiB and marked if truncated.
+
 ### Default `impl` Commands
 
 From the Lua configuration, the implant type "impl" supports these commands:

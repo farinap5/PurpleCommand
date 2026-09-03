@@ -57,6 +57,8 @@ func (i *Implant) ImplantSetSpeaker(name string) {
 	mu.Lock()
 	i.Transport = teamapi.SessionTransportSpeaker
 	i.Speaker = name
+	i.Listener = ""
+	i.ListenerUUID = ""
 	pending := false
 	for _, task := range i.Task {
 		if !task.Done && !task.Processing {
@@ -69,6 +71,18 @@ func (i *Implant) ImplantSetSpeaker(name string) {
 	if pending {
 		i.signalTaskReady()
 	}
+}
+
+// ImplantSetListener records the listener instance that accepted this
+// session. The listener UUID remains stable if the display name later changes.
+func (i *Implant) ImplantSetListener(name, id string) {
+	mu := i.taskMutex()
+	mu.Lock()
+	i.Transport = teamapi.SessionTransportListener
+	i.Speaker = ""
+	i.Listener = name
+	i.ListenerUUID = id
+	mu.Unlock()
 }
 
 func (i *Implant) ImplantSetEncryption(enc encrypt.Encrypt) {

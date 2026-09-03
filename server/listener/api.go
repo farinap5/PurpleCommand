@@ -188,7 +188,9 @@ func APIDelete(name string) error {
 		return errors.New("listener not found")
 	}
 	if listener.SC.isRunning() {
-		return errors.New("listener is running")
+		if err := listener.StopHTTP(); err != nil {
+			return err
+		}
 	}
 	persistent, _ := listener.state()
 	if persistent {

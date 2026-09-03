@@ -41,12 +41,15 @@ VALUES ('old', '127.0.0.1:1', 'linux', 'amd64', '/', 'ua', 'out', './template', 
 	if err := definition.ensureGenericImplantProfileSchema(); err != nil {
 		t.Fatalf("repeat migration: %v", err)
 	}
-	var payloadType string
-	if err := connection.QueryRow(`SELECT Type FROM ImplantProfiles WHERE Name = 'old'`).Scan(&payloadType); err != nil {
+	var payloadType, builder string
+	if err := connection.QueryRow(`SELECT Type, Builder FROM ImplantProfiles WHERE Name = 'old'`).Scan(&payloadType, &builder); err != nil {
 		t.Fatal(err)
 	}
 	if payloadType != internal.DefaultPayloadType {
 		t.Fatalf("migrated payload type = %q", payloadType)
+	}
+	if builder != "" {
+		t.Fatalf("migrated builder = %q", builder)
 	}
 	columns, err := definition.tableColumns("ImplantProfiles")
 	if err != nil {

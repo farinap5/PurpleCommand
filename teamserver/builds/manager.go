@@ -58,13 +58,20 @@ func New(bus *events.Bus, artifactDirectories ...string) *Manager {
 	return manager
 }
 
-func (manager *Manager) Create(profileName string) (teamapi.Build, error) {
+func (manager *Manager) Create(profileName, requestedBuilder string) (teamapi.Build, error) {
 	profile, err := implantbuilder.APIGetProfile(profileName)
 	if err != nil {
 		return teamapi.Build{}, err
 	}
+	selectedBuilder := strings.TrimSpace(requestedBuilder)
+	if selectedBuilder == "" {
+		selectedBuilder = profile.Builder
+	}
+	if err := implantbuilder.ValidatePayloadBuilder(selectedBuilder); err != nil {
+		return teamapi.Build{}, err
+	}
 	job := teamapi.Build{
-		ID: uuid.NewString(), Profile: profileName, Status: "queued",
+		ID: uuid.NewString(), Profile: profileName, Builder: selectedBuilder, Status: "queued",
 		ArtifactName: filepath.Base(profile.Output), CreatedAt: time.Now().UTC(),
 	}
 	if err := db.DBBuildSave(job); err != nil {
@@ -74,25 +81,33 @@ func (manager *Manager) Create(profileName string) (teamapi.Build, error) {
 	manager.jobs[job.ID] = job
 	manager.sourcePaths[job.ID] = profile.Output
 	manager.mu.Unlock()
+	if manager.bus != nil {
+		_, _ = manager.bus.Publish(teamapi.EventBuildQueued, job)
+	}
 	go manager.run(job.ID)
 	return job, nil
 }
 
 func (manager *Manager) run(id string) {
+	manager.buildMu.Lock()
+	defer manager.buildMu.Unlock()
+
 	manager.update(id, func(job *teamapi.Build) { job.Status = "running" })
 	job, _ := manager.Get(id)
 	if manager.bus != nil {
 		_, _ = manager.bus.Publish(teamapi.EventBuildStarted, job)
 	}
-	manager.buildMu.Lock()
-	err := implantbuilder.APIGenerateProfile(job.Profile)
+	err := implantbuilder.APIGenerateProfileForBuildWithOutput(job.Profile, job.ID, job.Builder, func(output teamapi.BuildOutput) {
+		if manager.bus != nil {
+			_, _ = manager.bus.Publish(teamapi.EventBuildOutput, output)
+		}
+	})
 	if err == nil {
 		manager.mu.RLock()
 		sourcePath := manager.sourcePaths[id]
 		manager.mu.RUnlock()
 		err = manager.archive(id, sourcePath)
 	}
-	manager.buildMu.Unlock()
 	manager.update(id, func(job *teamapi.Build) {
 		job.CompletedAt = time.Now().UTC()
 		if err != nil {

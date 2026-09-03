@@ -353,6 +353,28 @@ func (client *Client) Builds(ctx context.Context) ([]teamapi.Build, error) {
 	return builds, err
 }
 
+func (client *Client) CreateBuild(ctx context.Context, profile string, builders ...string) (teamapi.Build, error) {
+	builder := ""
+	if len(builders) > 0 {
+		builder = builders[0]
+	}
+	var build teamapi.Build
+	err := client.Request(ctx, teamapi.AskBuildCreate, teamapi.BuildRequest{Profile: profile, Builder: builder}, &build)
+	return build, err
+}
+
+func (client *Client) GetBuild(ctx context.Context, id string) (teamapi.Build, error) {
+	var build teamapi.Build
+	err := client.Request(ctx, teamapi.AskBuildGet, teamapi.NameRequest{Name: id}, &build)
+	return build, err
+}
+
+func (client *Client) PayloadBuilders(ctx context.Context) ([]teamapi.PayloadBuilder, error) {
+	var builders []teamapi.PayloadBuilder
+	err := client.Request(ctx, teamapi.AskPayloadBuilderList, struct{}{}, &builders)
+	return builders, err
+}
+
 func (client *Client) DeleteBuild(ctx context.Context, id string) (teamapi.Build, error) {
 	var build teamapi.Build
 	err := client.Request(ctx, teamapi.AskBuildDelete, teamapi.BuildDeleteRequest{ID: id}, &build)

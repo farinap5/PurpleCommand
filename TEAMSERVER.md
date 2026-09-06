@@ -53,6 +53,7 @@ Teamserver flags:
 | `-database` | `database.db` | SQLite state |
 | `-loot-dir` | `loot` | Loot files |
 | `-script-dir` | `script/uploads` | Uploaded Lua scripts |
+| `-hosted-dir` | `hosted` | Files available to implant-facing HTTP listener hosting |
 
 ## Operator protocol
 
@@ -157,6 +158,52 @@ with `@`, for example:
 upload @./local.bin /tmp/remote.bin
 memexec @./tool argument
 ```
+
+### HTTP listener file hosting
+
+HTTP listeners can map exact URL paths to server-local files through the
+`hosted_files` listener option. They can also define `not_found_page`, which
+returns a custom body with status `404` whenever no listener route or hosted
+URL matches. Files are resolved beneath `-hosted-dir`, must be regular files,
+and are opened when the listener starts. This boundary prevents an operator
+configuration mistake from publishing arbitrary teamserver files.
+
+Malformed implant traffic may fall back to a hosted file at the same URL, but
+valid implant traffic always takes precedence. Body-limit and internal
+processing failures are not hidden behind a decoy response. Configuration is
+persisted as part of the owning listener's options, so no separate hosted-file
+database lifecycle exists. Dedicated `ask.listener.hosted*` operations can
+atomically change the active hosted set without stopping or rebinding a running
+listener.
+
+The hosted-file control API consists of:
+
+```text
+ask.listener.hosted
+ask.listener.hosted.set
+ask.listener.hosted.add
+ask.listener.hosted.remove
+ask.listener.hosted.not-found.set
+ask.listener.hosted.not-found.clear
+evt.listener.hosted.updated
+```
+
+Every mutation returns and broadcasts the complete resulting hosted-file
+configuration, including its listener configuration version. Candidate files
+are validated and opened before a live change is persisted or activated.
+
+The CLI manages these values in listener mode:
+
+```text
+host list
+host add /index.html site/index.html 200 {"Content-Type":"text/html"}
+host remove /index.html
+host not-found site/404.html {"Content-Type":"text/html"}
+host clear-not-found
+```
+
+All source paths in these commands refer to the teamserver's hosted-file
+directory, not to the machine running the CLI.
 
 ## Reconnection and events
 

@@ -20,6 +20,7 @@ type Config struct {
 	LootDir        string
 	BuildDir       string
 	ScriptDir      string
+	HostedDir      string
 	GeneratedToken bool
 }
 
@@ -35,6 +36,7 @@ func Parse(args []string) (Config, error) {
 	flags.StringVar(&configuration.LootDir, "loot-dir", "loot", "loot storage directory")
 	flags.StringVar(&configuration.BuildDir, "build-dir", "builds", "completed build artifact directory")
 	flags.StringVar(&configuration.ScriptDir, "script-dir", "script/uploads", "uploaded Lua script directory")
+	flags.StringVar(&configuration.HostedDir, "hosted-dir", "hosted", "HTTP listener hosted-file directory")
 	if err := flags.Parse(args); err != nil {
 		return Config{}, err
 	}
@@ -63,6 +65,10 @@ func Parse(args []string) (Config, error) {
 	}
 	if len(configuration.Token) < 20 {
 		return Config{}, errors.New("teamserver token must contain at least 20 characters")
+	}
+	configuration.HostedDir = strings.TrimSpace(configuration.HostedDir)
+	if configuration.HostedDir == "" {
+		return Config{}, errors.New("hosted-dir must not be empty")
 	}
 	return configuration, nil
 }

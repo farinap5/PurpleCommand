@@ -41,8 +41,8 @@ VALUES ('old', '127.0.0.1:1', 'linux', 'amd64', '/', 'ua', 'out', './template', 
 	if err := definition.ensureGenericImplantProfileSchema(); err != nil {
 		t.Fatalf("repeat migration: %v", err)
 	}
-	var payloadType, builder string
-	if err := connection.QueryRow(`SELECT Type, Builder FROM ImplantProfiles WHERE Name = 'old'`).Scan(&payloadType, &builder); err != nil {
+	var payloadType, builder, listenerUUID string
+	if err := connection.QueryRow(`SELECT Type, Builder, ListenerUUID FROM ImplantProfiles WHERE Name = 'old'`).Scan(&payloadType, &builder, &listenerUUID); err != nil {
 		t.Fatal(err)
 	}
 	if payloadType != internal.DefaultPayloadType {
@@ -51,12 +51,18 @@ VALUES ('old', '127.0.0.1:1', 'linux', 'amd64', '/', 'ua', 'out', './template', 
 	if builder != "" {
 		t.Fatalf("migrated builder = %q", builder)
 	}
+	if listenerUUID != "" {
+		t.Fatalf("migrated listener UUID = %q", listenerUUID)
+	}
 	columns, err := definition.tableColumns("ImplantProfiles")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if columns["uri"] || columns["ua"] {
 		t.Fatalf("protocol-specific columns survived migration: %#v", columns)
+	}
+	if !columns["listeneruuid"] {
+		t.Fatalf("listener UUID column was not created: %#v", columns)
 	}
 	var osOptions, archOptions string
 	if err := connection.QueryRow(
@@ -75,5 +81,50 @@ VALUES ('old', '127.0.0.1:1', 'linux', 'amd64', '/', 'ua', 'out', './template', 
 	}
 	if options != `{"path":"/","header":{"User-Agent":"ua"}}` {
 		t.Fatalf("migrated protocol options = %s", options)
+	}
+}
+
+func TestImplantProfileListenerUUIDRoundTrip(t *testing.T) {
+	connection, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection.SetMaxOpenConns(1)
+	previous := DBMS
+	DBMS = DBDef{DBConn: connection}
+	t.Cleanup(func() {
+		DBMS = previous
+		_ = connection.Close()
+	})
+	if err := DBMS.dbCreateDs(); err != nil {
+		t.Fatal(err)
+	}
+
+	profile := ImplantProfile{
+		Name: "attached", Type: "impl", LHOST: "callback.example:4444", OS: "linux", ARCH: "amd64",
+		OSOptions: []string{"linux"}, ARCHOptions: []string{"amd64"}, Output: "implant",
+		Template: "./template", PublicKey: "server.pub", Builder: "lua-builder", ListenerUUID: "listener-one",
+	}
+	if err := DBImplantProfileInsert(profile); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := DBImplantProfileGetAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].ListenerUUID != "listener-one" {
+		t.Fatalf("inserted profile = %#v", rows)
+	}
+
+	profile.ListenerUUID = "listener-two"
+	if err := DBImplantProfileUpdate(profile); err != nil {
+		t.Fatal(err)
+	}
+	rows, err = DBImplantProfileGetAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].ListenerUUID != "listener-two" {
+		t.Fatalf("updated profile = %#v", rows)
 	}
 }

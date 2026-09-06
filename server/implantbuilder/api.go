@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -91,6 +92,7 @@ func APIUpdateProfile(request teamapi.ProfileUpdateRequest) (teamapi.Profile, er
 		updated.Type = request.Value
 	case "LHOST":
 		updated.LHOST = request.Value
+		updated.ListenerUUID = ""
 	case "OS":
 		updated.OS = request.Value
 		updated.OSOptions = appendSuggestion(updated.OSOptions, request.Value)
@@ -132,6 +134,96 @@ func APIDeleteProfile(name string) error {
 		CurrentName = ""
 	}
 	return nil
+}
+
+// APISetProfileListener atomically attaches, refreshes, or detaches the HTTP
+// listener associated with a profile. Detaching uses an empty listener UUID
+// and deliberately preserves the last materialized LHOST.
+func APISetProfileListener(name, listenerUUID, lhost string) (teamapi.Profile, bool, error) {
+	profileAPIMu.Lock()
+	defer profileAPIMu.Unlock()
+	name = strings.TrimSpace(name)
+	profile := ProfileMap[name]
+	if profile == nil {
+		return teamapi.Profile{}, false, errors.New("profile not found")
+	}
+	listenerUUID = strings.TrimSpace(listenerUUID)
+	if listenerUUID != "" {
+		lhost = strings.TrimSpace(lhost)
+		if lhost == "" {
+			return teamapi.Profile{}, false, errors.New("listener advertisement is required")
+		}
+		definition, err := db.DBImplantDefinitionGet(name)
+		if errors.Is(err, sql.ErrNoRows) || err == nil && !strings.EqualFold(strings.TrimSpace(definition.Protocol), "http") {
+			return teamapi.Profile{}, false, errors.New("listener attachments require an HTTP implant profile")
+		}
+		if err != nil {
+			return teamapi.Profile{}, false, err
+		}
+	}
+	if profile.ListenerUUID == listenerUUID && (listenerUUID == "" || profile.LHOST == lhost) {
+		return profileDTO(name, profile), false, nil
+	}
+	updated := cloneProfile(*profile)
+	updated.ListenerUUID = listenerUUID
+	if listenerUUID != "" {
+		updated.LHOST = lhost
+	}
+	if err := validateProfile(&updated); err != nil {
+		return teamapi.Profile{}, false, err
+	}
+	if err := db.DBImplantProfileUpdate(profileToDBRow(name, &updated)); err != nil {
+		return teamapi.Profile{}, false, err
+	}
+	*profile = updated
+	return profileDTO(name, profile), true, nil
+}
+
+// APIClearProfileListeners removes all associations to a deleted listener and
+// preserves each profile's last materialized LHOST.
+func APIClearProfileListeners(listenerUUID string) ([]teamapi.Profile, error) {
+	profileAPIMu.Lock()
+	defer profileAPIMu.Unlock()
+	listenerUUID = strings.TrimSpace(listenerUUID)
+	if listenerUUID == "" {
+		return []teamapi.Profile{}, nil
+	}
+	names := make([]string, 0)
+	for name, profile := range ProfileMap {
+		if profile.ListenerUUID == listenerUUID {
+			names = append(names, name)
+		}
+	}
+	if len(names) == 0 {
+		return []teamapi.Profile{}, nil
+	}
+	if _, err := db.DBImplantProfilesClearListener(listenerUUID); err != nil {
+		return nil, err
+	}
+	sort.Strings(names)
+	result := make([]teamapi.Profile, 0, len(names))
+	for _, name := range names {
+		ProfileMap[name].ListenerUUID = ""
+		result = append(result, profileDTO(name, ProfileMap[name]))
+	}
+	return result, nil
+}
+
+// APIProfileNamesForListener returns the profiles currently associated with a
+// listener. It is used to prevent a listener from becoming incompatible while
+// profiles still identify it as their callback source.
+func APIProfileNamesForListener(listenerUUID string) []string {
+	profileAPIMu.Lock()
+	defer profileAPIMu.Unlock()
+	listenerUUID = strings.TrimSpace(listenerUUID)
+	names := make([]string, 0)
+	for name, profile := range ProfileMap {
+		if profile.ListenerUUID == listenerUUID && listenerUUID != "" {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names
 }
 
 func APIGenerateProfile(name string) error {
@@ -208,6 +300,7 @@ func profileDTO(name string, profile *Profile) teamapi.Profile {
 		ARCH: profile.ARCH, OSOptions: cloneStrings(profile.OSOptions),
 		ARCHOptions: cloneStrings(profile.ARCHOptions), Output: profile.Output,
 		Template: profile.Template, PublicKey: profile.PublicKey, Builder: profile.Builder,
+		ListenerUUID: profile.ListenerUUID,
 	}
 	definition, err := db.DBImplantDefinitionGet(name)
 	if err != nil {
@@ -366,6 +459,13 @@ func updateProfileDefinition(name string, profile *Profile, key, value string) e
 			return fmt.Errorf("OTS expiry must use RFC3339: %w", parseErr)
 		}
 		definition.OTSExpiresAt = timePointer(expiresAt)
+	}
+	if key == "PROTOCOL" && profile.ListenerUUID != "" && !strings.EqualFold(definition.Protocol, "http") {
+		if err := db.DBImplantDefinitionUpsertAndClearProfileListener(definition); err != nil {
+			return err
+		}
+		profile.ListenerUUID = ""
+		return nil
 	}
 	return db.DBImplantDefinitionUpsert(definition)
 }

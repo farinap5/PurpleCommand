@@ -50,6 +50,7 @@ type Manager struct {
 
 	mu        sync.RWMutex
 	listeners map[string]*managedListener
+	byUUID    map[string]*managedListener
 	closed    bool
 }
 
@@ -65,7 +66,7 @@ func NewManagerWithStore(registry *Registry, handler ExchangeHandler, publish Li
 	return &Manager{
 		registry: registry, handler: handler, publish: publish, store: store,
 		ctx: ctx, cancel: cancel, stopTimeout: defaultRuntimeStopTimeout,
-		listeners: make(map[string]*managedListener),
+		listeners: make(map[string]*managedListener), byUUID: make(map[string]*managedListener),
 	}
 }
 
@@ -90,6 +91,10 @@ func (manager *Manager) Create(configuration ManagedListenerConfig) (ManagedList
 		manager.mu.Unlock()
 		return ManagedListenerSnapshot{}, errors.New("listener exists")
 	}
+	if manager.byUUID[configuration.UUID] != nil {
+		manager.mu.Unlock()
+		return ManagedListenerSnapshot{}, errors.New("listener UUID already exists")
+	}
 	if configuration.Persistent && manager.store != nil {
 		configuration, err = manager.store.Insert(configuration)
 		if err != nil {
@@ -99,6 +104,7 @@ func (manager *Manager) Create(configuration ManagedListenerConfig) (ManagedList
 		instance.config = configuration
 	}
 	manager.listeners[configuration.Name] = instance
+	manager.byUUID[configuration.UUID] = instance
 	manager.mu.Unlock()
 	snapshot := instance.snapshot()
 	manager.emit("created", snapshot)
@@ -107,6 +113,23 @@ func (manager *Manager) Create(configuration ManagedListenerConfig) (ManagedList
 
 func (manager *Manager) Get(name string) (ManagedListenerSnapshot, error) {
 	instance := manager.lookup(name)
+	if instance == nil {
+		return ManagedListenerSnapshot{}, ErrManagedListenerNotFound
+	}
+	return instance.snapshot(), nil
+}
+
+// GetByUUID resolves the stable identity of a managed listener. Listener names
+// remain the operator-facing lifecycle key, while durable associations use the
+// UUID so a display name can never be mistaken for an identity.
+func (manager *Manager) GetByUUID(id string) (ManagedListenerSnapshot, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return ManagedListenerSnapshot{}, ErrManagedListenerNotFound
+	}
+	manager.mu.RLock()
+	instance := manager.byUUID[id]
+	manager.mu.RUnlock()
 	if instance == nil {
 		return ManagedListenerSnapshot{}, ErrManagedListenerNotFound
 	}
@@ -358,6 +381,9 @@ func (manager *Manager) Delete(name string) (ManagedListenerSnapshot, error) {
 	if manager.listeners[name] == instance {
 		delete(manager.listeners, name)
 	}
+	if manager.byUUID[snapshot.Config.UUID] == instance {
+		delete(manager.byUUID, snapshot.Config.UUID)
+	}
 	manager.mu.Unlock()
 	manager.emit("deleted", snapshot)
 	return snapshot, nil
@@ -507,11 +533,27 @@ func (manager *Manager) Restore() error {
 		manager.mu.Unlock()
 		return ErrListenerManagerShutdown
 	}
+	seenNames := make(map[string]struct{}, len(validated))
+	seenUUIDs := make(map[string]struct{}, len(validated))
 	for _, configuration := range validated {
 		if manager.listeners[configuration.Name] != nil {
 			manager.mu.Unlock()
 			return fmt.Errorf("restore listener %q: listener exists", configuration.Name)
 		}
+		if manager.byUUID[configuration.UUID] != nil {
+			manager.mu.Unlock()
+			return fmt.Errorf("restore listener %q: listener UUID already exists", configuration.Name)
+		}
+		if _, found := seenNames[configuration.Name]; found {
+			manager.mu.Unlock()
+			return fmt.Errorf("restore listener %q: listener exists", configuration.Name)
+		}
+		if _, found := seenUUIDs[configuration.UUID]; found {
+			manager.mu.Unlock()
+			return fmt.Errorf("restore listener %q: listener UUID already exists", configuration.Name)
+		}
+		seenNames[configuration.Name] = struct{}{}
+		seenUUIDs[configuration.UUID] = struct{}{}
 	}
 	for _, configuration := range validated {
 		instance := &managedListener{
@@ -519,6 +561,7 @@ func (manager *Manager) Restore() error {
 			status: Status{State: StateStopped, ChangedAt: time.Now().UTC()},
 		}
 		manager.listeners[configuration.Name] = instance
+		manager.byUUID[configuration.UUID] = instance
 		if configuration.DesiredState == StateRunning {
 			toStart = append(toStart, configuration.Name)
 		}
@@ -566,6 +609,7 @@ func (manager *Manager) persistReplacement(current, candidate ManagedListenerCon
 
 func (manager *Manager) validateConfiguration(configuration ManagedListenerConfig) (ManagedListenerConfig, Driver, error) {
 	configuration.Name = strings.TrimSpace(configuration.Name)
+	configuration.UUID = strings.TrimSpace(configuration.UUID)
 	configuration.Driver = normalizeRegistryID(configuration.Driver)
 	if configuration.Name == "" {
 		return ManagedListenerConfig{}, nil, errors.New("listener name is required")

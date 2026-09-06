@@ -79,3 +79,52 @@ type ListenerCarrierDefinition struct {
 	Description string                     `json:"description,omitempty"`
 	Options     []ListenerOptionDefinition `json:"options,omitempty"`
 }
+
+// HTTPHostedFile is the public shape stored beneath an HTTP listener's
+// hosted_files option and, with a fixed 404 status, its not_found_page option.
+type HTTPHostedFile struct {
+	SourcePath string            `json:"source_path"`
+	Status     int               `json:"status,omitempty"`
+	Headers    map[string]string `json:"headers,omitempty"`
+}
+
+// ListenerHostedConfiguration is the independently managed hosted-file
+// subresource attached to one HTTP listener.
+type ListenerHostedConfiguration struct {
+	Name          string                    `json:"name"`
+	ListenerUUID  string                    `json:"listener_uuid"`
+	HostedFiles   map[string]HTTPHostedFile `json:"hosted_files"`
+	NotFoundPage  *HTTPHostedFile           `json:"not_found_page"`
+	ConfigVersion int                       `json:"config_version"`
+}
+
+type ListenerHostedSetRequest struct {
+	Name                  string                    `json:"name"`
+	HostedFiles           map[string]HTTPHostedFile `json:"hosted_files"`
+	NotFoundPage          *HTTPHostedFile           `json:"not_found_page,omitempty"`
+	ExpectedConfigVersion int                       `json:"expected_config_version,omitempty"`
+}
+
+type ListenerHostedAddRequest struct {
+	Name                  string         `json:"name"`
+	URLPath               string         `json:"url_path"`
+	File                  HTTPHostedFile `json:"file"`
+	ExpectedConfigVersion int            `json:"expected_config_version,omitempty"`
+}
+
+type ListenerHostedRemoveRequest struct {
+	Name                  string `json:"name"`
+	URLPath               string `json:"url_path"`
+	ExpectedConfigVersion int    `json:"expected_config_version,omitempty"`
+}
+
+type ListenerHostedNotFoundSetRequest struct {
+	Name                  string         `json:"name"`
+	File                  HTTPHostedFile `json:"file"`
+	ExpectedConfigVersion int            `json:"expected_config_version,omitempty"`
+}
+
+type ListenerHostedNotFoundClearRequest struct {
+	Name                  string `json:"name"`
+	ExpectedConfigVersion int    `json:"expected_config_version,omitempty"`
+}

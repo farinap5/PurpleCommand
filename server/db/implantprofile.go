@@ -9,17 +9,18 @@ import (
 
 // ImplantProfile mirrors implantbuilder.Profile for DB storage.
 type ImplantProfile struct {
-	Name        string
-	Type        string
-	LHOST       string
-	OS          string
-	ARCH        string
-	OSOptions   []string
-	ARCHOptions []string
-	Output      string
-	Template    string
-	PublicKey   string
-	Builder     string
+	Name         string
+	Type         string
+	LHOST        string
+	OS           string
+	ARCH         string
+	OSOptions    []string
+	ARCHOptions  []string
+	Output       string
+	Template     string
+	PublicKey    string
+	Builder      string
+	ListenerUUID string
 }
 
 func DBImplantProfileExists(name string) bool {
@@ -42,9 +43,9 @@ func DBImplantProfileInsert(p ImplantProfile) error {
 	}
 	_, err = DBMS.DBConn.Exec(
 		`INSERT INTO ImplantProfiles
-		 (Name, Type, LHOST, OS, ARCH, OSOptionsJSON, ARCHOptionsJSON, Output, Template, PublicKey, Builder)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?);`,
-		p.Name, p.Type, p.LHOST, p.OS, p.ARCH, osOptionsJSON, archOptionsJSON, p.Output, p.Template, p.PublicKey, p.Builder,
+		 (Name, Type, LHOST, OS, ARCH, OSOptionsJSON, ARCHOptionsJSON, Output, Template, PublicKey, Builder, ListenerUUID)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?);`,
+		p.Name, p.Type, p.LHOST, p.OS, p.ARCH, osOptionsJSON, archOptionsJSON, p.Output, p.Template, p.PublicKey, p.Builder, p.ListenerUUID,
 	)
 	return err
 }
@@ -63,9 +64,9 @@ func DBImplantProfileUpdate(p ImplantProfile) error {
 	}
 	_, err = DBMS.DBConn.Exec(
 		`UPDATE ImplantProfiles
-		 SET Type=?, LHOST=?, OS=?, ARCH=?, OSOptionsJSON=?, ARCHOptionsJSON=?, Output=?, Template=?, PublicKey=?, Builder=?
+		 SET Type=?, LHOST=?, OS=?, ARCH=?, OSOptionsJSON=?, ARCHOptionsJSON=?, Output=?, Template=?, PublicKey=?, Builder=?, ListenerUUID=?
 		 WHERE Name=?;`,
-		p.Type, p.LHOST, p.OS, p.ARCH, osOptionsJSON, archOptionsJSON, p.Output, p.Template, p.PublicKey, p.Builder, p.Name,
+		p.Type, p.LHOST, p.OS, p.ARCH, osOptionsJSON, archOptionsJSON, p.Output, p.Template, p.PublicKey, p.Builder, p.ListenerUUID, p.Name,
 	)
 	return err
 }
@@ -93,10 +94,23 @@ func DBImplantProfileDelete(name string) error {
 	return tx.Commit()
 }
 
+// DBImplantProfilesClearListener removes a soft listener association without
+// changing the materialized callback address used by existing builds.
+func DBImplantProfilesClearListener(listenerUUID string) (int64, error) {
+	result, err := DBMS.DBConn.Exec(
+		`UPDATE ImplantProfiles SET ListenerUUID = '' WHERE ListenerUUID = ?;`,
+		listenerUUID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 func DBImplantProfileGetAll() ([]ImplantProfile, error) {
 	var profiles []ImplantProfile
 	rows, err := DBMS.DBConn.Query(
-		`SELECT Name, Type, LHOST, OS, ARCH, OSOptionsJSON, ARCHOptionsJSON, Output, Template, PublicKey, Builder
+		`SELECT Name, Type, LHOST, OS, ARCH, OSOptionsJSON, ARCHOptionsJSON, Output, Template, PublicKey, Builder, ListenerUUID
 		 FROM ImplantProfiles;`,
 	)
 	if err != nil {
@@ -109,7 +123,7 @@ func DBImplantProfileGetAll() ([]ImplantProfile, error) {
 		var osOptionsJSON, archOptionsJSON string
 		if err := rows.Scan(
 			&p.Name, &p.Type, &p.LHOST, &p.OS, &p.ARCH, &osOptionsJSON, &archOptionsJSON,
-			&p.Output, &p.Template, &p.PublicKey, &p.Builder,
+			&p.Output, &p.Template, &p.PublicKey, &p.Builder, &p.ListenerUUID,
 		); err != nil {
 			return nil, err
 		}

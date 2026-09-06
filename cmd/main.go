@@ -51,6 +51,10 @@ func startServer(a []string) {
 		fmt.Fprintln(os.Stderr, "teamserver configuration:", err)
 		os.Exit(2)
 	}
+	if err := os.MkdirAll(configuration.HostedDir, 0700); err != nil {
+		fmt.Fprintln(os.Stderr, "hosted-file directory:", err)
+		os.Exit(1)
+	}
 	db.DatabasePath = configuration.Database
 	loot.StorageDir = configuration.LootDir
 	if err := db.CheckDB(); err != nil {
@@ -94,9 +98,9 @@ func startServer(a []string) {
 	implantbuilder.ProfilesReloadFromDB()
 	lua.ImplantDefinitionsReloadFromDB()
 	lua.ScriptsReloadFromDB()
-	listenerManager, err := listener.NewHTTPManager(listener.DBStore{}, listener.TeamEventPublisher(func(eventType string, value any) {
+	listenerManager, err := listener.NewHTTPManagerWithConfig(listener.DBStore{}, listener.TeamEventPublisher(func(eventType string, value any) {
 		_, _ = eventBus.Publish(eventType, value)
-	}))
+	}), listener.HTTPDriverConfig{HostedRoot: configuration.HostedDir})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "listener manager:", err)
 		os.Exit(1)

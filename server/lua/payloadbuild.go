@@ -108,6 +108,7 @@ func (profile *LuaProfile) implantProfile(state *lua.LState) int {
 		item.Template = execution.Profile.Template
 		item.PublicKey = execution.Profile.PublicKey
 		item.Builder = execution.Profile.Builder
+		item.ListenerUUID = execution.Profile.ListenerUUID
 	}
 	table := luaProfileTable(state, item)
 	if execution := profile.executionBuild; execution != nil && execution.ProfileName == name {
@@ -130,6 +131,7 @@ func luaProfileTable(state *lua.LState, profile teamapi.Profile) *lua.LTable {
 	state.SetField(table, "template", lua.LString(profile.Template))
 	state.SetField(table, "public_key", lua.LString(profile.PublicKey))
 	state.SetField(table, "builder", lua.LString(profile.Builder))
+	state.SetField(table, "listener_uuid", lua.LString(profile.ListenerUUID))
 	state.SetField(table, "protocol", lua.LString(profile.Protocol))
 	state.SetField(table, "options_json", lua.LString(profile.Options))
 	state.SetField(table, "os_options", luaStringTable(state, profile.OSOptions))
@@ -217,6 +219,7 @@ func (profile *LuaProfile) payloadBuildExec(state *lua.LState) int {
 		"PURPCMD_PUBLIC_KEY="+execution.Profile.PublicKey,
 		"PURPCMD_LHOST="+execution.Profile.LHOST,
 		"PURPCMD_PAYLOAD_TYPE="+execution.Profile.Type,
+		"PURPCMD_LISTENER_UUID="+execution.Profile.ListenerUUID,
 		"PURPCMD_PROJECT_ROOT="+execution.ProjectRoot,
 		"PURPCMD_BUILD_ID="+execution.Profile.BuildID,
 	)

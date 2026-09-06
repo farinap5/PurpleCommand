@@ -2,9 +2,12 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -268,6 +271,8 @@ func (cli *CLI) executeListener(fields []string) error {
 		}
 		var item teamapi.Listener
 		return cli.request(teamapi.AskListenerUpdate, teamapi.ListenerUpdateRequest{Name: name, Key: fields[1], Value: fields[2]}, &item)
+	case "host":
+		return cli.executeListenerHost(fields)
 	case "start", "run", "stop", "restart", "delete":
 		name, err := cli.listenerName(fields[1:])
 		if err != nil {
@@ -286,8 +291,137 @@ func (cli *CLI) executeListener(fields []string) error {
 			cli.mu.Unlock()
 		}
 	default:
-		return errorsNew("listener commands: list, new, interact, options, set, start, stop, restart, delete, back")
+		return errorsNew("listener commands: list, new, interact, options, set, host, start, stop, restart, delete, back")
 	}
+	return nil
+}
+
+func (cli *CLI) executeListenerHost(fields []string) error {
+	if len(fields) < 2 {
+		return errorsNew("usage: host list|add|remove|not-found|clear-not-found")
+	}
+	name, err := cli.listenerName(nil)
+	if err != nil {
+		return err
+	}
+	switch strings.ToLower(fields[1]) {
+	case "list":
+		if len(fields) != 2 {
+			return errorsNew("usage: host list")
+		}
+		var hosted teamapi.ListenerHostedConfiguration
+		if err := cli.request(teamapi.AskListenerHosted, teamapi.NameRequest{Name: name}, &hosted); err != nil {
+			return err
+		}
+		return printListenerHostedFiles(hosted)
+	case "add":
+		if len(fields) < 4 {
+			return errorsNew("usage: host add url-path source-path [status] [headers-json]")
+		}
+		status := 0
+		headerIndex := 5
+		if len(fields) >= 5 {
+			if strings.HasPrefix(fields[4], "{") {
+				headerIndex = 4
+			} else {
+				status, err = strconv.Atoi(fields[4])
+				if err != nil {
+					return errorsNew("hosted-file status must be a number")
+				}
+			}
+		}
+		var headerArguments []string
+		if len(fields) > headerIndex {
+			headerArguments = fields[headerIndex:]
+		}
+		headers, err := parseListenerHostedHeaders(headerArguments)
+		if err != nil {
+			return err
+		}
+		var hosted teamapi.ListenerHostedConfiguration
+		return cli.request(teamapi.AskListenerHostedAdd, teamapi.ListenerHostedAddRequest{
+			Name: name, URLPath: fields[2],
+			File: teamapi.HTTPHostedFile{SourcePath: fields[3], Status: status, Headers: headers},
+		}, &hosted)
+	case "remove":
+		if len(fields) != 3 {
+			return errorsNew("usage: host remove url-path")
+		}
+		var hosted teamapi.ListenerHostedConfiguration
+		return cli.request(teamapi.AskListenerHostedRemove, teamapi.ListenerHostedRemoveRequest{
+			Name: name, URLPath: fields[2],
+		}, &hosted)
+	case "not-found":
+		if len(fields) < 3 {
+			return errorsNew("usage: host not-found source-path [headers-json]")
+		}
+		headers, err := parseListenerHostedHeaders(fields[3:])
+		if err != nil {
+			return err
+		}
+		var hosted teamapi.ListenerHostedConfiguration
+		return cli.request(teamapi.AskListenerHostedNotFoundSet, teamapi.ListenerHostedNotFoundSetRequest{
+			Name: name, File: teamapi.HTTPHostedFile{SourcePath: fields[2], Headers: headers},
+		}, &hosted)
+	case "clear-not-found":
+		if len(fields) != 2 {
+			return errorsNew("usage: host clear-not-found")
+		}
+		var hosted teamapi.ListenerHostedConfiguration
+		return cli.request(teamapi.AskListenerHostedNotFoundClear, teamapi.ListenerHostedNotFoundClearRequest{
+			Name: name,
+		}, &hosted)
+	default:
+		return errorsNew("usage: host list|add|remove|not-found|clear-not-found")
+	}
+}
+
+func listenerHostedFileEntries(options map[string]json.RawMessage) (map[string]json.RawMessage, error) {
+	result := make(map[string]json.RawMessage)
+	if raw := options["hosted_files"]; len(raw) > 0 && string(raw) != "null" {
+		if err := json.Unmarshal(raw, &result); err != nil {
+			return nil, fmt.Errorf("decode hosted_files: %w", err)
+		}
+		if result == nil {
+			result = make(map[string]json.RawMessage)
+		}
+	}
+	return result, nil
+}
+
+func parseListenerHostedHeaders(arguments []string) (map[string]string, error) {
+	if len(arguments) == 0 {
+		return nil, nil
+	}
+	var headers map[string]string
+	if err := json.Unmarshal([]byte(strings.Join(arguments, " ")), &headers); err != nil {
+		return nil, fmt.Errorf("decode hosted-file headers: %w", err)
+	}
+	return headers, nil
+}
+
+func printListenerHostedFiles(hosted teamapi.ListenerHostedConfiguration) error {
+	table := tabby.New()
+	table.AddHeader("URL", "SOURCE", "STATUS", "HEADERS")
+	paths := make([]string, 0, len(hosted.HostedFiles))
+	for urlPath := range hosted.HostedFiles {
+		paths = append(paths, urlPath)
+	}
+	sort.Strings(paths)
+	for _, urlPath := range paths {
+		file := hosted.HostedFiles[urlPath]
+		status := file.Status
+		if status == 0 {
+			status = http.StatusOK
+		}
+		headers, _ := json.Marshal(file.Headers)
+		table.AddLine(urlPath, file.SourcePath, status, string(headers))
+	}
+	if hosted.NotFoundPage != nil {
+		headers, _ := json.Marshal(hosted.NotFoundPage.Headers)
+		table.AddLine("<default 404>", hosted.NotFoundPage.SourcePath, http.StatusNotFound, string(headers))
+	}
+	table.Print()
 	return nil
 }
 
@@ -705,6 +839,36 @@ func (cli *CLI) completeText(input string) []prompt.Suggest {
 
 	switch cli.mode {
 	case modeListener:
+		if command == "host" && argumentIndex == 1 {
+			return prompt.FilterHasPrefix([]prompt.Suggest{
+				{Text: "list", Description: "List hosted files and the default 404 page"},
+				{Text: "add", Description: "Add or replace a hosted URL"},
+				{Text: "remove", Description: "Remove a hosted URL"},
+				{Text: "not-found", Description: "Configure the default 404 page"},
+				{Text: "clear-not-found", Description: "Remove the default 404 page"},
+			}, prefix, true)
+		}
+		if command == "host" && argumentIndex == 2 && len(words) > 1 && strings.EqualFold(words[1], "remove") {
+			suggestions = nil
+			for _, item := range cli.snapshot.Listeners {
+				if item.Name != cli.selectedListener {
+					continue
+				}
+				var options map[string]json.RawMessage
+				if json.Unmarshal(item.Options, &options) != nil {
+					break
+				}
+				files, err := listenerHostedFileEntries(options)
+				if err != nil {
+					break
+				}
+				for urlPath := range files {
+					suggestions = append(suggestions, prompt.Suggest{Text: urlPath, Description: "Hosted URL path"})
+				}
+				break
+			}
+			return prompt.FilterHasPrefix(suggestions, prefix, true)
+		}
 		if argumentIndex == 1 && isOneOf(command, "interact", "select", "options", "start", "run", "stop", "restart", "delete") {
 			suggestions = nil
 			for _, item := range cli.snapshot.Listeners {
@@ -713,6 +877,7 @@ func (cli *CLI) completeText(input string) []prompt.Suggest {
 			return prompt.FilterHasPrefix(suggestions, prefix, true)
 		}
 		suggestions = append(suggestions,
+			prompt.Suggest{Text: "host", Description: "Manage HTTP listener hosted files"},
 			prompt.Suggest{Text: "start", Description: "Start listener"},
 			prompt.Suggest{Text: "select", Description: "Select a listener"},
 		)
@@ -815,6 +980,11 @@ func (cli *CLI) help() {
 	switch cli.mode {
 	case modeListener:
 		entries = append(entries,
+			core.HelpEntry{Command: "host list", Description: "List hosted URLs and the default 404 page."},
+			core.HelpEntry{Command: "host add", Description: "Use `host add <url-path> <source-path> [status] [headers-json]`."},
+			core.HelpEntry{Command: "host remove", Description: "Remove a hosted URL path."},
+			core.HelpEntry{Command: "host not-found", Description: "Use `host not-found <source-path> [headers-json]`."},
+			core.HelpEntry{Command: "host clear-not-found", Description: "Remove the configured default 404 page."},
 			core.HelpEntry{Command: "restart", Description: "Restart a listener."},
 			core.HelpEntry{Command: "select", Description: "Alias for `interact <name>`."},
 		)

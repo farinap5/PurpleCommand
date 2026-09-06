@@ -33,6 +33,7 @@ type Profile struct {
 	Template        string
 	PublicKey       string                    // Path to server public key (e.g., server.pub)
 	Builder         string                    // Optional registered Lua payload builder name.
+	ListenerUUID    string                    // Optional listener associated with the materialized LHOST.
 	ProfileName     string                    // Execution-only profile name; never persisted.
 	BuildID         string                    // Execution-only build job ID; never persisted.
 	OutputPublisher func(teamapi.BuildOutput) // Execution-only event sink; never persisted.
@@ -183,6 +184,7 @@ func SetOption(key, value string) error {
 		p.Type = value
 	case "LHOST":
 		p.LHOST = value
+		p.ListenerUUID = ""
 	case "OS":
 		p.OS = value
 		p.OSOptions = appendSuggestion(p.OSOptions, value)
@@ -214,17 +216,18 @@ func SetOption(key, value string) error {
 // profileToDBRow converts an in-memory profile to a DB row struct.
 func profileToDBRow(name string, p *Profile) db.ImplantProfile {
 	return db.ImplantProfile{
-		Name:        name,
-		Type:        p.Type,
-		LHOST:       p.LHOST,
-		OS:          p.OS,
-		ARCH:        p.ARCH,
-		OSOptions:   cloneStrings(p.OSOptions),
-		ARCHOptions: cloneStrings(p.ARCHOptions),
-		Output:      p.Output,
-		Template:    p.Template,
-		PublicKey:   p.PublicKey,
-		Builder:     p.Builder,
+		Name:         name,
+		Type:         p.Type,
+		LHOST:        p.LHOST,
+		OS:           p.OS,
+		ARCH:         p.ARCH,
+		OSOptions:    cloneStrings(p.OSOptions),
+		ARCHOptions:  cloneStrings(p.ARCHOptions),
+		Output:       p.Output,
+		Template:     p.Template,
+		PublicKey:    p.PublicKey,
+		Builder:      p.Builder,
+		ListenerUUID: p.ListenerUUID,
 	}
 }
 
@@ -241,16 +244,17 @@ func ProfilesReloadFromDB() {
 			continue // already in map (e.g. from a Lua script that ran first)
 		}
 		p := &Profile{
-			Type:        r.Type,
-			LHOST:       r.LHOST,
-			OS:          r.OS,
-			ARCH:        r.ARCH,
-			OSOptions:   cloneStrings(r.OSOptions),
-			ARCHOptions: cloneStrings(r.ARCHOptions),
-			Output:      r.Output,
-			Template:    r.Template,
-			PublicKey:   r.PublicKey,
-			Builder:     r.Builder,
+			Type:         r.Type,
+			LHOST:        r.LHOST,
+			OS:           r.OS,
+			ARCH:         r.ARCH,
+			OSOptions:    cloneStrings(r.OSOptions),
+			ARCHOptions:  cloneStrings(r.ARCHOptions),
+			Output:       r.Output,
+			Template:     r.Template,
+			PublicKey:    r.PublicKey,
+			Builder:      r.Builder,
+			ListenerUUID: r.ListenerUUID,
 		}
 		if p.Type == "" {
 			p.Type = internal.DefaultPayloadType

@@ -40,6 +40,7 @@ type Server struct {
 	events             *events.Bus
 	builds             *builds.Manager
 	listeners          *listener.Manager
+	profileListenerMu  sync.Mutex
 	http               *http.Server
 	dedupeMu           sync.Mutex
 	connectionsMu      sync.RWMutex
@@ -61,9 +62,9 @@ type principal struct {
 const adminPrincipalID = "admin"
 
 func New(configuration config.Config, eventBus *events.Bus) *Server {
-	listenerManager, err := listener.NewHTTPManager(listener.DBStore{}, listener.TeamEventPublisher(func(eventType string, value any) {
+	listenerManager, err := listener.NewHTTPManagerWithConfig(listener.DBStore{}, listener.TeamEventPublisher(func(eventType string, value any) {
 		_, _ = eventBus.Publish(eventType, value)
-	}))
+	}), listener.HTTPDriverConfig{HostedRoot: configuration.HostedDir})
 	if err != nil {
 		panic(fmt.Sprintf("initialize HTTP listener manager: %v", err))
 	}

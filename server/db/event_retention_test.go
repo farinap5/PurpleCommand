@@ -100,6 +100,9 @@ func TestEventRetentionDefaultsAndOverrides(t *testing.T) {
 	if configuration := byType[teamapi.EventListenerDeleted]; configuration.Tier != EventRetentionTierStandard || configuration.Retention != 7*24*time.Hour {
 		t.Fatalf("listener deletion retention = %#v", configuration)
 	}
+	if configuration := byType[teamapi.EventProfileUpdated]; configuration.Tier != EventRetentionTierStandard || configuration.Retention != 7*24*time.Hour {
+		t.Fatalf("profile update retention = %#v", configuration)
+	}
 
 	if err := DBEventRetentionSet(teamapi.EventSessionCheckin, "custom", 2*time.Hour); err != nil {
 		t.Fatal(err)

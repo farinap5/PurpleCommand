@@ -16,6 +16,7 @@ import (
 	"purpcmd/server/db"
 	"purpcmd/server/implantbuilder"
 	"purpcmd/server/log"
+	"purpcmd/server/runtimeevents"
 
 	lua "github.com/yuin/gopher-lua"
 )
@@ -150,10 +151,13 @@ func LuaRegisterImplantProfile(L *lua.LState) int {
 		if err != nil {
 			if created {
 				_ = implantbuilder.APIDeleteProfile(name)
+			} else {
+				publishLuaProfileChange(name, false)
 			}
 			return luaImplantProfileError(L, err)
 		}
 		cacheImplantDefinition(name, definition)
+		publishLuaProfileChange(name, created)
 		log.PrintInfo(fmt.Sprintf(
 			"Registered Lua implant definition %q: protocol=%s type=%s targets=%d/%d path=%s headers=%d ots=%t",
 			name, definition.Protocol, definition.Type,
@@ -361,11 +365,26 @@ func registerLegacyImplantProfile(L *lua.LState, name string, tbl *lua.LTable) i
 	if err != nil {
 		if created {
 			_ = implantbuilder.APIDeleteProfile(name)
+		} else {
+			publishLuaProfileChange(name, false)
 		}
 		return luaImplantProfileError(L, err)
 	}
 	cacheImplantDefinition(name, definition)
+	publishLuaProfileChange(name, created)
 	return 0
+}
+
+func publishLuaProfileChange(name string, created bool) {
+	profile, err := implantbuilder.APIGetProfile(name)
+	if err != nil {
+		return
+	}
+	eventType := teamapi.EventProfileUpdated
+	if created {
+		eventType = teamapi.EventProfileCreated
+	}
+	runtimeevents.Publish(eventType, profile)
 }
 
 func isStructuredImplantDefinition(tbl *lua.LTable) bool {

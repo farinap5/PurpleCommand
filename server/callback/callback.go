@@ -353,7 +353,7 @@ func ParseResponse(reader *bytes.Reader, authenticatedName string) error {
 	}
 	imp.ImplantUpdateLastseen()
 	lua.LuaOnResponse(taskID, string(response), *imp)
-	log.AsyncWriteStdoutInfo(fmt.Sprintf("Response - session:%s task:%s length:%d\n\n%s\n\n", authenticatedName, taskID, responseLength, response))
+	log.AsyncWriteStdoutInfo(fmt.Sprintf("Response - session:%s task:%s length:%d\n", authenticatedName, taskID, responseLength))
 	return nil
 }
 

@@ -119,7 +119,8 @@ func (db *DBDef) dbCreateDs() error {
 		Output		TEXT NOT NULL,
 		Template	TEXT NOT NULL,
 		PublicKey	TEXT NOT NULL,
-		Builder		TEXT NOT NULL DEFAULT ''
+		Builder		TEXT NOT NULL DEFAULT '',
+		ListenerUUID	TEXT NOT NULL DEFAULT ''
 	);
 	`)
 	if err != nil {
@@ -203,6 +204,9 @@ func (db *DBDef) ensureGenericImplantProfileSchema() error {
 	if err := db.ensureImplantProfileBuilderColumn(); err != nil {
 		return err
 	}
+	if err := db.ensureImplantProfileListenerColumn(); err != nil {
+		return err
+	}
 	if err := db.ensureImplantDefinitionsTable(); err != nil {
 		return err
 	}
@@ -210,6 +214,18 @@ func (db *DBDef) ensureGenericImplantProfileSchema() error {
 		return err
 	}
 	return db.migrateImplantProfileProtocolColumns()
+}
+
+func (db *DBDef) ensureImplantProfileListenerColumn() error {
+	columns, err := db.tableColumns("ImplantProfiles")
+	if err != nil {
+		return err
+	}
+	if columns["listeneruuid"] {
+		return nil
+	}
+	_, err = db.DBConn.Exec(`ALTER TABLE ImplantProfiles ADD COLUMN ListenerUUID TEXT NOT NULL DEFAULT '';`)
+	return err
 }
 
 func (db *DBDef) ensureImplantProfileBuilderColumn() error {

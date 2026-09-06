@@ -91,14 +91,54 @@ func DBImplantDefinitionUpsert(definition ImplantDefinition) error {
 	if DBMS.DBConn == nil {
 		return errors.New("database is not initialized")
 	}
+	definition, operatingSystemsJSON, architecturesJSON, err := normalizeImplantDefinition(definition)
+	if err != nil {
+		return err
+	}
+	return execImplantDefinitionUpsert(DBMS.DBConn, definition, operatingSystemsJSON, architecturesJSON)
+}
+
+// DBImplantDefinitionUpsertAndClearProfileListener changes a profile protocol
+// and clears its HTTP listener association as one database transaction.
+func DBImplantDefinitionUpsertAndClearProfileListener(definition ImplantDefinition) error {
+	if DBMS.DBConn == nil {
+		return errors.New("database is not initialized")
+	}
+	definition, operatingSystemsJSON, architecturesJSON, err := normalizeImplantDefinition(definition)
+	if err != nil {
+		return err
+	}
+	tx, err := DBMS.DBConn.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := execImplantDefinitionUpsert(tx, definition, operatingSystemsJSON, architecturesJSON); err != nil {
+		return err
+	}
+	result, err := tx.Exec(`UPDATE ImplantProfiles SET ListenerUUID = '' WHERE Name = ?;`, definition.Name)
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count != 1 {
+		return errors.New("profile not found")
+	}
+	return tx.Commit()
+}
+
+func normalizeImplantDefinition(definition ImplantDefinition) (ImplantDefinition, string, string, error) {
 	definition.Name = strings.TrimSpace(definition.Name)
 	definition.Protocol = strings.ToLower(strings.TrimSpace(definition.Protocol))
 	definition.PayloadType = strings.TrimSpace(definition.PayloadType)
 	if definition.Name == "" || definition.Protocol == "" || definition.PayloadType == "" {
-		return errors.New("implant definition name, protocol, and payload type are required")
+		return ImplantDefinition{}, "", "", errors.New("implant definition name, protocol, and payload type are required")
 	}
 	if err := validateJSONObject(definition.OptionsJSON); err != nil {
-		return fmt.Errorf("implant definition options: %w", err)
+		return ImplantDefinition{}, "", "", fmt.Errorf("implant definition options: %w", err)
 	}
 	now := time.Now().UTC()
 	if definition.CreatedAt.IsZero() {
@@ -112,14 +152,21 @@ func DBImplantDefinitionUpsert(definition ImplantDefinition) error {
 	}
 	operatingSystemsJSON, err := encodeStringList(definition.OperatingSystems)
 	if err != nil {
-		return fmt.Errorf("encode implant definition operating systems: %w", err)
+		return ImplantDefinition{}, "", "", fmt.Errorf("encode implant definition operating systems: %w", err)
 	}
 	architecturesJSON, err := encodeStringList(definition.Architectures)
 	if err != nil {
-		return fmt.Errorf("encode implant definition architectures: %w", err)
+		return ImplantDefinition{}, "", "", fmt.Errorf("encode implant definition architectures: %w", err)
 	}
+	return definition, operatingSystemsJSON, architecturesJSON, nil
+}
 
-	_, err = DBMS.DBConn.Exec(`
+type implantDefinitionExecer interface {
+	Exec(string, ...any) (sql.Result, error)
+}
+
+func execImplantDefinitionUpsert(execer implantDefinitionExecer, definition ImplantDefinition, operatingSystemsJSON, architecturesJSON string) error {
+	_, err := execer.Exec(`
 INSERT INTO ImplantDefinitions
     (Name, Protocol, PayloadType, OperatingSystemsJSON, ArchitecturesJSON,
      OptionsJSON, OTSHash, OTSExpiresAt, OTSUsedAt, ConfigVersion, CreatedAt, UpdatedAt)

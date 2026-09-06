@@ -7,9 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net"
 	"net/http"
 	"net/textproto"
+	"os"
+	"path"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -23,7 +27,10 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-const defaultHTTPMaxBodyBytes int64 = 10 << 20
+const (
+	defaultHTTPMaxBodyBytes int64 = 10 << 20
+	maxHTTPHostedFiles            = 256
+)
 
 var unsafeResponseHeaders = map[string]bool{
 	"connection": true, "content-length": true, "keep-alive": true,
@@ -32,7 +39,12 @@ var unsafeResponseHeaders = map[string]bool{
 }
 
 type HTTPDriver struct {
-	registry *Registry
+	registry   *Registry
+	hostedRoot string
+}
+
+type HTTPDriverConfig struct {
+	HostedRoot string
 }
 
 type httpAddressOptions struct {
@@ -54,13 +66,26 @@ type httpTimeoutOptions struct {
 }
 
 type httpListenerOptions struct {
-	Bind            httpAddressOptions `json:"bind"`
-	Advertise       httpAddressOptions `json:"advertise,omitempty"`
-	TLS             httpTLSOptions     `json:"tls,omitempty"`
-	ResponseHeaders map[string]string  `json:"response_headers,omitempty"`
-	Timeouts        httpTimeoutOptions `json:"timeouts,omitempty"`
-	MaxBodyBytes    int64              `json:"max_body_bytes,omitempty"`
-	MaxHeaderBytes  int                `json:"max_header_bytes,omitempty"`
+	Bind            httpAddressOptions              `json:"bind"`
+	Advertise       httpAddressOptions              `json:"advertise,omitempty"`
+	TLS             httpTLSOptions                  `json:"tls,omitempty"`
+	ResponseHeaders map[string]string               `json:"response_headers,omitempty"`
+	HostedFiles     map[string]HTTPHostedFileConfig `json:"hosted_files,omitempty"`
+	NotFoundPage    *HTTPHostedFileConfig           `json:"not_found_page,omitempty"`
+	Timeouts        httpTimeoutOptions              `json:"timeouts,omitempty"`
+	MaxBodyBytes    int64                           `json:"max_body_bytes,omitempty"`
+	MaxHeaderBytes  int                             `json:"max_header_bytes,omitempty"`
+}
+
+type HTTPHostedFileConfig struct {
+	SourcePath string            `json:"source_path"`
+	Status     int               `json:"status,omitempty"`
+	Headers    map[string]string `json:"headers,omitempty"`
+}
+
+type HTTPHostedFilesConfig struct {
+	HostedFiles  map[string]HTTPHostedFileConfig
+	NotFoundPage *HTTPHostedFileConfig
 }
 
 type resolvedHTTPOptions struct {
@@ -105,6 +130,68 @@ type compiledHTTPRoute struct {
 	outbound Carrier
 }
 
+type compiledHTTPHostedFile struct {
+	file        *os.File
+	size        int64
+	status      int
+	headers     map[string]string
+	contentType string
+}
+
+type compiledHTTPHostedFiles struct {
+	files       map[string]*compiledHTTPHostedFile
+	notFound    *compiledHTTPHostedFile
+	all         []*compiledHTTPHostedFile
+	close       sync.Once
+	lifecycleMu sync.Mutex
+	references  int
+	retired     bool
+}
+
+func (files *compiledHTTPHostedFiles) Close() {
+	if files == nil {
+		return
+	}
+	files.lifecycleMu.Lock()
+	files.retired = true
+	closeNow := files.references == 0
+	files.lifecycleMu.Unlock()
+	if closeNow {
+		files.closeFiles()
+	}
+}
+
+func (files *compiledHTTPHostedFiles) acquire() bool {
+	if files == nil {
+		return false
+	}
+	files.lifecycleMu.Lock()
+	defer files.lifecycleMu.Unlock()
+	if files.retired {
+		return false
+	}
+	files.references++
+	return true
+}
+
+func (files *compiledHTTPHostedFiles) release() {
+	files.lifecycleMu.Lock()
+	files.references--
+	closeNow := files.retired && files.references == 0
+	files.lifecycleMu.Unlock()
+	if closeNow {
+		files.closeFiles()
+	}
+}
+
+func (files *compiledHTTPHostedFiles) closeFiles() {
+	files.close.Do(func() {
+		for _, file := range files.all {
+			_ = file.file.Close()
+		}
+	})
+}
+
 type httpRuntime struct {
 	server           *http.Server
 	listener         net.Listener
@@ -112,6 +199,8 @@ type httpRuntime struct {
 	done             chan error
 	served           chan struct{}
 	closeInteractive func()
+	closeHosted      func()
+	replaceHosted    func(*compiledHTTPHostedFiles) bool
 	stopMu           sync.Mutex
 	stopped          bool
 }
@@ -170,13 +259,21 @@ func (tracker *connectionTracker) CloseAll() {
 }
 
 func NewHTTPDriver(registry *Registry) *HTTPDriver {
-	return &HTTPDriver{registry: registry}
+	return NewHTTPDriverWithConfig(registry, HTTPDriverConfig{})
+}
+
+func NewHTTPDriverWithConfig(registry *Registry, configuration HTTPDriverConfig) *HTTPDriver {
+	root := strings.TrimSpace(configuration.HostedRoot)
+	if root == "" {
+		root = "hosted"
+	}
+	return &HTTPDriver{registry: registry, hostedRoot: root}
 }
 
 func (driver *HTTPDriver) Definition() DriverDefinition {
 	return DriverDefinition{
 		ID: "http", Description: "HTTP callback listener with configurable routing and carriers.",
-		Capabilities: []string{"routes", "custom_headers", "tls", "interactive", "carriers"},
+		Capabilities: []string{"routes", "custom_headers", "tls", "interactive", "carriers", "file_hosting", "custom_404"},
 		Options: []OptionDefinition{
 			{Key: "bind.host", Type: OptionString, Default: json.RawMessage(`"0.0.0.0"`), Description: "Local interface or address to bind."},
 			{Key: "bind.port", Type: OptionString, Default: json.RawMessage(`"4444"`), Description: "Local TCP port; zero requests an ephemeral port."},
@@ -186,6 +283,8 @@ func (driver *HTTPDriver) Definition() DriverDefinition {
 			{Key: "tls.cert_file", Type: OptionFile},
 			{Key: "tls.key_file", Type: OptionFile},
 			{Key: "response_headers", Type: OptionStringMap, Description: "Headers applied to all listener responses."},
+			{Key: "hosted_files", Type: OptionObject, MutableWhileRunning: true, Description: "Exact URL paths mapped to files beneath the teamserver hosted-file directory."},
+			{Key: "not_found_page", Type: OptionObject, MutableWhileRunning: true, Description: "Optional file response used when no listener route or hosted URL matches."},
 			{Key: "max_body_bytes", Type: OptionInteger, Default: json.RawMessage(`10485760`)},
 			{Key: "max_header_bytes", Type: OptionInteger, Default: json.RawMessage(`32768`)},
 			{Key: "timeouts.read_header", Type: OptionDuration, Default: json.RawMessage(`"5s"`)},
@@ -219,11 +318,15 @@ func (driver *HTTPDriver) Start(ctx context.Context, configuration RuntimeConfig
 	if err != nil {
 		return nil, err
 	}
+	hostedFiles, err := driver.openHostedFiles(options)
+	if err != nil {
+		return nil, err
+	}
 	interactiveConnections := newConnectionTracker()
 	httpHandler := &httpListenerHandler{
 		configuration: configuration, options: options, routes: routes, exchange: handler,
 		upgrader: websocket.Upgrader{}, interactiveConnections: interactiveConnections,
-		defaultRoutes: len(configuration.Routes) == 0,
+		defaultRoutes: len(configuration.Routes) == 0, hostedFiles: hostedFiles,
 	}
 	server := &http.Server{
 		Handler: httpHandler, ReadHeaderTimeout: options.readHeaderTimeout,
@@ -233,6 +336,7 @@ func (driver *HTTPDriver) Start(ctx context.Context, configuration RuntimeConfig
 	address := net.JoinHostPort(options.Bind.Host, options.Bind.Port)
 	networkListener, err := net.Listen("tcp", address)
 	if err != nil {
+		hostedFiles.Close()
 		return nil, err
 	}
 	serveListener := networkListener
@@ -240,6 +344,7 @@ func (driver *HTTPDriver) Start(ctx context.Context, configuration RuntimeConfig
 		certificate, certificateErr := tls.LoadX509KeyPair(options.TLS.CertFile, options.TLS.KeyFile)
 		if certificateErr != nil {
 			_ = networkListener.Close()
+			hostedFiles.Close()
 			return nil, fmt.Errorf("load listener TLS certificate: %w", certificateErr)
 		}
 		serveListener = tls.NewListener(networkListener, &tls.Config{
@@ -250,6 +355,8 @@ func (driver *HTTPDriver) Start(ctx context.Context, configuration RuntimeConfig
 		server: server, listener: serveListener, address: serveListener.Addr().String(),
 		done: make(chan error, 1), served: make(chan struct{}),
 		closeInteractive: interactiveConnections.CloseAll,
+		closeHosted:      httpHandler.closeHostedFiles,
+		replaceHosted:    httpHandler.replaceHostedFiles,
 	}
 	go runtime.serve()
 	go func() {
@@ -279,8 +386,14 @@ func (runtime *httpRuntime) Stop(ctx context.Context) error {
 		// Shutdown is graceful and may time out on an active callback. Close
 		// provides the bounded fallback required by listener delete/shutdown.
 		if closeErr := runtime.server.Close(); closeErr != nil {
+			if runtime.closeHosted != nil {
+				runtime.closeHosted()
+			}
 			return errors.Join(err, closeErr)
 		}
+	}
+	if runtime.closeHosted != nil {
+		runtime.closeHosted()
 	}
 	runtime.stopped = true
 	return nil
@@ -289,8 +402,16 @@ func (runtime *httpRuntime) Stop(ctx context.Context) error {
 func (runtime *httpRuntime) serve() {
 	defer close(runtime.served)
 	err := runtime.server.Serve(runtime.listener)
-	if errors.Is(err, http.ErrServerClosed) || errors.Is(err, net.ErrClosed) {
+	if errors.Is(err, http.ErrServerClosed) {
 		err = nil
+	} else {
+		_ = runtime.server.Close()
+		if runtime.closeHosted != nil {
+			runtime.closeHosted()
+		}
+		if errors.Is(err, net.ErrClosed) {
+			err = nil
+		}
 	}
 	runtime.done <- err
 	close(runtime.done)
@@ -300,11 +421,21 @@ type httpListenerHandler struct {
 	configuration          RuntimeConfig
 	options                resolvedHTTPOptions
 	routes                 []compiledHTTPRoute
+	hostedFiles            *compiledHTTPHostedFiles
 	exchange               ExchangeHandler
 	upgrader               websocket.Upgrader
 	interactiveConnections *connectionTracker
 	defaultRoutes          bool
+	hostedMu               sync.RWMutex
+	hostedClosed           bool
 }
+
+type httpCallbackDisposition uint8
+
+const (
+	httpCallbackHandled httpCallbackDisposition = iota
+	httpCallbackInvalid
+)
 
 func (handler *httpListenerHandler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	for name, value := range handler.options.ResponseHeaders {
@@ -312,6 +443,13 @@ func (handler *httpListenerHandler) ServeHTTP(writer http.ResponseWriter, reques
 	}
 	route := handler.matchRoute(request)
 	if route == nil {
+		if (request.Method == http.MethodGet || request.Method == http.MethodHead) &&
+			handler.serveExactHostedFile(writer, request) {
+			return
+		}
+		if handler.serveNotFoundPage(writer, request) {
+			return
+		}
 		if handler.defaultRoutes && request.URL.Path == "/" &&
 			request.Method != http.MethodGet && request.Method != http.MethodPost {
 			writer.Header().Set("Allow", "GET, POST")
@@ -323,26 +461,107 @@ func (handler *httpListenerHandler) ServeHTTP(writer http.ResponseWriter, reques
 	}
 	switch route.route.Purpose {
 	case "callback":
-		handler.callback(writer, request, route)
+		if handler.callback(writer, request, route) == httpCallbackInvalid {
+			if handler.serveExactHostedFile(writer, request) {
+				return
+			}
+			http.Error(writer, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		}
 	case "interactive":
+		if !websocket.IsWebSocketUpgrade(request) && handler.serveExactHostedFile(writer, request) {
+			return
+		}
 		handler.interactive(writer, request, route)
 	default:
 		http.Error(writer, "route purpose is not available", http.StatusNotImplemented)
 	}
 }
 
-func (handler *httpListenerHandler) callback(writer http.ResponseWriter, request *http.Request, route *compiledHTTPRoute) {
+func (handler *httpListenerHandler) serveExactHostedFile(writer http.ResponseWriter, request *http.Request) bool {
+	files := handler.acquireHostedFiles()
+	if files == nil {
+		return false
+	}
+	defer files.release()
+	hosted := files.files[request.URL.Path]
+	if hosted == nil {
+		return false
+	}
+	handler.serveHostedFile(writer, request, hosted)
+	return true
+}
+
+func (handler *httpListenerHandler) serveNotFoundPage(writer http.ResponseWriter, request *http.Request) bool {
+	files := handler.acquireHostedFiles()
+	if files == nil {
+		return false
+	}
+	defer files.release()
+	if files.notFound == nil {
+		return false
+	}
+	handler.serveHostedFile(writer, request, files.notFound)
+	return true
+}
+
+func (handler *httpListenerHandler) acquireHostedFiles() *compiledHTTPHostedFiles {
+	handler.hostedMu.RLock()
+	defer handler.hostedMu.RUnlock()
+	if handler.hostedClosed || !handler.hostedFiles.acquire() {
+		return nil
+	}
+	return handler.hostedFiles
+}
+
+func (handler *httpListenerHandler) replaceHostedFiles(files *compiledHTTPHostedFiles) bool {
+	handler.hostedMu.Lock()
+	if handler.hostedClosed {
+		handler.hostedMu.Unlock()
+		files.Close()
+		return false
+	}
+	previous := handler.hostedFiles
+	handler.hostedFiles = files
+	handler.hostedMu.Unlock()
+	previous.Close()
+	return true
+}
+
+func (handler *httpListenerHandler) closeHostedFiles() {
+	handler.hostedMu.Lock()
+	handler.hostedClosed = true
+	previous := handler.hostedFiles
+	handler.hostedFiles = nil
+	handler.hostedMu.Unlock()
+	previous.Close()
+}
+
+func (handler *httpListenerHandler) serveHostedFile(writer http.ResponseWriter, request *http.Request, hosted *compiledHTTPHostedFile) {
+	for name, value := range hosted.headers {
+		writer.Header().Set(name, value)
+	}
+	if writer.Header().Get("Content-Type") == "" {
+		writer.Header().Set("Content-Type", hosted.contentType)
+	}
+	writer.Header().Set("Content-Length", strconv.FormatInt(hosted.size, 10))
+	writer.WriteHeader(hosted.status)
+	if request.Method == http.MethodHead {
+		return
+	}
+	_, _ = io.Copy(writer, io.NewSectionReader(hosted.file, 0, hosted.size))
+}
+
+func (handler *httpListenerHandler) callback(writer http.ResponseWriter, request *http.Request, route *compiledHTTPRoute) httpCallbackDisposition {
 	request.Body = http.MaxBytesReader(writer, request.Body, handler.options.MaxBodyBytes)
 	body, err := io.ReadAll(request.Body)
 	if err != nil {
 		http.Error(writer, "invalid callback body", http.StatusRequestEntityTooLarge)
-		return
+		return httpCallbackHandled
 	}
 	envelope := requestEnvelope(request, body)
 	message, err := route.inbound.Decode(envelope, route.route.Inbound.Options)
 	if err != nil {
-		http.Error(writer, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-		return
+		return httpCallbackInvalid
 	}
 	session := message.Session
 	if session == "" {
@@ -355,8 +574,11 @@ func (handler *httpListenerHandler) callback(writer http.ResponseWriter, request
 		Metadata: cloneStringMap(envelope.Fields),
 	})
 	if err != nil {
+		if errors.Is(err, ErrInvalidImplantRequest) {
+			return httpCallbackInvalid
+		}
 		http.Error(writer, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-		return
+		return httpCallbackHandled
 	}
 	for name, value := range route.options.Response.Headers {
 		writer.Header().Set(name, value)
@@ -380,13 +602,14 @@ func (handler *httpListenerHandler) callback(writer http.ResponseWriter, request
 		response, encodeErr := route.outbound.Encode(CarriedMessage{Payload: result.Payload, Session: session}, route.route.Outbound.Options)
 		if encodeErr != nil {
 			http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-			return
+			return httpCallbackHandled
 		}
 		applyResponseEnvelope(writer, response)
 		responseBody = response.Body
 	}
 	writer.WriteHeader(status)
 	_, _ = writer.Write(responseBody)
+	return httpCallbackHandled
 }
 
 func (handler *httpListenerHandler) transport() string {
@@ -519,6 +742,9 @@ func resolveHTTPOptions(raw json.RawMessage) (resolvedHTTPOptions, error) {
 	if err := validateResponseHeaders(options.ResponseHeaders); err != nil {
 		return options, err
 	}
+	if err := validateHTTPHostedFiles(options.HostedFiles, options.NotFoundPage); err != nil {
+		return options, err
+	}
 	if options.MaxBodyBytes == 0 {
 		options.MaxBodyBytes = defaultHTTPMaxBodyBytes
 	}
@@ -547,6 +773,163 @@ func resolveHTTPOptions(raw json.RawMessage) (resolvedHTTPOptions, error) {
 	return options, nil
 }
 
+func validateHTTPHostedFiles(files map[string]HTTPHostedFileConfig, notFound *HTTPHostedFileConfig) error {
+	if len(files) > maxHTTPHostedFiles {
+		return fmt.Errorf("HTTP hosted_files contains %d entries; maximum is %d", len(files), maxHTTPHostedFiles)
+	}
+	for urlPath, file := range files {
+		if err := validateHTTPHostedURLPath(urlPath); err != nil {
+			return fmt.Errorf("HTTP hosted file %q: %w", urlPath, err)
+		}
+		if err := validateHTTPHostedFileOptions(&file, http.StatusOK); err != nil {
+			return fmt.Errorf("HTTP hosted file %q: %w", urlPath, err)
+		}
+		files[urlPath] = file
+	}
+	if notFound != nil {
+		if err := validateHTTPHostedFileOptions(notFound, http.StatusNotFound); err != nil {
+			return fmt.Errorf("HTTP not-found page: %w", err)
+		}
+		if notFound.Status != http.StatusNotFound {
+			return errors.New("HTTP not-found page status must be 404")
+		}
+	}
+	return nil
+}
+
+func validateHTTPHostedURLPath(value string) error {
+	if value == "" || !strings.HasPrefix(value, "/") {
+		return errors.New("URL path must start with /")
+	}
+	if strings.ContainsAny(value, "?#\r\n\x00") {
+		return errors.New("URL path must not contain a query, fragment, line break, or NUL byte")
+	}
+	if path.Clean(value) != value || strings.HasPrefix(value, "//") {
+		return errors.New("URL path must be canonical")
+	}
+	return nil
+}
+
+func validateHTTPHostedFileOptions(options *HTTPHostedFileConfig, defaultStatus int) error {
+	options.SourcePath = strings.TrimSpace(options.SourcePath)
+	if options.SourcePath == "" || strings.ContainsRune(options.SourcePath, '\x00') {
+		return errors.New("source_path is required and must not contain a NUL byte")
+	}
+	if options.Status == 0 {
+		options.Status = defaultStatus
+	}
+	if options.Status < 200 || options.Status > 599 || options.Status == http.StatusNoContent ||
+		options.Status == http.StatusResetContent || options.Status == http.StatusNotModified {
+		return errors.New("status must be a final HTTP status between 200 and 599 that permits a response body")
+	}
+	return validateResponseHeaders(options.Headers)
+}
+
+func (driver *HTTPDriver) openHostedFiles(options resolvedHTTPOptions) (*compiledHTTPHostedFiles, error) {
+	result := &compiledHTTPHostedFiles{files: make(map[string]*compiledHTTPHostedFile, len(options.HostedFiles))}
+	if len(options.HostedFiles) == 0 && options.NotFoundPage == nil {
+		return result, nil
+	}
+	root, err := filepath.Abs(driver.hostedRoot)
+	if err != nil {
+		return nil, fmt.Errorf("resolve HTTP hosted-file root: %w", err)
+	}
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		return nil, fmt.Errorf("resolve HTTP hosted-file root: %w", err)
+	}
+	rootInfo, err := os.Stat(root)
+	if err != nil {
+		return nil, fmt.Errorf("inspect HTTP hosted-file root: %w", err)
+	}
+	if !rootInfo.IsDir() {
+		return nil, errors.New("HTTP hosted-file root is not a directory")
+	}
+	for urlPath, configuration := range options.HostedFiles {
+		file, openErr := openHTTPHostedFile(root, urlPath, configuration)
+		if openErr != nil {
+			result.Close()
+			return nil, fmt.Errorf("open HTTP hosted file %q: %w", urlPath, openErr)
+		}
+		result.files[urlPath] = file
+		result.all = append(result.all, file)
+	}
+	if options.NotFoundPage != nil {
+		file, openErr := openHTTPHostedFile(root, "", *options.NotFoundPage)
+		if openErr != nil {
+			result.Close()
+			return nil, fmt.Errorf("open HTTP not-found page: %w", openErr)
+		}
+		result.notFound = file
+		result.all = append(result.all, file)
+	}
+	return result, nil
+}
+
+func openHTTPHostedFile(root, urlPath string, configuration HTTPHostedFileConfig) (*compiledHTTPHostedFile, error) {
+	source := configuration.SourcePath
+	if !filepath.IsAbs(source) {
+		source = filepath.Join(root, source)
+	}
+	resolved, err := filepath.EvalSymlinks(source)
+	if err != nil {
+		return nil, err
+	}
+	resolved, err = filepath.Abs(resolved)
+	if err != nil {
+		return nil, err
+	}
+	relative, err := filepath.Rel(root, resolved)
+	if err != nil {
+		return nil, err
+	}
+	if relative == ".." || filepath.IsAbs(relative) || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return nil, errors.New("source_path resolves outside the hosted-file root")
+	}
+	file, err := os.Open(resolved)
+	if err != nil {
+		return nil, err
+	}
+	info, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		_ = file.Close()
+		return nil, errors.New("source_path is not a regular file")
+	}
+	contentType := configuration.Headers["Content-Type"]
+	if contentType == "" {
+		extension := filepath.Ext(urlPath)
+		if extension == "" {
+			extension = filepath.Ext(resolved)
+		}
+		contentType = mime.TypeByExtension(extension)
+		if contentType == "" {
+			prefix := make([]byte, 512)
+			read, readErr := file.ReadAt(prefix, 0)
+			if readErr != nil && !errors.Is(readErr, io.EOF) {
+				_ = file.Close()
+				return nil, readErr
+			}
+			contentType = http.DetectContentType(prefix[:read])
+		}
+	}
+	return &compiledHTTPHostedFile{
+		file: file, size: info.Size(), status: configuration.Status,
+		headers: cloneHeaderMap(configuration.Headers), contentType: contentType,
+	}, nil
+}
+
+func cloneHeaderMap(source map[string]string) map[string]string {
+	result := make(map[string]string, len(source))
+	for name, value := range source {
+		result[name] = value
+	}
+	return result
+}
+
 func parseHTTPDuration(value string, fallback time.Duration, field string) (time.Duration, error) {
 	if value == "" {
 		return fallback, nil
@@ -567,20 +950,52 @@ func validatePort(value string) error {
 }
 
 func validateResponseHeaders(headers map[string]string) error {
+	normalized := make(map[string]string, len(headers))
 	for name, value := range headers {
-		canonical := textproto.CanonicalMIMEHeaderKey(strings.TrimSpace(name))
-		if canonical == "" || strings.ContainsAny(name+value, "\r\n") {
+		name = strings.TrimSpace(name)
+		if !validHTTPHeaderName(name) || !validHTTPHeaderValue(value) {
 			return fmt.Errorf("invalid HTTP response header %q", name)
 		}
+		canonical := textproto.CanonicalMIMEHeaderKey(name)
 		if unsafeResponseHeaders[strings.ToLower(canonical)] {
 			return fmt.Errorf("HTTP response header %q is controlled by the server", name)
 		}
-		if canonical != name {
-			delete(headers, name)
-			headers[canonical] = value
+		if _, exists := normalized[canonical]; exists {
+			return fmt.Errorf("duplicate HTTP response header %q", canonical)
 		}
+		normalized[canonical] = value
+	}
+	for name := range headers {
+		delete(headers, name)
+	}
+	for name, value := range normalized {
+		headers[name] = value
 	}
 	return nil
+}
+
+func validHTTPHeaderName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, character := range []byte(name) {
+		if character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' ||
+			character >= '0' && character <= '9' || strings.ContainsRune("!#$%&'*+-.^_`|~", rune(character)) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func validHTTPHeaderValue(value string) bool {
+	for _, character := range []byte(value) {
+		if character == '\t' || character >= ' ' && character != '\x7f' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func validateHTTPRouteMatch(match *httpRouteMatch) error {
@@ -756,11 +1171,15 @@ func defaultHTTPRoutes() []Route {
 }
 
 func RegisterHTTPBuiltins(registry *Registry) error {
+	return RegisterHTTPBuiltinsWithConfig(registry, HTTPDriverConfig{})
+}
+
+func RegisterHTTPBuiltinsWithConfig(registry *Registry, configuration HTTPDriverConfig) error {
 	if registry == nil {
 		return errors.New("listener registry is required")
 	}
 	if err := registerHTTPCarriers(registry); err != nil {
 		return err
 	}
-	return registry.RegisterDriver(NewHTTPDriver(registry))
+	return registry.RegisterDriver(NewHTTPDriverWithConfig(registry, configuration))
 }

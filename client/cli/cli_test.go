@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"testing"
 
 	"purpcmd/pkg/teamapi"
@@ -18,6 +19,39 @@ func TestCompleteTextUsesSharedPromptDescriptions(t *testing.T) {
 	}
 	if suggestion.Description == "" {
 		t.Fatal("shared listener suggestion has no description")
+	}
+}
+
+func TestCompleteTextSuggestsListenerHostingCommandsAndPaths(t *testing.T) {
+	cli := &CLI{
+		mode: modeListener, selectedListener: "http",
+		snapshot: teamapi.Snapshot{Listeners: []teamapi.Listener{{
+			Name: "http", Options: json.RawMessage(`{"hosted_files":{"/index.html":{"source_path":"site/index.html"}}}`),
+		}}},
+	}
+	if _, ok := suggestionByText(cli.completeText("host "), "add"); !ok {
+		t.Fatal("missing hosted-file add completion")
+	}
+	if _, ok := suggestionByText(cli.completeText("host remove "), "/index.html"); !ok {
+		t.Fatal("missing hosted URL completion")
+	}
+}
+
+func TestListenerHostedFileHelpers(t *testing.T) {
+	entries, err := listenerHostedFileEntries(map[string]json.RawMessage{"hosted_files": json.RawMessage(`null`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries["/"] = json.RawMessage(`{"source_path":"index.html"}`)
+	if len(entries) != 1 {
+		t.Fatalf("entries = %#v", entries)
+	}
+	headers, err := parseListenerHostedHeaders([]string{`{"Content-Type":`, `"text/html; charset=utf-8"}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if headers["Content-Type"] != "text/html; charset=utf-8" {
+		t.Fatalf("headers = %#v", headers)
 	}
 }
 

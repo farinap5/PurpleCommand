@@ -26,10 +26,19 @@ type Profile struct {
 	Template            string          `json:"template"`
 	PublicKey           string          `json:"public_key"`
 	Builder             string          `json:"builder"`
+	ListenerUUID        string          `json:"listener_uuid"`
 }
 
 type ProfileUpdateRequest struct {
 	Name  string `json:"name"`
 	Key   string `json:"key"`
 	Value string `json:"value"`
+}
+
+// ProfileListenerSetRequest attaches or refreshes a listener association.
+// An empty ListenerUUID detaches the listener while preserving the current
+// materialized LHOST.
+type ProfileListenerSetRequest struct {
+	Name         string  `json:"name"`
+	ListenerUUID *string `json:"listener_uuid"`
 }

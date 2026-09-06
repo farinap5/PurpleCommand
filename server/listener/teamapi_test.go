@@ -11,13 +11,24 @@ func TestListenerCreateAndLegacyUpdateAPIConversion(t *testing.T) {
 	persistent := false
 	configuration, err := ListenerCreateFromAPI(teamapi.ListenerCreateRequest{
 		Name: " api ", Host: "127.0.0.1", Port: "8080", Persistent: &persistent,
-		Options: json.RawMessage(`{"response_headers":{"X-Test":"yes"}}`),
+		Options: json.RawMessage(`{
+			"response_headers":{"X-Test":"yes"},
+			"hosted_files":{"/":{"source_path":"site/index.html"}},
+			"not_found_page":{"source_path":"site/404.html"}
+		}`),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if configuration.Name != "api" || configuration.Driver != "http" || configuration.Persistent {
 		t.Fatalf("configuration = %#v", configuration)
+	}
+	var options map[string]json.RawMessage
+	if err := json.Unmarshal(configuration.Options, &options); err != nil {
+		t.Fatal(err)
+	}
+	if len(options["hosted_files"]) == 0 || len(options["not_found_page"]) == 0 {
+		t.Fatalf("hosted options were not preserved: %s", configuration.Options)
 	}
 	dto := ListenerSnapshotToAPI(ManagedListenerSnapshot{
 		Config: configuration,
@@ -48,6 +59,7 @@ func TestTeamEventPublisherMapsEveryListenerEvent(t *testing.T) {
 		"stopped":  teamapi.EventListenerStopped,
 		"failed":   teamapi.EventListenerFailed,
 		"deleted":  teamapi.EventListenerDeleted,
+		"hosted":   teamapi.EventListenerHostedUpdated,
 	}
 	for managerType, expectedType := range expected {
 		t.Run(managerType, func(t *testing.T) {
@@ -62,6 +74,13 @@ func TestTeamEventPublisherMapsEveryListenerEvent(t *testing.T) {
 			}})
 			if eventType != expectedType {
 				t.Fatalf("event type = %q, want %q", eventType, expectedType)
+			}
+			if managerType == "hosted" {
+				hosted, ok := value.(teamapi.ListenerHostedConfiguration)
+				if !ok || hosted.Name != "contract" || hosted.ListenerUUID != "contract-id" || hosted.HostedFiles == nil {
+					t.Fatalf("hosted event value = %#v", value)
+				}
+				return
 			}
 			if managerType == "deleted" {
 				deleted, ok := value.(map[string]string)

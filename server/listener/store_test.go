@@ -32,12 +32,12 @@ func TestDBStoreRestoresDesiredRuntimeAndPreservesItOnShutdown(t *testing.T) {
 	manager := NewManagerWithStore(registry, nil, nil, DBStore{})
 	created, err := manager.Create(ManagedListenerConfig{
 		Name: "persistent", UUID: "persistent-id", Driver: "test", Persistent: true,
-		Options: json.RawMessage(`{"value":"one"}`),
+		Options: json.RawMessage(`{"value":"one","hosted_files":{"/":{"source_path":"site/index.html"}},"not_found_page":{"source_path":"site/404.html"}}`),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	created.Config.Options = json.RawMessage(`{"value":"two"}`)
+	created.Config.Options = json.RawMessage(`{"value":"two","hosted_files":{"/":{"source_path":"site/index.html"}},"not_found_page":{"source_path":"site/404.html"}}`)
 	updated, err := manager.Update(created.Config, created.Config.ConfigVersion)
 	if err != nil {
 		t.Fatal(err)
@@ -73,6 +73,16 @@ func TestDBStoreRestoresDesiredRuntimeAndPreservesItOnShutdown(t *testing.T) {
 	}
 	if snapshot.Status.State != StateRunning || snapshot.Config.DesiredState != StateRunning {
 		t.Fatalf("restored listener = %#v", snapshot)
+	}
+	var restoredOptions struct {
+		HostedFiles  map[string]json.RawMessage `json:"hosted_files"`
+		NotFoundPage json.RawMessage            `json:"not_found_page"`
+	}
+	if err := json.Unmarshal(snapshot.Config.Options, &restoredOptions); err != nil {
+		t.Fatal(err)
+	}
+	if len(restoredOptions.HostedFiles) != 1 || len(restoredOptions.NotFoundPage) == 0 {
+		t.Fatalf("restored hosted-file options = %s", snapshot.Config.Options)
 	}
 	if _, err := restored.Stop("persistent"); err != nil {
 		t.Fatal(err)

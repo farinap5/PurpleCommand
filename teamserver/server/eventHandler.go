@@ -76,6 +76,93 @@ func (server *Server) dispatch(envelope teamapi.Envelope, actor principal) (any,
 			return fail(err)
 		}
 		return listener.ListenerSnapshotToAPI(snapshot), nil
+	case teamapi.AskListenerHosted:
+		var request teamapi.NameRequest
+		if err := teamapi.DecodeData(envelope, &request); err != nil {
+			return fail(err)
+		}
+		snapshot, _, err := server.listeners.HTTPHostedFiles(request.Name)
+		if err != nil {
+			return fail(err)
+		}
+		hosted, err := listener.ListenerHostedConfigurationToAPI(snapshot)
+		if err != nil {
+			return fail(err)
+		}
+		return hosted, nil
+	case teamapi.AskListenerHostedSet:
+		var request teamapi.ListenerHostedSetRequest
+		if err := teamapi.DecodeData(envelope, &request); err != nil {
+			return fail(err)
+		}
+		if request.HostedFiles == nil {
+			return fail(errors.New("hosted_files is required"))
+		}
+		hosted, err := server.updateListenerHosted(request.Name, request.ExpectedConfigVersion, func(configuration *listener.HTTPHostedFilesConfig) error {
+			*configuration = listener.HTTPHostedFilesConfigFromAPI(request.HostedFiles, request.NotFoundPage)
+			return nil
+		})
+		if err != nil {
+			return fail(err)
+		}
+		return hosted, nil
+	case teamapi.AskListenerHostedAdd:
+		var request teamapi.ListenerHostedAddRequest
+		if err := teamapi.DecodeData(envelope, &request); err != nil {
+			return fail(err)
+		}
+		hosted, err := server.updateListenerHosted(request.Name, request.ExpectedConfigVersion, func(configuration *listener.HTTPHostedFilesConfig) error {
+			file := listener.HTTPHostedFilesConfigFromAPI(map[string]teamapi.HTTPHostedFile{request.URLPath: request.File}, nil)
+			configuration.HostedFiles[request.URLPath] = file.HostedFiles[request.URLPath]
+			return nil
+		})
+		if err != nil {
+			return fail(err)
+		}
+		return hosted, nil
+	case teamapi.AskListenerHostedRemove:
+		var request teamapi.ListenerHostedRemoveRequest
+		if err := teamapi.DecodeData(envelope, &request); err != nil {
+			return fail(err)
+		}
+		hosted, err := server.updateListenerHosted(request.Name, request.ExpectedConfigVersion, func(configuration *listener.HTTPHostedFilesConfig) error {
+			if _, found := configuration.HostedFiles[request.URLPath]; !found {
+				return errors.New("hosted URL path not found")
+			}
+			delete(configuration.HostedFiles, request.URLPath)
+			return nil
+		})
+		if err != nil {
+			return fail(err)
+		}
+		return hosted, nil
+	case teamapi.AskListenerHostedNotFoundSet:
+		var request teamapi.ListenerHostedNotFoundSetRequest
+		if err := teamapi.DecodeData(envelope, &request); err != nil {
+			return fail(err)
+		}
+		hosted, err := server.updateListenerHosted(request.Name, request.ExpectedConfigVersion, func(configuration *listener.HTTPHostedFilesConfig) error {
+			file := listener.HTTPHostedFilesConfigFromAPI(nil, &request.File)
+			configuration.NotFoundPage = file.NotFoundPage
+			return nil
+		})
+		if err != nil {
+			return fail(err)
+		}
+		return hosted, nil
+	case teamapi.AskListenerHostedNotFoundClear:
+		var request teamapi.ListenerHostedNotFoundClearRequest
+		if err := teamapi.DecodeData(envelope, &request); err != nil {
+			return fail(err)
+		}
+		hosted, err := server.updateListenerHosted(request.Name, request.ExpectedConfigVersion, func(configuration *listener.HTTPHostedFilesConfig) error {
+			configuration.NotFoundPage = nil
+			return nil
+		})
+		if err != nil {
+			return fail(err)
+		}
+		return hosted, nil
 	case teamapi.AskListenerCreate:
 		var request teamapi.ListenerCreateRequest
 		if err := teamapi.DecodeData(envelope, &request); err != nil {
@@ -101,18 +188,37 @@ func (server *Server) dispatch(envelope teamapi.Envelope, actor principal) (any,
 		if err := teamapi.DecodeData(envelope, &request); err != nil {
 			return fail(err)
 		}
+		server.profileListenerMu.Lock()
 		current, err := server.listeners.Get(request.Name)
 		if err != nil {
+			server.profileListenerMu.Unlock()
 			return fail(err)
 		}
 		configuration, err := listener.ListenerUpdateFromAPI(current, request)
 		if err != nil {
+			server.profileListenerMu.Unlock()
 			return fail(err)
+		}
+		if request.ExpectedConfigVersion > 0 && request.ExpectedConfigVersion != current.Config.ConfigVersion {
+			server.profileListenerMu.Unlock()
+			return fail(errors.New("listener configuration changed"))
+		}
+		if _, compatibilityErr := listener.HTTPProfileLHOST(listener.ManagedListenerSnapshot{Config: configuration}); compatibilityErr != nil {
+			profiles := implantbuilder.APIProfileNamesForListener(current.Config.UUID)
+			if len(profiles) != 0 {
+				server.profileListenerMu.Unlock()
+				return fail(fmt.Errorf(
+					"detach profiles %s before making listener %q incompatible: %w",
+					strings.Join(profiles, ", "), current.Config.Name, compatibilityErr,
+				))
+			}
 		}
 		snapshot, err := server.listeners.Update(configuration, request.ExpectedConfigVersion)
 		if err != nil {
+			server.profileListenerMu.Unlock()
 			return fail(err)
 		}
+		server.profileListenerMu.Unlock()
 		return listener.ListenerSnapshotToAPI(snapshot), nil
 	case teamapi.AskListenerStart:
 		var request teamapi.NameRequest
@@ -149,8 +255,24 @@ func (server *Server) dispatch(envelope teamapi.Envelope, actor principal) (any,
 		if err := teamapi.DecodeData(envelope, &request); err != nil {
 			return fail(err)
 		}
-		if _, err := server.listeners.Delete(request.Name); err != nil {
+		server.profileListenerMu.Lock()
+		snapshot, err := server.listeners.Get(request.Name)
+		if err != nil {
+			server.profileListenerMu.Unlock()
 			return fail(err)
+		}
+		updatedProfiles, err := implantbuilder.APIClearProfileListeners(snapshot.Config.UUID)
+		if err != nil {
+			server.profileListenerMu.Unlock()
+			return fail(err)
+		}
+		_, deleteErr := server.listeners.Delete(request.Name)
+		server.profileListenerMu.Unlock()
+		for _, profile := range updatedProfiles {
+			publish(teamapi.EventProfileUpdated, profile)
+		}
+		if deleteErr != nil {
+			return fail(deleteErr)
 		}
 		deleted := map[string]string{"name": request.Name}
 		return deleted, nil
@@ -317,6 +439,7 @@ func (server *Server) dispatch(envelope teamapi.Envelope, actor principal) (any,
 		if err != nil {
 			return fail(err)
 		}
+		publish(teamapi.EventProfileCreated, item)
 		return item, nil
 	case teamapi.AskProfileUpdate:
 		var request teamapi.ProfileUpdateRequest
@@ -327,6 +450,7 @@ func (server *Server) dispatch(envelope teamapi.Envelope, actor principal) (any,
 		if err != nil {
 			return fail(err)
 		}
+		publish(teamapi.EventProfileUpdated, item)
 		return item, nil
 	case teamapi.AskProfileDelete:
 		var request teamapi.NameRequest
@@ -336,7 +460,39 @@ func (server *Server) dispatch(envelope teamapi.Envelope, actor principal) (any,
 		if err := implantbuilder.APIDeleteProfile(request.Name); err != nil {
 			return fail(err)
 		}
-		return map[string]string{"name": request.Name}, nil
+		deleted := map[string]string{"name": request.Name}
+		publish(teamapi.EventProfileDeleted, deleted)
+		return deleted, nil
+	case teamapi.AskProfileListenerSet:
+		var request teamapi.ProfileListenerSetRequest
+		if err := teamapi.DecodeData(envelope, &request); err != nil {
+			return fail(err)
+		}
+		if request.ListenerUUID == nil {
+			return fail(errors.New("listener_uuid is required; use an explicit empty string to detach"))
+		}
+		server.profileListenerMu.Lock()
+		defer server.profileListenerMu.Unlock()
+		listenerUUID := strings.TrimSpace(*request.ListenerUUID)
+		lhost := ""
+		if listenerUUID != "" {
+			snapshot, err := server.listeners.GetByUUID(listenerUUID)
+			if err != nil {
+				return fail(err)
+			}
+			lhost, err = listener.HTTPProfileLHOST(snapshot)
+			if err != nil {
+				return fail(err)
+			}
+		}
+		item, changed, err := implantbuilder.APISetProfileListener(request.Name, listenerUUID, lhost)
+		if err != nil {
+			return fail(err)
+		}
+		if changed {
+			publish(teamapi.EventProfileUpdated, item)
+		}
+		return item, nil
 	case teamapi.AskBuildCreate:
 		var request teamapi.BuildRequest
 		if err := teamapi.DecodeData(envelope, &request); err != nil {
@@ -488,4 +644,24 @@ func (server *Server) dispatch(envelope teamapi.Envelope, actor principal) (any,
 	default:
 		return fail(fmt.Errorf("unknown operation %q", envelope.Type))
 	}
+}
+
+func (server *Server) updateListenerHosted(name string, expectedVersion int, mutate func(*listener.HTTPHostedFilesConfig) error) (teamapi.ListenerHostedConfiguration, error) {
+	server.profileListenerMu.Lock()
+	defer server.profileListenerMu.Unlock()
+	current, hosted, err := server.listeners.HTTPHostedFiles(name)
+	if err != nil {
+		return teamapi.ListenerHostedConfiguration{}, err
+	}
+	if err := mutate(&hosted); err != nil {
+		return teamapi.ListenerHostedConfiguration{}, err
+	}
+	if expectedVersion == 0 {
+		expectedVersion = current.Config.ConfigVersion
+	}
+	updated, err := server.listeners.UpdateHTTPHostedFiles(name, hosted, expectedVersion)
+	if err != nil {
+		return teamapi.ListenerHostedConfiguration{}, err
+	}
+	return listener.ListenerHostedConfigurationToAPI(updated)
 }

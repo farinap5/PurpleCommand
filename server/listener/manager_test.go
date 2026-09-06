@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -168,6 +169,57 @@ func TestManagerLifecycleAndDefensiveSnapshots(t *testing.T) {
 	}
 	if len(*events) < 8 || (*events)[0].Type != "created" || (*events)[len(*events)-1].Type != "deleted" {
 		t.Fatalf("events = %#v", *events)
+	}
+}
+
+func TestManagerGetByUUID(t *testing.T) {
+	manager, _, _ := newManagerTest(t)
+	if _, err := manager.Create(ManagedListenerConfig{
+		Name: "alpha", UUID: "stable-id", Driver: "test", Persistent: true,
+		Options: json.RawMessage(`{}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := manager.GetByUUID(" stable-id ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Config.Name != "alpha" || snapshot.Config.UUID != "stable-id" {
+		t.Fatalf("resolved snapshot = %#v", snapshot)
+	}
+	snapshot.Config.Options[0] = '['
+	stored, err := manager.GetByUUID("stable-id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(stored.Config.Options) != `{}` {
+		t.Fatalf("manager returned a mutable snapshot: %s", stored.Config.Options)
+	}
+	if _, err := manager.GetByUUID(""); !errors.Is(err, ErrManagedListenerNotFound) {
+		t.Fatalf("empty UUID error = %v", err)
+	}
+	if _, err := manager.GetByUUID("missing"); !errors.Is(err, ErrManagedListenerNotFound) {
+		t.Fatalf("missing UUID error = %v", err)
+	}
+}
+
+func TestManagerRejectsDuplicateAndNormalizesUUID(t *testing.T) {
+	manager, _, _ := newManagerTest(t)
+	created, err := manager.Create(ManagedListenerConfig{
+		Name: "alpha", UUID: " stable-id ", Driver: "test", Persistent: false,
+		Options: json.RawMessage(`{}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Config.UUID != "stable-id" {
+		t.Fatalf("normalized UUID = %q", created.Config.UUID)
+	}
+	if _, err := manager.Create(ManagedListenerConfig{
+		Name: "beta", UUID: "stable-id", Driver: "test", Persistent: false,
+		Options: json.RawMessage(`{}`),
+	}); err == nil || !strings.Contains(err.Error(), "UUID already exists") {
+		t.Fatalf("duplicate UUID error = %v", err)
 	}
 }
 

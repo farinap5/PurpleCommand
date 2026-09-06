@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"io"
 	"math/big"
 	"net"
@@ -146,6 +147,239 @@ func TestHTTPDriverCustomRouteHeadersAndImageResponse(t *testing.T) {
 	}
 }
 
+func TestHTTPDriverHostedFilesAndDefaultNotFoundPage(t *testing.T) {
+	directory := t.TempDir()
+	binaryContent := []byte{0x00, 0x01, 0xfe, 0xff, 'P', 'C'}
+	if err := os.WriteFile(filepath.Join(directory, "payload.bin"), binaryContent, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "not-found.html"), []byte("custom missing"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "logo.png"), []byte("not-a-websocket"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, driver := newHTTPDriverTestWithRoot(t, directory)
+	options, err := resolveHTTPOptions(json.RawMessage(`{
+		"response_headers":{"X-Global":"global","X-Override":"global"},
+		"hosted_files":{
+			"/payload.bin":{"source_path":"payload.bin","status":202,"headers":{"Content-Type":"application/x-test","X-Override":"hosted"}},
+			"/logo.png":{"source_path":"logo.png"}
+		},
+		"not_found_page":{"source_path":"not-found.html","headers":{"Content-Type":"text/html; charset=utf-8"}}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostedFiles, err := driver.openHostedFiles(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(hostedFiles.Close)
+	routes, err := driver.compileRoutes(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := &httpListenerHandler{
+		configuration: RuntimeConfig{Name: "hosted", UUID: "hosted-id", Driver: "http"},
+		options:       options, routes: routes, hostedFiles: hostedFiles, defaultRoutes: true,
+		exchange: func(context.Context, Exchange) (ExchangeResult, error) {
+			return ExchangeResult{}, errors.New("callback should not run")
+		},
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "http://listener/payload.bin", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted || !bytes.Equal(response.Body.Bytes(), binaryContent) {
+		t.Fatalf("binary response = %d %x", response.Code, response.Body.Bytes())
+	}
+	if response.Header().Get("Content-Type") != "application/x-test" ||
+		response.Header().Get("Content-Length") != "6" || response.Header().Get("X-Global") != "global" ||
+		response.Header().Get("X-Override") != "hosted" {
+		t.Fatalf("binary headers = %#v", response.Header())
+	}
+
+	request = httptest.NewRequest(http.MethodHead, "http://listener/payload.bin", nil)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted || response.Body.Len() != 0 || response.Header().Get("Content-Length") != "6" {
+		t.Fatalf("HEAD response = %d %q %#v", response.Code, response.Body.Bytes(), response.Header())
+	}
+
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		request = httptest.NewRequest(method, "http://listener/missing", nil)
+		response = httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusNotFound || response.Body.String() != "custom missing" {
+			t.Fatalf("%s not-found response = %d %q", method, response.Code, response.Body.String())
+		}
+	}
+	request = httptest.NewRequest(http.MethodHead, "http://listener/missing", nil)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusNotFound || response.Body.Len() != 0 || response.Header().Get("Content-Length") != "14" {
+		t.Fatalf("HEAD not-found response = %d %q %#v", response.Code, response.Body.Bytes(), response.Header())
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "http://listener/", nil)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest || response.Body.String() == "custom missing" {
+		t.Fatalf("matched invalid callback used global not-found page = %d %q", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "http://listener/logo.png", nil)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Body.String() != "not-a-websocket" {
+		t.Fatalf("hosted image response = %d %q", response.Code, response.Body.String())
+	}
+}
+
+func TestHTTPDriverMalformedCallbackUsesExactHostedFallback(t *testing.T) {
+	directory := t.TempDir()
+	if err := os.WriteFile(filepath.Join(directory, "decoy.html"), []byte("decoy"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, driver := newHTTPDriverTestWithRoot(t, directory)
+	options, err := resolveHTTPOptions(json.RawMessage(`{
+		"max_body_bytes":3,
+		"hosted_files":{"/":{"source_path":"decoy.html","headers":{"Content-Type":"text/html"}}}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostedFiles, err := driver.openHostedFiles(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(hostedFiles.Close)
+	routes, err := driver.compileRoutes(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := &httpListenerHandler{
+		configuration: RuntimeConfig{Name: "fallback", UUID: "fallback-id", Driver: "http"},
+		options:       options, routes: routes, hostedFiles: hostedFiles, defaultRoutes: true,
+		exchange: func(_ context.Context, exchange Exchange) (ExchangeResult, error) {
+			switch string(exchange.Payload) {
+			case "ok":
+				return ExchangeResult{MessageType: internal.CHK, Payload: []byte("task")}, nil
+			case "nil":
+				return ExchangeResult{MessageType: internal.CHK}, nil
+			case "err":
+				return ExchangeResult{}, errors.New("internal callback failure")
+			default:
+				return ExchangeResult{}, fmt.Errorf("%w: malformed", ErrInvalidImplantRequest)
+			}
+		},
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "http://listener/", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Body.String() != "decoy" {
+		t.Fatalf("missing callback carrier fallback = %d %q", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "http://listener/", stringsReader("bad"))
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Body.String() != "decoy" {
+		t.Fatalf("malformed callback fallback = %d %q", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "http://listener/", stringsReader("ok"))
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Body.String() != "task" {
+		t.Fatalf("valid callback response = %d %q", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "http://listener/", stringsReader("nil"))
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Body.String() != "Hi!" {
+		t.Fatalf("valid no-task callback response = %d %q", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "http://listener/", stringsReader("err"))
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest || response.Body.String() == "decoy" {
+		t.Fatalf("internal callback response = %d %q", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "http://listener/", stringsReader("large"))
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusRequestEntityTooLarge || response.Body.String() == "decoy" {
+		t.Fatalf("oversized callback response = %d %q", response.Code, response.Body.String())
+	}
+}
+
+func TestHTTPDriverHostedFileRootConfinement(t *testing.T) {
+	root := t.TempDir()
+	inside := filepath.Join(root, "inside.txt")
+	if err := os.WriteFile(inside, []byte("inside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outsideDirectory := t.TempDir()
+	outside := filepath.Join(outsideDirectory, "outside.txt")
+	if err := os.WriteFile(outside, []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, driver := newHTTPDriverTestWithRoot(t, root)
+
+	for _, test := range []struct {
+		name       string
+		sourcePath string
+	}{
+		{name: "outside root", sourcePath: outside},
+		{name: "directory", sourcePath: "."},
+		{name: "missing", sourcePath: "missing.txt"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			raw, err := json.Marshal(map[string]any{"hosted_files": map[string]any{
+				"/file": map[string]any{"source_path": test.sourcePath},
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			options, err := resolveHTTPOptions(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if files, err := driver.openHostedFiles(options); err == nil {
+				files.Close()
+				t.Fatal("unsafe or unavailable hosted path was accepted")
+			}
+		})
+	}
+
+	options, err := resolveHTTPOptions(json.RawMessage(`{"hosted_files":{"/file":{"source_path":"inside.txt"}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := driver.openHostedFiles(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files.Close()
+	if _, err := files.files["/file"].file.ReadAt(make([]byte, 1), 0); err == nil {
+		t.Fatal("hosted file descriptor remained open after cleanup")
+	}
+}
+
+func TestCallbackExchangeClassifiesMalformedImplantRequest(t *testing.T) {
+	_, err := CallbackExchangeHandler(context.Background(), Exchange{Payload: []byte("%%%")})
+	if !errors.Is(err, ErrInvalidImplantRequest) {
+		t.Fatalf("callback error = %v", err)
+	}
+}
+
 func TestHTTPDriverValidationRejectsUnsafeAndAmbiguousConfiguration(t *testing.T) {
 	_, driver := newHTTPDriverTest(t)
 	tests := []struct {
@@ -157,6 +391,14 @@ func TestHTTPDriverValidationRejectsUnsafeAndAmbiguousConfiguration(t *testing.T
 		{name: "invalid port", options: json.RawMessage(`{"bind":{"host":"127.0.0.1","port":"70000"}}`)},
 		{name: "partial TLS", options: json.RawMessage(`{"tls":{"enabled":true,"cert_file":"cert.pem"}}`)},
 		{name: "unknown option", options: json.RawMessage(`{"mystery":true}`)},
+		{name: "relative hosted URL", options: json.RawMessage(`{"hosted_files":{"relative":{"source_path":"file"}}}`)},
+		{name: "noncanonical hosted URL", options: json.RawMessage(`{"hosted_files":{"/a/../b":{"source_path":"file"}}}`)},
+		{name: "bodyless hosted status", options: json.RawMessage(`{"hosted_files":{"/":{"source_path":"file","status":204}}}`)},
+		{name: "unsafe hosted header", options: json.RawMessage(`{"hosted_files":{"/":{"source_path":"file","headers":{"Content-Length":"5"}}}}`)},
+		{name: "invalid hosted header name", options: json.RawMessage(`{"hosted_files":{"/":{"source_path":"file","headers":{"Bad Header":"value"}}}}`)},
+		{name: "invalid hosted header value", options: json.RawMessage("{\"hosted_files\":{\"/\":{\"source_path\":\"file\",\"headers\":{\"X-Bad\":\"value\\u0000\"}}}}")},
+		{name: "duplicate canonical hosted header", options: json.RawMessage(`{"hosted_files":{"/":{"source_path":"file","headers":{"content-type":"text/plain","Content-Type":"text/html"}}}}`)},
+		{name: "non-404 default page", options: json.RawMessage(`{"not_found_page":{"source_path":"file","status":200}}`)},
 		{name: "invalid carrier header", options: json.RawMessage(`{}`), routes: []Route{{
 			ID: "bad-header", Purpose: "callback", Match: json.RawMessage(`{"path":"/"}`),
 			Inbound:  CarrierSpec{Type: "header", Options: json.RawMessage(`{"name":"Bad Header"}`)},
@@ -175,6 +417,19 @@ func TestHTTPDriverValidationRejectsUnsafeAndAmbiguousConfiguration(t *testing.T
 			}
 		})
 	}
+}
+
+func newHTTPDriverTestWithRoot(t *testing.T, root string) (*Registry, *HTTPDriver) {
+	t.Helper()
+	registry := NewRegistry()
+	if err := RegisterHTTPBuiltinsWithConfig(registry, HTTPDriverConfig{HostedRoot: root}); err != nil {
+		t.Fatal(err)
+	}
+	registered, found := registry.Driver("http")
+	if !found {
+		t.Fatal("HTTP driver was not registered")
+	}
+	return registry, registered.(*HTTPDriver)
 }
 
 func TestHTTPDriverRuntimeServesAndStops(t *testing.T) {
@@ -215,6 +470,64 @@ func TestHTTPDriverRuntimeServesAndStops(t *testing.T) {
 	}
 	if err := <-runtime.Done(); err != nil {
 		t.Fatalf("runtime terminal error = %v", err)
+	}
+}
+
+func TestHTTPDriverRuntimeServesHostedFiles(t *testing.T) {
+	directory := t.TempDir()
+	if err := os.WriteFile(filepath.Join(directory, "index.html"), []byte("runtime hosted"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "404.html"), []byte("runtime missing"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, driver := newHTTPDriverTestWithRoot(t, directory)
+	runtime, err := driver.Start(context.Background(), RuntimeConfig{
+		Name: "hosted-runtime", UUID: "hosted-runtime-id", Driver: "http",
+		Options: json.RawMessage(`{
+			"bind":{"host":"127.0.0.1","port":"0"},
+			"hosted_files":{"/index.html":{"source_path":"index.html","headers":{"X-Hosted":"yes"}}},
+			"not_found_page":{"source_path":"404.html"}
+		}`),
+	}, func(context.Context, Exchange) (ExchangeResult, error) {
+		return ExchangeResult{}, fmt.Errorf("%w: invalid", ErrInvalidImplantRequest)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Stop(context.Background()) })
+
+	response, err := http.Get("http://" + runtime.Address() + "/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, readErr := io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if response.StatusCode != http.StatusOK || response.Header.Get("X-Hosted") != "yes" || string(body) != "runtime hosted" {
+		t.Fatalf("hosted runtime response = %d %q %#v", response.StatusCode, body, response.Header)
+	}
+
+	response, err = http.Get("http://" + runtime.Address() + "/missing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, readErr = io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if response.StatusCode != http.StatusNotFound || string(body) != "runtime missing" {
+		t.Fatalf("not-found runtime response = %d %q", response.StatusCode, body)
+	}
+
+	if err := runtime.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-runtime.Done(); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -13,8 +13,12 @@ import (
 )
 
 func NewHTTPManager(store ListenerStore, publish ListenerEventPublisher) (*Manager, error) {
+	return NewHTTPManagerWithConfig(store, publish, HTTPDriverConfig{})
+}
+
+func NewHTTPManagerWithConfig(store ListenerStore, publish ListenerEventPublisher, configuration HTTPDriverConfig) (*Manager, error) {
 	registry := NewRegistry()
-	if err := RegisterHTTPBuiltins(registry); err != nil {
+	if err := RegisterHTTPBuiltinsWithConfig(registry, configuration); err != nil {
 		return nil, err
 	}
 	return NewManagerWithStore(registry, CallbackExchangeHandler, publish, store), nil
@@ -23,6 +27,13 @@ func NewHTTPManager(store ListenerStore, publish ListenerEventPublisher) (*Manag
 func TeamEventPublisher(publish func(string, any)) ListenerEventPublisher {
 	return func(event ListenerEvent) {
 		if publish == nil {
+			return
+		}
+		if event.Type == "hosted" {
+			hosted, err := ListenerHostedConfigurationToAPI(event.Listener)
+			if err == nil {
+				publish(teamapi.EventListenerHostedUpdated, hosted)
+			}
 			return
 		}
 		eventTypes := map[string]string{
@@ -38,6 +49,53 @@ func TeamEventPublisher(publish func(string, any)) ListenerEventPublisher {
 			}
 			publish(eventType, ListenerSnapshotToAPI(event.Listener))
 		}
+	}
+}
+
+func ListenerHostedConfigurationToAPI(snapshot ManagedListenerSnapshot) (teamapi.ListenerHostedConfiguration, error) {
+	hosted, err := httpHostedFilesFromOptions(snapshot.Config.Options)
+	if err != nil {
+		return teamapi.ListenerHostedConfiguration{}, err
+	}
+	return teamapi.ListenerHostedConfiguration{
+		Name: snapshot.Config.Name, ListenerUUID: snapshot.Config.UUID,
+		HostedFiles:   httpHostedFilesToAPI(hosted.HostedFiles),
+		NotFoundPage:  httpHostedFileToAPI(hosted.NotFoundPage),
+		ConfigVersion: snapshot.Config.ConfigVersion,
+	}, nil
+}
+
+func HTTPHostedFilesConfigFromAPI(files map[string]teamapi.HTTPHostedFile, notFound *teamapi.HTTPHostedFile) HTTPHostedFilesConfig {
+	result := HTTPHostedFilesConfig{HostedFiles: make(map[string]HTTPHostedFileConfig, len(files))}
+	for urlPath, file := range files {
+		result.HostedFiles[urlPath] = HTTPHostedFileConfig{
+			SourcePath: file.SourcePath, Status: file.Status, Headers: cloneHeaderMap(file.Headers),
+		}
+	}
+	if notFound != nil {
+		result.NotFoundPage = &HTTPHostedFileConfig{
+			SourcePath: notFound.SourcePath, Status: notFound.Status, Headers: cloneHeaderMap(notFound.Headers),
+		}
+	}
+	return result
+}
+
+func httpHostedFilesToAPI(files map[string]HTTPHostedFileConfig) map[string]teamapi.HTTPHostedFile {
+	result := make(map[string]teamapi.HTTPHostedFile, len(files))
+	for urlPath, file := range files {
+		result[urlPath] = teamapi.HTTPHostedFile{
+			SourcePath: file.SourcePath, Status: file.Status, Headers: cloneHeaderMap(file.Headers),
+		}
+	}
+	return result
+}
+
+func httpHostedFileToAPI(file *HTTPHostedFileConfig) *teamapi.HTTPHostedFile {
+	if file == nil {
+		return nil
+	}
+	return &teamapi.HTTPHostedFile{
+		SourcePath: file.SourcePath, Status: file.Status, Headers: cloneHeaderMap(file.Headers),
 	}
 }
 

@@ -13,7 +13,8 @@ make build
 ```
 
 See [TEAMSERVER.md](TEAMSERVER.md) for architecture, security, protocol,
-migration, file transfer, interactive SSH, and deployment details.
+migration, HTTP listener file hosting, file transfer, interactive SSH, and
+deployment details.
 
 ## Project overview
 

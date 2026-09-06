@@ -119,6 +119,12 @@ management currently has no additional admin-only permission check.
 | `ask.listener.stop` | `rpy.listener.stop` | `{name}` | `Listener` | normally `stopping`, then `stopped` or `failed` |
 | `ask.listener.restart` | `rpy.listener.restart` | `{name}` | `Listener` | stop events when running, then start events |
 | `ask.listener.delete` | `rpy.listener.delete` | `{name}` | `{name}` | stop events when running, then `deleted` |
+| `ask.listener.hosted` | `rpy.listener.hosted` | `{name}` | `ListenerHostedConfiguration` | none |
+| `ask.listener.hosted.set` | `rpy.listener.hosted.set` | `ListenerHostedSetRequest` | `ListenerHostedConfiguration` | `hosted.updated` |
+| `ask.listener.hosted.add` | `rpy.listener.hosted.add` | `ListenerHostedAddRequest` | `ListenerHostedConfiguration` | `hosted.updated` |
+| `ask.listener.hosted.remove` | `rpy.listener.hosted.remove` | `ListenerHostedRemoveRequest` | `ListenerHostedConfiguration` | `hosted.updated` |
+| `ask.listener.hosted.not-found.set` | `rpy.listener.hosted.not-found.set` | `ListenerHostedNotFoundSetRequest` | `ListenerHostedConfiguration` | `hosted.updated` |
+| `ask.listener.hosted.not-found.clear` | `rpy.listener.hosted.not-found.clear` | `ListenerHostedNotFoundClearRequest` | `ListenerHostedConfiguration` | `hosted.updated` |
 | `ask.listener-type.list` | `rpy.listener-type.list` | `{}` | `ListenerDriverDefinition[]`, ID-sorted | none |
 | `ask.listener-type.get` | `rpy.listener-type.get` | `{name}` | `ListenerDriverDefinition` | none |
 | `ask.listener-carrier.list` | `rpy.listener-carrier.list` | `{}` | `ListenerCarrierDefinition[]`, ID-sorted | none |
@@ -230,6 +236,70 @@ Update semantics are replacement semantics:
 The compatibility `key/value` form only supports `host`, `port`, and `persist`.
 It exists for the old CLI and must not be used for a schema-driven UI.
 
+### Hosted-file subresource
+
+Use the dedicated hosted-file operations instead of `ask.listener.update` when
+only hosted content is changing. These operations preserve bind, TLS, routes,
+global response headers, persistence, desired state, and the current network
+runtime. They work while the listener is running and do not stop or rebind it.
+
+`ask.listener.hosted` accepts `{name}`. Every mutation returns the complete
+resulting subresource and emits `evt.listener.hosted.updated` with that same
+shape:
+
+```ts
+interface ListenerHostedConfiguration {
+  name: string;
+  listener_uuid: string;
+  hosted_files: Record<string, HTTPHostedFile>;
+  not_found_page: HTTPHostedFile | null;
+  config_version: number;
+}
+
+interface ListenerHostedSetRequest {
+  name: string;
+  hosted_files: Record<string, HTTPHostedFile>; // complete replacement
+  not_found_page?: HTTPHostedFile;              // omission clears it
+  expected_config_version?: number;
+}
+
+interface ListenerHostedAddRequest {
+  name: string;
+  url_path: string;                 // add or replace this exact URL
+  file: HTTPHostedFile;
+  expected_config_version?: number;
+}
+
+interface ListenerHostedRemoveRequest {
+  name: string;
+  url_path: string;
+  expected_config_version?: number;
+}
+
+interface ListenerHostedNotFoundSetRequest {
+  name: string;
+  file: HTTPHostedFile;
+  expected_config_version?: number;
+}
+
+interface ListenerHostedNotFoundClearRequest {
+  name: string;
+  expected_config_version?: number;
+}
+```
+
+Send `expected_config_version` when editing a previously displayed state. A
+stale value fails without changing persistence or the active files. Granular
+mutations may omit it; the server applies each operation to the latest state
+under its listener mutation lock. `set` replaces both hosted collections, so a
+UI should always use version checking for it.
+
+For a running listener, the server validates and opens the entire candidate
+file set before committing it. The swap is atomic for new HTTP requests;
+downloads already in progress finish against the prior file descriptors. A
+failure leaves the persisted configuration, version, and active runtime
+unchanged.
+
 ### Start, stop, restart, and delete
 
 All four use `{ "name": "exact-listener-name" }`.
@@ -263,8 +333,9 @@ successful delete reply or `evt.listener.deleted`.
 | `evt.listener.stopped` | full `Listener`, `state:"stopped"` | replace |
 | `evt.listener.failed` | full `Listener`, `state:"failed"` | replace; prominently show `last_error` |
 | `evt.listener.deleted` | `{name:string}` only | remove by exact name |
+| `evt.listener.hosted.updated` | full `ListenerHostedConfiguration` | replace the hosted-file subresource and update its version |
 
-All eight event types are persisted. The standard listener events are retained
+All nine event types are persisted. The standard listener events are retained
 for seven days by default; failed events are retained for thirty days.
 
 Events are authoritative snapshots for their sequence, but fields such as
@@ -349,6 +420,20 @@ interface ListenerCarrierDefinition {
   description?: string;
   options?: ListenerOptionDefinition[];
 }
+
+interface HTTPHostedFile {
+  source_path: string;            // beneath the teamserver hosted-file root
+  status?: number;                // defaults to 200 for an exact hosted URL
+  headers?: Record<string, string>;
+}
+
+interface ListenerHostedConfiguration {
+  name: string;
+  listener_uuid: string;
+  hosted_files: Record<string, HTTPHostedFile>;
+  not_found_page: HTTPHostedFile | null;
+  config_version: number;
+}
 ```
 
 Treat omitted optional fields as their zero/default state. Never use
@@ -370,6 +455,21 @@ currently implemented HTTP object is:
     "key_file": "/server/path/listener.key"
   },
   "response_headers": { "X-Header": "value" },
+  "hosted_files": {
+    "/": {
+      "source_path": "site/index.html",
+      "status": 200,
+      "headers": { "Content-Type": "text/html; charset=utf-8" }
+    },
+    "/assets/app.js": {
+      "source_path": "site/app.js",
+      "headers": { "Content-Type": "application/javascript" }
+    }
+  },
+  "not_found_page": {
+    "source_path": "site/404.html",
+    "headers": { "Content-Type": "text/html; charset=utf-8" }
+  },
   "timeouts": {
     "read_header": "5s",
     "read": "30s",
@@ -393,9 +493,47 @@ Important validation rules:
 - enabling TLS requires both certificate and key paths; supplying either path
   while TLS is disabled is invalid;
 - TLS paths are paths on the teamserver host, not browser-uploaded files;
-- response headers reject line breaks and server-controlled hop-by-hop or
-  framing headers such as `Content-Length`, `Connection`, and `Upgrade`;
+- response headers reject invalid field names, control characters, duplicates,
+  and server-controlled hop-by-hop or framing headers such as
+  `Content-Length`, `Connection`, and `Upgrade`;
+- `hosted_files` is an object keyed by exact, canonical URL paths; a listener
+  may define at most 256 entries;
+- hosted `source_path` values are teamserver paths beneath `-hosted-dir`, not
+  paths on the browser or operator client;
+- hosted sources must exist and be regular files when the listener starts;
+- hosted statuses default to `200` and must be final statuses that permit a
+  body; `204`, `205`, and `304` are rejected;
+- `not_found_page`, when present, has the same source/header shape but its
+  status is fixed to `404`;
 - unknown JSON fields are rejected.
+
+### Hosted files and fallback order
+
+Hosted files are binary-safe and support HTML, CSS, JavaScript, JSON, images,
+and payload downloads. The teamserver streams an opened file descriptor, sets
+`Content-Length`, and infers `Content-Type` only when neither listener-global
+nor hosted-file headers provide it. `HEAD` returns the same status and headers
+without the body.
+
+Request handling uses this order:
+
+1. A valid callback or interactive WebSocket route wins.
+2. If a callback route matched but the carrier or encrypted implant packet is
+   malformed, an exact `hosted_files` entry for that URL is returned.
+3. An exact hosted URL is returned directly for `GET` or `HEAD` when no
+   callback route claims it. This also allows ordinary hosted image requests
+   to coexist with the default interactive image route.
+4. `not_found_page` is returned for every method when no configured/default
+   route or exact hosted URL matches.
+5. Without a configured response, the existing `400`, `404`, or `405` response
+   is retained.
+
+Body-limit failures and non-protocol callback failures never fall through to a
+hosted response. A valid callback with no task also remains a valid callback;
+it does not receive the decoy file. Use the hosted-file subresource API to
+change mappings, headers, and statuses without stopping a running listener.
+Initial source paths are opened at listener startup; live changes are opened
+and validated before the active set is swapped.
 
 ### HTTP routes
 
@@ -508,13 +646,13 @@ idempotent.
 
 Suggested action availability:
 
-| State | Start | Stop | Restart | Update | Delete |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| `stopped` | yes | no | yes | yes | yes |
-| `starting` | no | no | no | no | no |
-| `running` | no | yes | yes | no | yes |
-| `stopping` | no | no | no | no | no |
-| `failed` | generally yes | context-dependent | yes | server decides | yes |
+| State | Start | Stop | Restart | Update | Hosted files | Delete |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `stopped` | yes | no | yes | yes | yes | yes |
+| `starting` | no | no | no | no | after transition | no |
+| `running` | no | yes | yes | no | yes | yes |
+| `stopping` | no | no | no | no | after transition | no |
+| `failed` | generally yes | context-dependent | yes | server decides | yes | yes |
 
 This table is a UI convenience, not authorization. The server remains
 authoritative. In particular, a failed stop can retain a runtime; update/start
@@ -598,8 +736,9 @@ The listener UI is complete only when all of the following are demonstrated:
   `ws` and `wss` deployments;
 - all eleven listener request/reply pairs in this document are implemented
   using their exact names;
-- all eight listener events are decoded, reduced, and sequence-deduplicated;
-- list, get, create, update, start, stop, restart, and delete refresh the UI
+- all nine listener events are decoded, reduced, and sequence-deduplicated;
+- list, get, create, update, start, stop, restart, delete, and all hosted-file
+  operations refresh the UI
   from reply/event snapshots rather than guessed local state;
 - driver and carrier forms come from discovery replies;
 - `false`, `0`, empty arrays, and empty objects are preserved when explicitly

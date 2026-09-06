@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -421,6 +422,510 @@ func TestListenerControlContractAllOperationsAndEvents(t *testing.T) {
 	for name, wanted := range expected {
 		if got := strings.Join(observed[name], ","); got != strings.Join(wanted, ",") {
 			t.Fatalf("%s events = %q, want %q", name, got, strings.Join(wanted, ","))
+		}
+	}
+}
+
+func TestListenerHostedControlContractAndLiveUpdates(t *testing.T) {
+	setupTeamserverDatabase(t, "listener-hosted-contract.db")
+	hostedRoot := t.TempDir()
+	for name, content := range map[string]string{
+		"old.txt": "old hosted", "new.txt": "new hosted", "set.txt": "set hosted", "404.html": "custom missing",
+	} {
+		if err := os.WriteFile(filepath.Join(hostedRoot, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const token = "listener-hosted-contract-token-long-enough"
+	instance := teamserver.New(config.Config{Token: token, ScriptDir: t.TempDir(), HostedDir: hostedRoot}, events.New())
+	cleanupTeamserver(t, instance)
+	httpServer := httptest.NewServer(instance.Handler())
+	defer httpServer.Close()
+	client := clientapi.New(clientapi.Config{URL: httpServer.URL, Token: token, Timeout: 5 * time.Second})
+	defer client.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := client.Connect(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	var running teamapi.Listener
+	if err := client.Request(ctx, teamapi.AskListenerCreate, teamapi.ListenerCreateRequest{
+		Name: "hosted-contract", Start: true,
+		Options: json.RawMessage(`{"bind":{"host":"127.0.0.1","port":"0"},"response_headers":{"X-Keep":"yes"}}`),
+	}, &running); err != nil {
+		t.Fatal(err)
+	}
+	if !running.Running || running.Address == "" {
+		t.Fatalf("running listener = %#v", running)
+	}
+	address := running.Address
+
+	var hosted teamapi.ListenerHostedConfiguration
+	if err := client.Request(ctx, teamapi.AskListenerHosted, teamapi.NameRequest{Name: running.Name}, &hosted); err != nil {
+		t.Fatal(err)
+	}
+	if hosted.Name != running.Name || hosted.ListenerUUID != running.UUID || len(hosted.HostedFiles) != 0 || hosted.NotFoundPage != nil {
+		t.Fatalf("initial hosted configuration = %#v", hosted)
+	}
+	var ignored teamapi.ListenerHostedConfiguration
+	err := client.Request(ctx, teamapi.AskListenerHostedSet, teamapi.ListenerHostedSetRequest{
+		Name: running.Name, ExpectedConfigVersion: hosted.ConfigVersion,
+	}, &ignored)
+	var apiError *teamapi.APIError
+	if !errors.As(err, &apiError) || !strings.Contains(apiError.Message, "hosted_files is required") {
+		t.Fatalf("incomplete hosted replacement error = %#v", err)
+	}
+
+	expectedVersion := hosted.ConfigVersion
+	hosted = teamapi.ListenerHostedConfiguration{}
+	if err := client.Request(ctx, teamapi.AskListenerHostedAdd, teamapi.ListenerHostedAddRequest{
+		Name: running.Name, URLPath: "/asset",
+		File:                  teamapi.HTTPHostedFile{SourcePath: "old.txt", Headers: map[string]string{"X-Hosted": "old"}},
+		ExpectedConfigVersion: expectedVersion,
+	}, &hosted); err != nil {
+		t.Fatal(err)
+	}
+	assertHostedEvent(t, client.Events(), running.Name, hosted.ConfigVersion)
+	assertTeamserverHTTPBody(t, "http://"+address+"/asset", http.StatusOK, "old hosted", "X-Hosted", "old")
+	persisted, err := db.DBListenerConfigGet(running.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.ConfigVersion != hosted.ConfigVersion || !strings.Contains(persisted.OptionsJSON, "old.txt") {
+		t.Fatalf("persisted hosted configuration = %#v", persisted)
+	}
+
+	expectedVersion = hosted.ConfigVersion
+	hosted = teamapi.ListenerHostedConfiguration{}
+	if err := client.Request(ctx, teamapi.AskListenerHostedNotFoundSet, teamapi.ListenerHostedNotFoundSetRequest{
+		Name: running.Name, File: teamapi.HTTPHostedFile{SourcePath: "404.html", Headers: map[string]string{"X-Hosted": "missing"}},
+		ExpectedConfigVersion: expectedVersion,
+	}, &hosted); err != nil {
+		t.Fatal(err)
+	}
+	assertHostedEvent(t, client.Events(), running.Name, hosted.ConfigVersion)
+	assertTeamserverHTTPBody(t, "http://"+address+"/missing", http.StatusNotFound, "custom missing", "X-Hosted", "missing")
+
+	staleVersion := hosted.ConfigVersion
+	expectedVersion = hosted.ConfigVersion
+	hosted = teamapi.ListenerHostedConfiguration{}
+	if err := client.Request(ctx, teamapi.AskListenerHostedAdd, teamapi.ListenerHostedAddRequest{
+		Name: running.Name, URLPath: "/asset",
+		File:                  teamapi.HTTPHostedFile{SourcePath: "new.txt", Status: http.StatusAccepted, Headers: map[string]string{"X-Hosted": "new"}},
+		ExpectedConfigVersion: expectedVersion,
+	}, &hosted); err != nil {
+		t.Fatal(err)
+	}
+	assertHostedEvent(t, client.Events(), running.Name, hosted.ConfigVersion)
+	assertTeamserverHTTPBody(t, "http://"+address+"/asset", http.StatusAccepted, "new hosted", "X-Hosted", "new")
+	err = client.Request(ctx, teamapi.AskListenerHostedAdd, teamapi.ListenerHostedAddRequest{
+		Name: running.Name, URLPath: "/stale", File: teamapi.HTTPHostedFile{SourcePath: "old.txt"},
+		ExpectedConfigVersion: staleVersion,
+	}, &ignored)
+	apiError = nil
+	if !errors.As(err, &apiError) || !strings.Contains(apiError.Message, "configuration changed") {
+		t.Fatalf("stale hosted update error = %#v", err)
+	}
+	apiError = nil
+	err = client.Request(ctx, teamapi.AskListenerHostedAdd, teamapi.ListenerHostedAddRequest{
+		Name: running.Name, URLPath: "/missing-source", File: teamapi.HTTPHostedFile{SourcePath: "absent.txt"},
+		ExpectedConfigVersion: hosted.ConfigVersion,
+	}, &ignored)
+	if !errors.As(err, &apiError) || apiError.Code != "request_failed" {
+		t.Fatalf("missing hosted source error = %#v", err)
+	}
+	var afterRejected teamapi.ListenerHostedConfiguration
+	if err := client.Request(ctx, teamapi.AskListenerHosted, teamapi.NameRequest{Name: running.Name}, &afterRejected); err != nil {
+		t.Fatal(err)
+	}
+	if afterRejected.ConfigVersion != hosted.ConfigVersion || afterRejected.HostedFiles["/missing-source"].SourcePath != "" {
+		t.Fatalf("failed live update changed hosted configuration = %#v", afterRejected)
+	}
+	persisted, err = db.DBListenerConfigGet(running.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.ConfigVersion != hosted.ConfigVersion || strings.Contains(persisted.OptionsJSON, "absent.txt") {
+		t.Fatalf("failed live update changed persistence = %#v", persisted)
+	}
+	assertTeamserverHTTPBody(t, "http://"+address+"/asset", http.StatusAccepted, "new hosted", "X-Hosted", "new")
+
+	notFound := teamapi.HTTPHostedFile{SourcePath: "404.html"}
+	expectedVersion = hosted.ConfigVersion
+	hosted = teamapi.ListenerHostedConfiguration{}
+	if err := client.Request(ctx, teamapi.AskListenerHostedSet, teamapi.ListenerHostedSetRequest{
+		Name:         running.Name,
+		HostedFiles:  map[string]teamapi.HTTPHostedFile{"/set": {SourcePath: "set.txt"}},
+		NotFoundPage: &notFound, ExpectedConfigVersion: expectedVersion,
+	}, &hosted); err != nil {
+		t.Fatal(err)
+	}
+	assertHostedEvent(t, client.Events(), running.Name, hosted.ConfigVersion)
+	assertTeamserverHTTPBody(t, "http://"+address+"/set", http.StatusOK, "set hosted", "X-Keep", "yes")
+
+	expectedVersion = hosted.ConfigVersion
+	hosted = teamapi.ListenerHostedConfiguration{}
+	if err := client.Request(ctx, teamapi.AskListenerHostedRemove, teamapi.ListenerHostedRemoveRequest{
+		Name: running.Name, URLPath: "/set", ExpectedConfigVersion: expectedVersion,
+	}, &hosted); err != nil {
+		t.Fatal(err)
+	}
+	assertHostedEvent(t, client.Events(), running.Name, hosted.ConfigVersion)
+	expectedVersion = hosted.ConfigVersion
+	hosted = teamapi.ListenerHostedConfiguration{}
+	if err := client.Request(ctx, teamapi.AskListenerHostedNotFoundClear, teamapi.ListenerHostedNotFoundClearRequest{
+		Name: running.Name, ExpectedConfigVersion: expectedVersion,
+	}, &hosted); err != nil {
+		t.Fatal(err)
+	}
+	assertHostedEvent(t, client.Events(), running.Name, hosted.ConfigVersion)
+	if len(hosted.HostedFiles) != 0 || hosted.NotFoundPage != nil {
+		t.Fatalf("cleared hosted configuration = %#v", hosted)
+	}
+	assertTeamserverHTTPBody(t, "http://"+address+"/missing", http.StatusNotFound, "404 page not found\n", "X-Keep", "yes")
+
+	var stillRunning teamapi.Listener
+	if err := client.Request(ctx, teamapi.AskListenerGet, teamapi.NameRequest{Name: running.Name}, &stillRunning); err != nil {
+		t.Fatal(err)
+	}
+	if !stillRunning.Running || stillRunning.Address != address || !strings.Contains(string(stillRunning.Options), "X-Keep") {
+		t.Fatalf("hosted operations altered listener runtime/options = %#v", stillRunning)
+	}
+}
+
+func assertHostedEvent(t *testing.T, records <-chan teamapi.Envelope, name string, version int) {
+	t.Helper()
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case event := <-records:
+			if event.Type == teamapi.EventListenerUpdated {
+				t.Fatalf("hosted mutation emitted a general listener update: %s", event.Data)
+			}
+			if event.Type != teamapi.EventListenerHostedUpdated {
+				continue
+			}
+			var hosted teamapi.ListenerHostedConfiguration
+			if err := teamapi.DecodeData(event, &hosted); err != nil {
+				t.Fatal(err)
+			}
+			if hosted.Name != name || hosted.ConfigVersion != version {
+				t.Fatalf("hosted event = %#v, want name=%q version=%d", hosted, name, version)
+			}
+			return
+		case <-timer.C:
+			t.Fatal("timed out waiting for hosted-file event")
+		}
+	}
+}
+
+func assertTeamserverHTTPBody(t *testing.T, url string, status int, body, header, value string) {
+	t.Helper()
+	response, err := http.Get(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, readErr := io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if response.StatusCode != status || string(content) != body || response.Header.Get(header) != value {
+		t.Fatalf("GET %s = %d %q %s=%q, want %d %q %s=%q", url, response.StatusCode, content,
+			header, response.Header.Get(header), status, body, header, value)
+	}
+}
+
+func TestProfileListenerAttachmentContract(t *testing.T) {
+	setupTeamserverDatabase(t, "profile-listener.db")
+	previousProfiles := implantbuilder.ProfileMap
+	previousCurrentName := implantbuilder.CurrentName
+	implantbuilder.ProfileMap = make(map[string]*implantbuilder.Profile)
+	implantbuilder.CurrentName = ""
+	t.Cleanup(func() {
+		implantbuilder.ProfileMap = previousProfiles
+		implantbuilder.CurrentName = previousCurrentName
+	})
+
+	const token = "profile-listener-token-that-is-long-enough"
+	bus := events.New()
+	records, unsubscribe := bus.Subscribe(32)
+	defer unsubscribe()
+	instance := teamserver.New(config.Config{Token: token, ScriptDir: t.TempDir()}, bus)
+	cleanupTeamserver(t, instance)
+	httpServer := httptest.NewServer(instance.Handler())
+	defer httpServer.Close()
+	client := clientapi.New(clientapi.Config{URL: httpServer.URL, Token: token, Timeout: 5 * time.Second})
+	defer client.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var profile teamapi.Profile
+	if err := client.Request(ctx, teamapi.AskProfileCreate, teamapi.Profile{
+		Name: "linux-impl", LHOST: "manual.example:1111", Protocol: "http", Options: json.RawMessage(`{}`),
+	}, &profile); err != nil {
+		t.Fatal(err)
+	}
+	createdProfileEvent := waitForProfileEvent(t, records, teamapi.EventProfileCreated)
+	if createdProfileEvent.Name != "linux-impl" || createdProfileEvent.ListenerUUID != "" {
+		t.Fatalf("profile created event = %#v", createdProfileEvent)
+	}
+	var created teamapi.Listener
+	if err := client.Request(ctx, teamapi.AskListenerCreate, teamapi.ListenerCreateRequest{
+		Name: "callback", Options: json.RawMessage(`{
+			"bind":{"host":"127.0.0.1","port":"4444"},
+			"advertise":{"host":"callback.example","port":"8080"}
+		}`),
+	}, &created); err != nil {
+		t.Fatal(err)
+	}
+	listenerUUID := created.UUID
+	if err := client.Request(ctx, teamapi.AskProfileListenerSet, teamapi.ProfileListenerSetRequest{
+		Name: "linux-impl", ListenerUUID: &listenerUUID,
+	}, &profile); err != nil {
+		t.Fatal(err)
+	}
+	if profile.ListenerUUID != created.UUID || profile.LHOST != "callback.example:8080" {
+		t.Fatalf("attached profile = %#v", profile)
+	}
+	updatedEvent := waitForProfileEvent(t, records, teamapi.EventProfileUpdated)
+	if updatedEvent.ListenerUUID != created.UUID || updatedEvent.LHOST != "callback.example:8080" {
+		t.Fatalf("attachment event = %#v", updatedEvent)
+	}
+	if err := client.Request(ctx, teamapi.AskProfileListenerSet, teamapi.ProfileListenerSetRequest{
+		Name: "linux-impl", ListenerUUID: &listenerUUID,
+	}, &profile); err != nil {
+		t.Fatal(err)
+	}
+	assertNoProfileEvent(t, records, 100*time.Millisecond)
+
+	var updatedListener teamapi.Listener
+	if err := client.Request(ctx, teamapi.AskListenerUpdate, teamapi.ListenerUpdateRequest{
+		Name: "callback", ExpectedConfigVersion: created.ConfigVersion,
+		Options: json.RawMessage(`{
+			"bind":{"host":"127.0.0.1","port":"4444"},
+			"advertise":{"host":"new.example","port":"9090"}
+		}`),
+	}, &updatedListener); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Request(ctx, teamapi.AskProfileGet, teamapi.NameRequest{Name: "linux-impl"}, &profile); err != nil {
+		t.Fatal(err)
+	}
+	if profile.LHOST != "callback.example:8080" || profile.ListenerUUID != listenerUUID {
+		t.Fatalf("listener update followed automatically = %#v", profile)
+	}
+	if err := client.Request(ctx, teamapi.AskProfileListenerSet, teamapi.ProfileListenerSetRequest{
+		Name: "linux-impl", ListenerUUID: &listenerUUID,
+	}, &profile); err != nil {
+		t.Fatal(err)
+	}
+	if profile.LHOST != "new.example:9090" {
+		t.Fatalf("refreshed profile = %#v", profile)
+	}
+	waitForProfileEvent(t, records, teamapi.EventProfileUpdated)
+
+	empty := ""
+	if err := client.Request(ctx, teamapi.AskProfileListenerSet, teamapi.ProfileListenerSetRequest{
+		Name: "linux-impl", ListenerUUID: &empty,
+	}, &profile); err != nil {
+		t.Fatal(err)
+	}
+	if profile.ListenerUUID != "" || profile.LHOST != "new.example:9090" {
+		t.Fatalf("detached profile = %#v", profile)
+	}
+	waitForProfileEvent(t, records, teamapi.EventProfileUpdated)
+
+	err := client.Request(ctx, teamapi.AskProfileListenerSet, map[string]string{"name": "linux-impl"}, &profile)
+	if err == nil || !strings.Contains(err.Error(), "listener_uuid is required") {
+		t.Fatalf("missing listener_uuid error = %v", err)
+	}
+	err = client.Request(ctx, teamapi.AskProfileListenerSet, teamapi.ProfileListenerSetRequest{Name: "linux-impl"}, &profile)
+	if err == nil || !strings.Contains(err.Error(), "listener_uuid is required") {
+		t.Fatalf("null listener_uuid error = %v", err)
+	}
+	err = client.Request(ctx, teamapi.AskProfileListenerSet, teamapi.ProfileListenerSetRequest{Name: "missing", ListenerUUID: &listenerUUID}, &profile)
+	if err == nil || !strings.Contains(err.Error(), "profile not found") {
+		t.Fatalf("missing profile error = %v", err)
+	}
+
+	if err := client.Request(ctx, teamapi.AskProfileListenerSet, teamapi.ProfileListenerSetRequest{
+		Name: "linux-impl", ListenerUUID: &listenerUUID,
+	}, &profile); err != nil {
+		t.Fatal(err)
+	}
+	waitForProfileEvent(t, records, teamapi.EventProfileUpdated)
+	if err := client.Request(ctx, teamapi.AskProfileUpdate, teamapi.ProfileUpdateRequest{
+		Name: "linux-impl", Key: "LHOST", Value: "manual-again.example:7777",
+	}, &profile); err != nil {
+		t.Fatal(err)
+	}
+	if profile.ListenerUUID != "" || profile.LHOST != "manual-again.example:7777" {
+		t.Fatalf("manual update did not detach = %#v", profile)
+	}
+	waitForProfileEvent(t, records, teamapi.EventProfileUpdated)
+
+	if err := client.Request(ctx, teamapi.AskProfileListenerSet, teamapi.ProfileListenerSetRequest{
+		Name: "linux-impl", ListenerUUID: &listenerUUID,
+	}, &profile); err != nil {
+		t.Fatal(err)
+	}
+	waitForProfileEvent(t, records, teamapi.EventProfileUpdated)
+	if err := client.Request(ctx, teamapi.AskProfileUpdate, teamapi.ProfileUpdateRequest{
+		Name: "linux-impl", Key: "PROTOCOL", Value: "https",
+	}, &profile); err != nil {
+		t.Fatal(err)
+	}
+	if profile.ListenerUUID != "" || profile.Protocol != "https" {
+		t.Fatalf("protocol update did not detach = %#v", profile)
+	}
+	waitForProfileEvent(t, records, teamapi.EventProfileUpdated)
+	if err := client.Request(ctx, teamapi.AskProfileUpdate, teamapi.ProfileUpdateRequest{
+		Name: "linux-impl", Key: "PROTOCOL", Value: "http",
+	}, &profile); err != nil {
+		t.Fatal(err)
+	}
+	waitForProfileEvent(t, records, teamapi.EventProfileUpdated)
+	if err := client.Request(ctx, teamapi.AskProfileListenerSet, teamapi.ProfileListenerSetRequest{
+		Name: "linux-impl", ListenerUUID: &listenerUUID,
+	}, &profile); err != nil {
+		t.Fatal(err)
+	}
+	waitForProfileEvent(t, records, teamapi.EventProfileUpdated)
+
+	persistent := false
+	var ephemeral teamapi.Listener
+	err = client.Request(ctx, teamapi.AskListenerUpdate, teamapi.ListenerUpdateRequest{
+		Name: "callback", ExpectedConfigVersion: updatedListener.ConfigVersion, Persistent: &persistent,
+	}, &ephemeral)
+	if err == nil || !strings.Contains(err.Error(), "detach profiles linux-impl") {
+		t.Fatalf("incompatible attached listener update error = %v", err)
+	}
+	if err := client.Request(ctx, teamapi.AskProfileGet, teamapi.NameRequest{Name: "linux-impl"}, &profile); err != nil {
+		t.Fatal(err)
+	}
+	if profile.ListenerUUID != listenerUUID || profile.LHOST != "new.example:9090" {
+		t.Fatalf("rejected listener update changed profile = %#v", profile)
+	}
+	if err := client.Request(ctx, teamapi.AskProfileListenerSet, teamapi.ProfileListenerSetRequest{
+		Name: "linux-impl", ListenerUUID: &empty,
+	}, &profile); err != nil {
+		t.Fatal(err)
+	}
+	waitForProfileEvent(t, records, teamapi.EventProfileUpdated)
+	if err := client.Request(ctx, teamapi.AskListenerUpdate, teamapi.ListenerUpdateRequest{
+		Name: "callback", ExpectedConfigVersion: updatedListener.ConfigVersion, Persistent: &persistent,
+	}, &ephemeral); err != nil {
+		t.Fatal(err)
+	}
+	persistent = true
+	if err := client.Request(ctx, teamapi.AskListenerUpdate, teamapi.ListenerUpdateRequest{
+		Name: "callback", ExpectedConfigVersion: ephemeral.ConfigVersion, Persistent: &persistent,
+	}, &updatedListener); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Request(ctx, teamapi.AskProfileListenerSet, teamapi.ProfileListenerSetRequest{
+		Name: "linux-impl", ListenerUUID: &listenerUUID,
+	}, &profile); err != nil {
+		t.Fatal(err)
+	}
+	waitForProfileEvent(t, records, teamapi.EventProfileUpdated)
+	if _, err := db.DBMS.DBConn.Exec(`
+CREATE TRIGGER reject_listener_delete
+BEFORE DELETE ON Listeners
+BEGIN
+    SELECT RAISE(FAIL, 'forced listener delete failure');
+END;`); err != nil {
+		t.Fatal(err)
+	}
+	var deletedListener teamapi.NameRequest
+	err = client.Request(ctx, teamapi.AskListenerDelete, teamapi.NameRequest{Name: "callback"}, &deletedListener)
+	if err == nil || !strings.Contains(err.Error(), "forced listener delete failure") {
+		t.Fatalf("forced listener delete error = %v", err)
+	}
+	profile = waitForProfileEvent(t, records, teamapi.EventProfileUpdated)
+	if profile.ListenerUUID != "" || profile.LHOST != "new.example:9090" {
+		t.Fatalf("failed listener deletion left attachment = %#v", profile)
+	}
+	var remainingListener teamapi.Listener
+	if err := client.Request(ctx, teamapi.AskListenerGet, teamapi.NameRequest{Name: "callback"}, &remainingListener); err != nil {
+		t.Fatalf("failed deletion removed listener: %v", err)
+	}
+	if _, err := db.DBMS.DBConn.Exec(`DROP TRIGGER reject_listener_delete;`); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Request(ctx, teamapi.AskProfileListenerSet, teamapi.ProfileListenerSetRequest{
+		Name: "linux-impl", ListenerUUID: &listenerUUID,
+	}, &profile); err != nil {
+		t.Fatal(err)
+	}
+	waitForProfileEvent(t, records, teamapi.EventProfileUpdated)
+
+	if err := client.Request(ctx, teamapi.AskListenerDelete, teamapi.NameRequest{Name: "callback"}, &deletedListener); err != nil {
+		t.Fatal(err)
+	}
+	if deletedListener.Name != "callback" {
+		t.Fatalf("listener delete reply = %#v", deletedListener)
+	}
+	profile = waitForProfileEvent(t, records, teamapi.EventProfileUpdated)
+	if profile.ListenerUUID != "" || profile.LHOST != "new.example:9090" {
+		t.Fatalf("listener deletion profile event = %#v", profile)
+	}
+	if err := client.Request(ctx, teamapi.AskProfileGet, teamapi.NameRequest{Name: "linux-impl"}, &profile); err != nil {
+		t.Fatal(err)
+	}
+	if profile.ListenerUUID != "" || profile.LHOST != "new.example:9090" {
+		t.Fatalf("profile after listener deletion = %#v", profile)
+	}
+
+	var deletedProfile teamapi.NameRequest
+	if err := client.Request(ctx, teamapi.AskProfileDelete, teamapi.NameRequest{Name: "linux-impl"}, &deletedProfile); err != nil {
+		t.Fatal(err)
+	}
+	if deletedProfile.Name != "linux-impl" {
+		t.Fatalf("profile delete reply = %#v", deletedProfile)
+	}
+	deletedEvent := waitForProfileEvent(t, records, teamapi.EventProfileDeleted)
+	if deletedEvent.Name != "linux-impl" {
+		t.Fatalf("profile deleted event = %#v", deletedEvent)
+	}
+}
+
+func assertNoProfileEvent(t *testing.T, records <-chan teamapi.EventRecord, duration time.Duration) {
+	t.Helper()
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	for {
+		select {
+		case record := <-records:
+			if record.Type == teamapi.EventProfileUpdated {
+				t.Fatalf("unexpected profile update event: %s", record.Data)
+			}
+		case <-timer.C:
+			return
+		}
+	}
+}
+
+func waitForProfileEvent(t *testing.T, records <-chan teamapi.EventRecord, eventType string) teamapi.Profile {
+	t.Helper()
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case record := <-records:
+			if record.Type != eventType {
+				continue
+			}
+			var profile teamapi.Profile
+			if err := json.Unmarshal(record.Data, &profile); err != nil {
+				t.Fatal(err)
+			}
+			return profile
+		case <-timer.C:
+			t.Fatalf("timed out waiting for %s", eventType)
 		}
 	}
 }

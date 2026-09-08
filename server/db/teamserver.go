@@ -38,6 +38,8 @@ func EnsureTeamserverSchema() error {
 			PayloadType TEXT NOT NULL,
 			Transport TEXT NOT NULL DEFAULT 'listener',
 			Speaker TEXT NOT NULL DEFAULT '',
+			SpeakerUuid TEXT NOT NULL DEFAULT '',
+			HealthMonitoring BOOLEAN NOT NULL DEFAULT TRUE,
 			Listener TEXT NOT NULL DEFAULT '',
 			ListenerUuid TEXT NOT NULL DEFAULT '',
 			Metadata BLOB NOT NULL,
@@ -69,6 +71,16 @@ func EnsureTeamserverSchema() error {
 			CreatedAt TEXT NOT NULL,
 			CompletedAt TEXT
 		);`,
+		`CREATE TABLE IF NOT EXISTS Speakers (
+			Name TEXT PRIMARY KEY,
+			Uuid TEXT NOT NULL UNIQUE,
+			Config BLOB NOT NULL,
+			Persistent BOOLEAN NOT NULL,
+			DesiredState TEXT NOT NULL,
+			ConfigVersion INTEGER NOT NULL,
+			CreatedAt TEXT NOT NULL,
+			UpdatedAt TEXT NOT NULL
+		);`,
 		`CREATE TABLE IF NOT EXISTS Users (
 			Name TEXT PRIMARY KEY,
 			Uuid TEXT NOT NULL UNIQUE,
@@ -79,6 +91,7 @@ func EnsureTeamserverSchema() error {
 		);`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS UsersUuid ON Users (Uuid);`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS UsersToken ON Users (Token);`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS SpeakersUuid ON Speakers (Uuid);`,
 		`CREATE INDEX IF NOT EXISTS EventsTypeCreatedAt ON Events (Type, CreatedAt);`,
 	}
 	for _, statement := range statements {
@@ -142,6 +155,8 @@ func ensureSessionRoutingColumns() error {
 	}{
 		{name: "transport", sql: `ALTER TABLE Sessions ADD COLUMN Transport TEXT NOT NULL DEFAULT 'listener';`},
 		{name: "speaker", sql: `ALTER TABLE Sessions ADD COLUMN Speaker TEXT NOT NULL DEFAULT '';`},
+		{name: "speakeruuid", sql: `ALTER TABLE Sessions ADD COLUMN SpeakerUuid TEXT NOT NULL DEFAULT '';`},
+		{name: "healthmonitoring", sql: `ALTER TABLE Sessions ADD COLUMN HealthMonitoring BOOLEAN NOT NULL DEFAULT TRUE;`},
 		{name: "listener", sql: `ALTER TABLE Sessions ADD COLUMN Listener TEXT NOT NULL DEFAULT '';`},
 		{name: "listeneruuid", sql: `ALTER TABLE Sessions ADD COLUMN ListenerUuid TEXT NOT NULL DEFAULT '';`},
 	}

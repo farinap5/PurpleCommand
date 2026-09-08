@@ -8,8 +8,12 @@ PurpleCommand is split into two processes:
 - `purpc` is the transient operator CLI. Menu state and selected listener,
   session, or profile are local to that client and disappear when it exits.
 
-The implant-facing HTTP and encrypted task protocol is unchanged. Only the
-operator boundary moved to an authenticated HTTP/WebSocket API.
+The implant-facing binary and encrypted task frames remain shared and
+unchanged across transports. Reverse implants initiate requests to listeners;
+for bind implants, a teamserver speaker initiates requests to the payload. The
+complete frame and speaker HTTP-carriage contract is documented in
+[`IMPLANT_PROTOCOL.md`](IMPLANT_PROTOCOL.md). The operator boundary uses a
+separate authenticated HTTP/WebSocket API.
 
 ## Build and run
 
@@ -273,7 +277,9 @@ The teamserver owns all long-lived state:
   `os.write` uses a caller-selected path and creates its missing parent
   directories; it does not allocate or remove a random build workspace.
 - Each Lua state is serialized. Command execution receives the target session
-  explicitly; it never depends on another client's selected session.
+  explicitly; it never depends on another client's selected session. Within a
+  command or lifecycle/task callback, `session()` returns that invocation's
+  session metadata; `session(id)` retains explicit lookup.
 - Lua paths are stored canonically. When a database is moved with the checkout,
   startup relocates a missing path ending in script/name.lua to the current
   checkout's script/name.lua and updates the persisted path.

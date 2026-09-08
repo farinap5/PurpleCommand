@@ -41,12 +41,15 @@ VALUES ('old', '127.0.0.1:1', 'linux', 'amd64', '/', 'ua', 'out', './template', 
 	if err := definition.ensureGenericImplantProfileSchema(); err != nil {
 		t.Fatalf("repeat migration: %v", err)
 	}
-	var payloadType, builder, listenerUUID string
-	if err := connection.QueryRow(`SELECT Type, Builder, ListenerUUID FROM ImplantProfiles WHERE Name = 'old'`).Scan(&payloadType, &builder, &listenerUUID); err != nil {
+	var payloadType, mode, builder, listenerUUID string
+	if err := connection.QueryRow(`SELECT Type, Mode, Builder, ListenerUUID FROM ImplantProfiles WHERE Name = 'old'`).Scan(&payloadType, &mode, &builder, &listenerUUID); err != nil {
 		t.Fatal(err)
 	}
 	if payloadType != internal.DefaultPayloadType {
 		t.Fatalf("migrated payload type = %q", payloadType)
+	}
+	if mode != "reverse" {
+		t.Fatalf("migrated mode = %q", mode)
 	}
 	if builder != "" {
 		t.Fatalf("migrated builder = %q", builder)
@@ -101,7 +104,7 @@ func TestImplantProfileListenerUUIDRoundTrip(t *testing.T) {
 	}
 
 	profile := ImplantProfile{
-		Name: "attached", Type: "impl", LHOST: "callback.example:4444", OS: "linux", ARCH: "amd64",
+		Name: "attached", Type: "impl", Mode: "bind", LHOST: "callback.example:4444", OS: "linux", ARCH: "amd64",
 		OSOptions: []string{"linux"}, ARCHOptions: []string{"amd64"}, Output: "implant",
 		Template: "./template", PublicKey: "server.pub", Builder: "lua-builder", ListenerUUID: "listener-one",
 	}
@@ -112,7 +115,7 @@ func TestImplantProfileListenerUUIDRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 1 || rows[0].ListenerUUID != "listener-one" {
+	if len(rows) != 1 || rows[0].ListenerUUID != "listener-one" || rows[0].Mode != "bind" {
 		t.Fatalf("inserted profile = %#v", rows)
 	}
 

@@ -8,6 +8,7 @@ import (
 type Profile struct {
 	Name                string          `json:"name"`
 	Type                string          `json:"type"`
+	Mode                string          `json:"mode"`
 	LHOST               string          `json:"lhost"`
 	OS                  string          `json:"os"`
 	ARCH                string          `json:"arch"`

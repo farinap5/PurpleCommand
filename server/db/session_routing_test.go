@@ -43,7 +43,7 @@ CREATE TABLE Sessions (
 	now := time.Now().UTC()
 	if err := DBSessionSave(teamapi.Session{
 		Name: "bind-session", UUID: "uuid", PayloadType: "bind.impl",
-		Transport: teamapi.SessionTransportSpeaker, Speaker: "bind-http",
+		Transport: teamapi.SessionTransportSpeaker, Speaker: "bind-http", SpeakerUUID: "speaker-uuid", HealthMonitoring: false,
 		Alive: true, FirstSeen: now, LastSeen: now,
 	}, []byte(`{"type":"bind.impl"}`)); err != nil {
 		t.Fatal(err)
@@ -52,7 +52,7 @@ CREATE TABLE Sessions (
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(sessions) != 1 || sessions[0].Session.Transport != teamapi.SessionTransportSpeaker || sessions[0].Session.Speaker != "bind-http" {
+	if len(sessions) != 1 || sessions[0].Session.Transport != teamapi.SessionTransportSpeaker || sessions[0].Session.Speaker != "bind-http" || sessions[0].Session.SpeakerUUID != "speaker-uuid" || sessions[0].Session.HealthMonitoring {
 		t.Fatalf("persisted route = %#v", sessions)
 	}
 

@@ -1,6 +1,7 @@
 package encrypt
 
 import (
+	"bytes"
 	"crypto/aes"
 	"crypto/rand"
 	"crypto/rsa"
@@ -9,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sync"
 )
 
 // serverRSAKey holds the server RSA private key, set at startup via LoadServerRSAKey.
@@ -16,6 +18,7 @@ var serverRSAKey *rsa.PrivateKey
 
 // globalPublicKeyDER holds the DER-encoded public key for implants
 var globalPublicKeyDER []byte
+var rsaKeyMu sync.RWMutex
 
 // SetGlobalPublicKeyDER stores public key DER bytes for use by EncryptInit in implants.
 func SetGlobalPublicKeyDER(der []byte) error {
@@ -27,7 +30,9 @@ func SetGlobalPublicKeyDER(der []byte) error {
 	if _, ok := key.(*rsa.PublicKey); !ok {
 		return fmt.Errorf("SetGlobalPublicKeyDER: key is not RSA")
 	}
-	globalPublicKeyDER = der
+	rsaKeyMu.Lock()
+	globalPublicKeyDER = append([]byte(nil), der...)
+	rsaKeyMu.Unlock()
 	return nil
 }
 
@@ -48,7 +53,9 @@ func LoadServerRSAKey(path string) error {
 	if err == nil {
 		// PKCS#8 succeeded, extract the RSA key
 		if rsaKey, ok := keyInterface.(*rsa.PrivateKey); ok {
+			rsaKeyMu.Lock()
 			serverRSAKey = rsaKey
+			rsaKeyMu.Unlock()
 			return nil
 		}
 		return fmt.Errorf("LoadServerRSAKey: key is not RSA")
@@ -59,7 +66,9 @@ func LoadServerRSAKey(path string) error {
 	if err != nil {
 		return fmt.Errorf("LoadServerRSAKey: failed to parse key as PKCS#8 or PKCS#1: %w", err)
 	}
+	rsaKeyMu.Lock()
 	serverRSAKey = key
+	rsaKeyMu.Unlock()
 	return nil
 }
 
@@ -70,8 +79,27 @@ func LoadServerRSAKeyBytes(der []byte) error {
 	if err != nil {
 		return fmt.Errorf("LoadServerRSAKeyBytes: %w", err)
 	}
+	rsaKeyMu.Lock()
 	serverRSAKey = key
+	rsaKeyMu.Unlock()
 	return nil
+}
+
+// ServerPublicKeyMatchesDER reports whether DER matches the public half of the
+// configured teamserver private key. Configured is false for library/test
+// processes that have not loaded a server key yet.
+func ServerPublicKeyMatchesDER(der []byte) (matches, configured bool) {
+	rsaKeyMu.RLock()
+	privateKey := serverRSAKey
+	rsaKeyMu.RUnlock()
+	if privateKey == nil {
+		return false, false
+	}
+	expected, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
+	if err != nil {
+		return false, true
+	}
+	return bytes.Equal(expected, der), true
 }
 
 /*
@@ -106,8 +134,11 @@ func EncryptInit() Encrypt {
 	}
 
 	// If a global public key has been set (implant usage), load it
-	if len(globalPublicKeyDER) > 0 {
-		if err := enc.SetPublicKeyDER(globalPublicKeyDER); err != nil {
+	rsaKeyMu.RLock()
+	publicKeyDER := append([]byte(nil), globalPublicKeyDER...)
+	rsaKeyMu.RUnlock()
+	if len(publicKeyDER) > 0 {
+		if err := enc.SetPublicKeyDER(publicKeyDER); err != nil {
 			panic("failed to load global public key: " + err.Error())
 		}
 	}

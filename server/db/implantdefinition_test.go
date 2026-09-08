@@ -2,9 +2,11 @@ package db
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"testing"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -82,5 +84,46 @@ func TestImplantDefinitionLifecycle(t *testing.T) {
 	}
 	if _, err := DBImplantDefinitionGet("linux-impl"); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("definition survived build-profile deletion: %v", err)
+	}
+}
+
+func TestImplantDefinitionOneTimeSecretIsAtomic(t *testing.T) {
+	connection, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection.SetMaxOpenConns(1)
+	defer connection.Close()
+	previous := DBMS
+	DBMS = DBDef{DBConn: connection}
+	t.Cleanup(func() { DBMS = previous })
+	if err := DBMS.dbCreateDs(); err != nil {
+		t.Fatal(err)
+	}
+	if err := DBImplantProfileInsert(ImplantProfile{
+		Name: "ots-profile", Type: "impl", Mode: "bind", OS: "linux", ARCH: "amd64",
+		Output: "implant", Template: "./template", PublicKey: "server.pub",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256([]byte("operator supplied secret"))
+	expires := time.Now().UTC().Add(time.Hour)
+	if err := DBImplantDefinitionUpsert(ImplantDefinition{
+		Name: "ots-profile", Protocol: "http", PayloadType: "impl", OptionsJSON: `{}`,
+		OTSHash: digest[:], OTSExpiresAt: &expires,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var token [12]byte
+	copy(token[:], digest[:12])
+	if err := DBImplantDefinitionValidateAndConsumeOTS("ots-profile", token, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := DBImplantDefinitionValidateAndConsumeOTS("ots-profile", token, time.Now().UTC()); !errors.Is(err, ErrOTSUsed) {
+		t.Fatalf("replayed OTS error = %v", err)
+	}
+	definition, err := DBImplantDefinitionGet("ots-profile")
+	if err != nil || definition.OTSUsedAt == nil {
+		t.Fatalf("consumed definition = %#v, %v", definition, err)
 	}
 }

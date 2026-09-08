@@ -23,6 +23,7 @@ import (
 	"purpcmd/server/interactive"
 	"purpcmd/server/listener"
 	"purpcmd/server/loot"
+	"purpcmd/server/speaker"
 	"purpcmd/server/uploads"
 	"purpcmd/server/utils"
 	"purpcmd/teamserver/builds"
@@ -40,6 +41,7 @@ type Server struct {
 	events             *events.Bus
 	builds             *builds.Manager
 	listeners          *listener.Manager
+	speakers           *speaker.Manager
 	profileListenerMu  sync.Mutex
 	http               *http.Server
 	dedupeMu           sync.Mutex
@@ -68,10 +70,20 @@ func New(configuration config.Config, eventBus *events.Bus) *Server {
 	if err != nil {
 		panic(fmt.Sprintf("initialize HTTP listener manager: %v", err))
 	}
-	return NewWithListenerManager(configuration, eventBus, listenerManager)
+	speakerManager := speaker.NewManager(speaker.DBStore{}, func(eventType string, value any) {
+		_, _ = eventBus.Publish(eventType, value)
+	})
+	return NewWithManagers(configuration, eventBus, listenerManager, speakerManager)
 }
 
 func NewWithListenerManager(configuration config.Config, eventBus *events.Bus, listenerManager *listener.Manager) *Server {
+	speakerManager := speaker.NewManager(speaker.DBStore{}, func(eventType string, value any) {
+		_, _ = eventBus.Publish(eventType, value)
+	})
+	return NewWithManagers(configuration, eventBus, listenerManager, speakerManager)
+}
+
+func NewWithManagers(configuration config.Config, eventBus *events.Bus, listenerManager *listener.Manager, speakerManager *speaker.Manager) *Server {
 	server := &Server{
 		config:             configuration,
 		id:                 uuid.NewString(),
@@ -79,6 +91,7 @@ func NewWithListenerManager(configuration config.Config, eventBus *events.Bus, l
 		events:             eventBus,
 		builds:             builds.New(eventBus, configuration.BuildDir),
 		listeners:          listenerManager,
+		speakers:           speakerManager,
 		connections:        make(map[string]map[*websocket.Conn]struct{}),
 		lastSeen:           make(map[string]time.Time),
 		controlConnections: make(map[*websocket.Conn]struct{}),
@@ -133,6 +146,7 @@ func (server *Server) ListenAndServe() error {
 
 func (server *Server) Shutdown(ctx context.Context) error {
 	server.closeControlConnections()
+	server.speakers.Shutdown()
 	listenerErr := server.listeners.Shutdown(ctx)
 	httpErr := server.http.Shutdown(ctx)
 	controlErr := server.waitForControlConnections(ctx)

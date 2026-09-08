@@ -300,7 +300,8 @@ func TestBundledLuaPayloadBuilderCompiles(t *testing.T) {
 	output := filepath.Join(t.TempDir(), "implant")
 
 	updates := []teamapi.ProfileUpdateRequest{
-		{Name: "linux-impl", Key: "LHOST", Value: "127.0.0.1:4444"},
+		{Name: "linux-impl", Key: "MODE", Value: "bind"},
+		{Name: "linux-impl", Key: "LHOST", Value: ":4444"},
 		{Name: "linux-impl", Key: "OUTPUT", Value: output},
 		{Name: "linux-impl", Key: "TEMPLATE", Value: templateDirectory},
 		{Name: "linux-impl", Key: "PUBLICKEY", Value: publicKey},

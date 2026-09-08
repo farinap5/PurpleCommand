@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -8,7 +9,23 @@ import (
 	"purpcmd/internal"
 	"runtime"
 	"strings"
+	"sync"
 )
+
+var (
+	configuredOTSMu sync.RWMutex
+	configuredOTS   [12]byte
+)
+
+func SetOneTimeSecret(token []byte) error {
+	if len(token) != len(configuredOTS) {
+		return fmt.Errorf("one-time secret token must be %d bytes", len(configuredOTS))
+	}
+	configuredOTSMu.Lock()
+	copy(configuredOTS[:], token)
+	configuredOTSMu.Unlock()
+	return nil
+}
 
 func RandInt() uint32 {
 	min := 10000
@@ -61,7 +78,7 @@ func ImplantInit(payloadTypes ...string) *implant.ImplantMetadata {
 	if len(payloadTypes) > 0 && internal.ValidatePayloadType(payloadTypes[0]) == nil {
 		payloadType = payloadTypes[0]
 	}
-	return &implant.ImplantMetadata{
+	metadata := &implant.ImplantMetadata{
 		PID:       uint32(os.Getpid()),
 		SessionID: RandInt(),
 		IP:        2130706433,
@@ -74,4 +91,8 @@ func ImplantInit(payloadTypes ...string) *implant.ImplantMetadata {
 		User:     getUsername(),
 		Type:     payloadType,
 	}
+	configuredOTSMu.RLock()
+	metadata.OTS = configuredOTS
+	configuredOTSMu.RUnlock()
+	return metadata
 }

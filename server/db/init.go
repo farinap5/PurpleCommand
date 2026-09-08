@@ -111,6 +111,7 @@ func (db *DBDef) dbCreateDs() error {
 		Pid			INTEGER PRIMARY KEY AUTOINCREMENT,
 		Name		TEXT NOT NULL UNIQUE,
 		Type		TEXT NOT NULL DEFAULT 'impl',
+		Mode        TEXT NOT NULL DEFAULT 'reverse',
 		LHOST		TEXT NOT NULL,
 		OS			TEXT NOT NULL,
 		ARCH		TEXT NOT NULL,
@@ -198,6 +199,9 @@ func (db *DBDef) ensureGenericImplantProfileSchema() error {
 	if err := db.ensureImplantProfileTypeColumn(); err != nil {
 		return err
 	}
+	if err := db.ensureImplantProfileModeColumn(); err != nil {
+		return err
+	}
 	if err := db.ensureImplantProfileTargetOptionColumns(); err != nil {
 		return err
 	}
@@ -214,6 +218,18 @@ func (db *DBDef) ensureGenericImplantProfileSchema() error {
 		return err
 	}
 	return db.migrateImplantProfileProtocolColumns()
+}
+
+func (db *DBDef) ensureImplantProfileModeColumn() error {
+	columns, err := db.tableColumns("ImplantProfiles")
+	if err != nil {
+		return err
+	}
+	if columns["mode"] {
+		return nil
+	}
+	_, err = db.DBConn.Exec(`ALTER TABLE ImplantProfiles ADD COLUMN Mode TEXT NOT NULL DEFAULT 'reverse';`)
+	return err
 }
 
 func (db *DBDef) ensureImplantProfileListenerColumn() error {

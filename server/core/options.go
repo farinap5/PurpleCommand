@@ -36,6 +36,19 @@ func HelpEntries(state int) []HelpEntry {
 			HelpEntry{Command: "interact", Description: "Interact with a listener. Use `interact <name>`."},
 			HelpEntry{Command: "back", Description: "Exit listener mode."},
 		)
+	case types.SPEAKER:
+		entries = append(entries,
+			HelpEntry{Command: "new", Description: "Create a speaker. Use `new <name> <base-url> [path]`."},
+			HelpEntry{Command: "new-json", Description: "Create from a JSON config. Use `new-json <name> <file>`."},
+			HelpEntry{Command: "update", Description: "Replace selected speaker config from JSON. Use `update <file>`."},
+			HelpEntry{Command: "rename", Description: "Rename selected speaker. Use `rename <name>`."},
+			HelpEntry{Command: "list", Description: "List speakers."},
+			HelpEntry{Command: "select", Description: "Select a speaker. Use `select <name>`."},
+			HelpEntry{Command: "options", Description: "Show the selected speaker's redacted options."},
+			HelpEntry{Command: "start/stop/restart", Description: "Control the selected speaker."},
+			HelpEntry{Command: "delete", Description: "Delete the selected stopped speaker."},
+			HelpEntry{Command: "back", Description: "Exit speaker mode."},
+		)
 	case types.SESSION:
 		entries = append(entries,
 			HelpEntry{Command: "delete", Description: "Delete a non-live session. Use `delete terminate` to terminate a live implant first."},
@@ -72,6 +85,7 @@ func HelpEntries(state int) []HelpEntry {
 	default:
 		entries = append(entries,
 			HelpEntry{Command: "listener", Description: "Enter listener mode. Use `help <cmd>`."},
+			HelpEntry{Command: "speaker", Description: "Enter bind speaker mode."},
 			HelpEntry{Command: "session", Description: "Enter session mode. Use `help <cmd>`."},
 			HelpEntry{Command: "script", Description: "Enter script mode."},
 			HelpEntry{Command: "loot", Description: "Enter loot management mode."},

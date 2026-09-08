@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"purpcmd/internal"
+	"purpcmd/internal/protocol"
 	"purpcmd/server/interactive"
 	"purpcmd/server/utils"
 
@@ -28,7 +29,7 @@ import (
 )
 
 const (
-	defaultHTTPMaxBodyBytes int64 = 10 << 20
+	defaultHTTPMaxBodyBytes int64 = protocol.MaxEncodedPacketSize
 	maxHTTPHostedFiles            = 256
 )
 
@@ -285,7 +286,7 @@ func (driver *HTTPDriver) Definition() DriverDefinition {
 			{Key: "response_headers", Type: OptionStringMap, Description: "Headers applied to all listener responses."},
 			{Key: "hosted_files", Type: OptionObject, MutableWhileRunning: true, Description: "Exact URL paths mapped to files beneath the teamserver hosted-file directory."},
 			{Key: "not_found_page", Type: OptionObject, MutableWhileRunning: true, Description: "Optional file response used when no listener route or hosted URL matches."},
-			{Key: "max_body_bytes", Type: OptionInteger, Default: json.RawMessage(`10485760`)},
+			{Key: "max_body_bytes", Type: OptionInteger, Default: json.RawMessage(strconv.FormatInt(defaultHTTPMaxBodyBytes, 10))},
 			{Key: "max_header_bytes", Type: OptionInteger, Default: json.RawMessage(`32768`)},
 			{Key: "timeouts.read_header", Type: OptionDuration, Default: json.RawMessage(`"5s"`)},
 			{Key: "timeouts.read", Type: OptionDuration, Default: json.RawMessage(`"30s"`)},

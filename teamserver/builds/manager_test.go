@@ -1,7 +1,6 @@
 package builds
 
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"os"
@@ -17,20 +16,20 @@ import (
 	"purpcmd/teamserver/events"
 
 	"github.com/google/uuid"
-	_ "github.com/mattn/go-sqlite3"
 )
 
 func buildTestDatabase(t *testing.T) {
 	t.Helper()
-	connection, err := sql.Open("sqlite3", ":memory:")
-	if err != nil {
+	previousPath := db.DatabasePath
+	previous := db.DBMS
+	db.DatabasePath = filepath.Join(t.TempDir(), "builds.db")
+	if err := db.CheckDB(); err != nil {
 		t.Fatal(err)
 	}
-	previous := db.DBMS
-	db.DBMS = db.DBDef{DBConn: connection}
 	t.Cleanup(func() {
+		_ = db.DBMS.DBConn.Close()
 		db.DBMS = previous
-		_ = connection.Close()
+		db.DatabasePath = previousPath
 	})
 	if err := db.EnsureTeamserverSchema(); err != nil {
 		t.Fatal(err)
@@ -190,7 +189,8 @@ func TestManagerPublishesCorrelatedBuildLifecycle(t *testing.T) {
 	select {
 	case <-entered:
 	case <-time.After(5 * time.Second):
-		t.Fatal("payload builder did not start")
+		current, _ := manager.Get(job.ID)
+		t.Fatalf("payload builder did not start: %#v", current)
 	}
 	failedJob, err := manager.Create("event-profile", "")
 	if err != nil {

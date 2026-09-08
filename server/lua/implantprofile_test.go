@@ -63,6 +63,7 @@ implant_register_profile("linux-impl", {
     OS = {"linux", "windows"},
     ARCH = {"amd64", "386"},
     PROTOCOL = "http",
+    MODE = "bind",
     TYPE = "impl",
     OPTIONS = {
         PATH = "/health",
@@ -99,7 +100,7 @@ implant_register_profile("linux-impl", {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if profile.Type != "impl" || profile.OS != "linux" || profile.ARCH != "amd64" ||
+	if profile.Type != "impl" || profile.Mode != "bind" || profile.OS != "linux" || profile.ARCH != "amd64" ||
 		len(profile.OSOptions) != 2 || len(profile.ARCHOptions) != 2 {
 		t.Fatalf("builder projection = %#v", profile)
 	}

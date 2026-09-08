@@ -20,6 +20,7 @@ import (
 	"purpcmd/server/loot"
 	"purpcmd/server/lua"
 	"purpcmd/server/runtimeevents"
+	"purpcmd/server/speaker"
 	"purpcmd/teamserver/config"
 	"purpcmd/teamserver/events"
 	teamserver "purpcmd/teamserver/server"
@@ -109,8 +110,15 @@ func startServer(a []string) {
 		fmt.Fprintln(os.Stderr, "listeners:", err)
 		os.Exit(1)
 	}
+	speakerManager := speaker.NewManager(speaker.DBStore{}, func(eventType string, value any) {
+		_, _ = eventBus.Publish(eventType, value)
+	})
+	if err := speakerManager.Restore(); err != nil {
+		fmt.Fprintln(os.Stderr, "speakers:", err)
+		os.Exit(1)
+	}
 
-	server := teamserver.NewWithListenerManager(configuration, eventBus, listenerManager)
+	server := teamserver.NewWithManagers(configuration, eventBus, listenerManager, speakerManager)
 	scheme := "http"
 	if configuration.TLS() {
 		scheme = "https"

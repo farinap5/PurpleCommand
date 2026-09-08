@@ -22,6 +22,22 @@ func TestCompleteTextUsesSharedPromptDescriptions(t *testing.T) {
 	}
 }
 
+func TestCompleteTextSuggestsSpeakersAndSpeakerResources(t *testing.T) {
+	cli := &CLI{mode: modeMain}
+	if _, ok := suggestionByText(cli.completeText("spe"), "speaker"); !ok {
+		t.Fatal("missing speaker mode suggestion")
+	}
+	cli.mode = modeSpeaker
+	cli.snapshot.Speakers = []teamapi.Speaker{{Name: "bind-http", State: "connected", Config: teamapi.SpeakerConfig{Client: teamapi.SpeakerHTTPClientConfig{BaseURL: "https://implant.example"}}}}
+	suggestion, ok := suggestionByText(cli.completeText("select "), "bind-http")
+	if !ok {
+		t.Fatal("missing speaker resource suggestion")
+	}
+	if suggestion.Description != "connected https://implant.example" {
+		t.Fatalf("speaker description = %q", suggestion.Description)
+	}
+}
+
 func TestCompleteTextSuggestsListenerHostingCommandsAndPaths(t *testing.T) {
 	cli := &CLI{
 		mode: modeListener, selectedListener: "http",

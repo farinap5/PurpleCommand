@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"purpcmd/internal"
+	"purpcmd/pkg/teamapi"
 	"purpcmd/server/db"
 )
 
@@ -85,6 +86,32 @@ func TestStaleSessionCanBeDeleted(t *testing.T) {
 
 	if err := ImplantDelete(); err != nil {
 		t.Fatalf("delete stale session: %v", err)
+	}
+}
+
+func TestSpeakerLivenessUsesWorkerThresholdInsteadOfImplantSleep(t *testing.T) {
+	isolateImplants(t)
+	imp := ImplantNew("speaker")
+	imp.Metadata.Sleep = 1
+	imp.LastSeen = time.Now().Add(-time.Minute)
+	imp.Transport = teamapi.SessionTransportSpeaker
+	imp.HealthMonitoring = true
+	imp.ImplantAddImplant()
+
+	session, err := APIGetSession(imp.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !session.Alive || session.Liveness != "healthy" {
+		t.Fatalf("speaker was expired using reverse timing: %#v", session)
+	}
+	imp.ImplantSetUnavailable()
+	session, err = APIGetSession(imp.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.Alive || session.Liveness != "unavailable" {
+		t.Fatalf("worker-unavailable state was not retained: %#v", session)
 	}
 }
 

@@ -28,14 +28,15 @@ func DBSessionSave(session teamapi.Session, metadata json.RawMessage) error {
 		transport = teamapi.SessionTransportListener
 	}
 	_, err := DBMS.DBConn.Exec(
-		`INSERT INTO Sessions (Name, Uuid, PayloadType, Transport, Speaker, Listener, ListenerUuid, Metadata, Alive, Terminating, FirstSeen, LastSeen)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO Sessions (Name, Uuid, PayloadType, Transport, Speaker, SpeakerUuid, HealthMonitoring, Listener, ListenerUuid, Metadata, Alive, Terminating, FirstSeen, LastSeen)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(Name) DO UPDATE SET Uuid=excluded.Uuid, PayloadType=excluded.PayloadType,
-		 Transport=excluded.Transport, Speaker=excluded.Speaker, Listener=excluded.Listener,
+		 Transport=excluded.Transport, Speaker=excluded.Speaker, SpeakerUuid=excluded.SpeakerUuid,
+		 HealthMonitoring=excluded.HealthMonitoring, Listener=excluded.Listener,
 		 ListenerUuid=excluded.ListenerUuid, Metadata=excluded.Metadata,
 		 Alive=excluded.Alive, Terminating=excluded.Terminating,
 		 FirstSeen=excluded.FirstSeen, LastSeen=excluded.LastSeen;`,
-		session.Name, session.UUID, session.PayloadType, transport, session.Speaker,
+		session.Name, session.UUID, session.PayloadType, transport, session.Speaker, session.SpeakerUUID, session.HealthMonitoring,
 		session.Listener, session.ListenerUUID, []byte(metadata), session.Alive,
 		session.Terminating, formatDBTime(session.FirstSeen), formatDBTime(session.LastSeen),
 	)
@@ -66,7 +67,7 @@ func DBSessionList() ([]PersistedSession, error) {
 		return nil, nil
 	}
 	rows, err := DBMS.DBConn.Query(
-		`SELECT Name, Uuid, PayloadType, Transport, Speaker, Listener, ListenerUuid, Metadata, Alive, Terminating, FirstSeen, LastSeen FROM Sessions;`,
+		`SELECT Name, Uuid, PayloadType, Transport, Speaker, SpeakerUuid, HealthMonitoring, Listener, ListenerUuid, Metadata, Alive, Terminating, FirstSeen, LastSeen FROM Sessions;`,
 	)
 	if err != nil {
 		return nil, err
@@ -79,7 +80,7 @@ func DBSessionList() ([]PersistedSession, error) {
 		var firstSeen, lastSeen string
 		if err := rows.Scan(
 			&item.Session.Name, &item.Session.UUID, &item.Session.PayloadType,
-			&item.Session.Transport, &item.Session.Speaker, &item.Session.Listener, &item.Session.ListenerUUID, &metadata,
+			&item.Session.Transport, &item.Session.Speaker, &item.Session.SpeakerUUID, &item.Session.HealthMonitoring, &item.Session.Listener, &item.Session.ListenerUUID, &metadata,
 			&item.Session.Alive, &item.Session.Terminating, &firstSeen, &lastSeen,
 		); err != nil {
 			return nil, err

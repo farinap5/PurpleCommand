@@ -16,12 +16,8 @@ func callLifecycle(profile *LuaProfile, session string, function *lua.LFunction,
 	if profile.state == nil {
 		return
 	}
-	profile.executionSession = session
-	profile.createdTaskIDs = nil
-	defer func() {
-		profile.executionSession = ""
-		profile.createdTaskIDs = nil
-	}()
+	restoreExecution := profile.enterSessionExecution(session)
+	defer restoreExecution()
 	state := profile.state
 	state.Push(function)
 	for _, argument := range arguments {

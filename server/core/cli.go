@@ -134,6 +134,21 @@ func PromptSuggestions(state int) []prompt.Suggest {
 			prompt.Suggest{Text: "delete", Description: "Delete listener"},
 			prompt.Suggest{Text: "restart", Description: "Restart listener"},
 		)
+	case types.SPEAKER:
+		promptSuggestions = append(promptSuggestions,
+			prompt.Suggest{Text: "back", Description: "Exit speaker menu"},
+			prompt.Suggest{Text: "list", Description: "List speakers"},
+			prompt.Suggest{Text: "new", Description: "Create a speaker"},
+			prompt.Suggest{Text: "new-json", Description: "Create a speaker from JSON"},
+			prompt.Suggest{Text: "select", Description: "Select a speaker"},
+			prompt.Suggest{Text: "options", Description: "Show redacted speaker options"},
+			prompt.Suggest{Text: "update", Description: "Replace speaker config from JSON"},
+			prompt.Suggest{Text: "rename", Description: "Rename speaker"},
+			prompt.Suggest{Text: "start", Description: "Start speaker"},
+			prompt.Suggest{Text: "stop", Description: "Stop speaker"},
+			prompt.Suggest{Text: "restart", Description: "Restart speaker"},
+			prompt.Suggest{Text: "delete", Description: "Delete speaker"},
+		)
 	case types.SESSION:
 		promptSuggestions = append(promptSuggestions,
 			prompt.Suggest{Text: "back", Description: "Exit from session menu"},
@@ -170,6 +185,7 @@ func PromptSuggestions(state int) []prompt.Suggest {
 	default:
 		promptSuggestions = append(promptSuggestions,
 			prompt.Suggest{Text: "listener", Description: "Interact with listeners"},
+			prompt.Suggest{Text: "speaker", Description: "Interact with bind speakers"},
 			prompt.Suggest{Text: "session", Description: "Interact with session"},
 			prompt.Suggest{Text: "script", Description: "Interact with script"},
 			prompt.Suggest{Text: "loot", Description: "Interact with loot"},

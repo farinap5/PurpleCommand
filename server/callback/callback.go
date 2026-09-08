@@ -8,10 +8,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
+	"time"
 
 	impx "purpcmd/implant"
 	"purpcmd/internal"
 	"purpcmd/internal/encrypt"
+	"purpcmd/internal/protocol"
+	"purpcmd/pkg/teamapi"
+	"purpcmd/server/db"
 	"purpcmd/server/implant"
 	"purpcmd/server/log"
 	"purpcmd/server/loot"
@@ -19,26 +24,40 @@ import (
 )
 
 const (
-	MaxEncodedPayloadSize      = 10 << 20
-	maxDecodedPayloadSize      = 8 << 20
+	MaxEncodedPayloadSize      = protocol.MaxEncodedPacketSize
+	maxDecodedPayloadSize      = protocol.MaxAuthenticatedPacketSize
 	maxRegistrationDataSize    = 4 << 10
-	maxResponsePayloadSize     = 8 << 20
-	maxLootFileNameSize        = 4 << 10
-	maxLootContentSize         = 8 << 20
+	maxResponsePayloadSize     = protocol.MaxPayloadSize
+	maxLootFileNameSize        = protocol.MaxFileNameSize
+	maxLootContentSize         = protocol.MaxPayloadSize
 	callbackHMACSize           = 16
 	minimumAuthenticatedPacket = callbackHMACSize + 16
 )
 
 var ErrMalformedPayload = errors.New("malformed callback payload")
 
-// TransportContext identifies the listener-side transport that delivered a
-// callback. It contains routing metadata only; callback authentication still
-// comes exclusively from the encrypted protocol frame.
+// TransportContext identifies the transport that delivered a callback. It
+// contains routing metadata only; callback authentication still comes from
+// the encrypted protocol frame.
 type TransportContext struct {
+	Kind     string
+	Name     string
+	UUID     string
+	Protocol string
+	Profile  string
+
+	// Listener fields are retained for source compatibility with older driver
+	// integrations. New transports should use Kind, Name, UUID, and Protocol.
 	ListenerName  string
 	ListenerUUID  string
 	Transport     string
 	RemoteAddress string
+}
+
+type ParseResult struct {
+	MessageType uint16
+	Task        []byte
+	Session     string
 }
 
 func malformed(format string, args ...any) error {
@@ -57,17 +76,24 @@ func ParseCallback(encoded []byte, req *http.Request, authenticatedName string) 
 // transport. Drivers are responsible only for extracting encoded and session
 // data and for carrying the returned task bytes.
 func ParseCallbackWithContext(encoded []byte, transport TransportContext, authenticatedName string) (messageType uint16, task []byte, err error) {
+	result, err := ParseCallbackDetailed(encoded, transport, authenticatedName)
+	return result.MessageType, result.Task, err
+}
+
+// ParseCallbackDetailed exposes the registered session name in addition to
+// the legacy parser result. Speaker first-blood uses it to attach its worker
+// without decoding or redefining the REG packet in the transport layer.
+func ParseCallbackDetailed(encoded []byte, transport TransportContext, authenticatedName string) (result ParseResult, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			messageType = internal.NIL
-			task = nil
+			result = ParseResult{MessageType: internal.NIL}
 			err = malformed("recovered parser panic: %v", recovered)
 		}
 	}()
 
 	decoded, err := decodePayload(encoded)
 	if err != nil {
-		return internal.NIL, nil, err
+		return ParseResult{}, err
 	}
 
 	var plaintext []byte
@@ -75,54 +101,55 @@ func ParseCallbackWithContext(encoded []byte, transport TransportContext, authen
 		var rsaEncryption encrypt.Encrypt
 		plaintext, err = rsaEncryption.RSADecode(decoded)
 		if err != nil {
-			return internal.NIL, nil, malformed("registration decrypt failed: %v", err)
+			return ParseResult{}, malformed("registration decrypt failed: %v", err)
 		}
 	} else {
 		imp := implant.ImplantPtrByName(authenticatedName)
 		if imp == nil {
-			return internal.NIL, nil, malformed("unknown session")
+			return ParseResult{}, malformed("unknown session")
 		}
 		if len(decoded) < minimumAuthenticatedPacket {
-			return internal.NIL, nil, malformed("authenticated packet is too short")
+			return ParseResult{}, malformed("authenticated packet is too short")
 		}
 		if !imp.Enc.HMACVerifyHash(decoded) {
-			return internal.NIL, nil, malformed("HMAC verification failed")
+			return ParseResult{}, malformed("HMAC verification failed")
 		}
 
 		ciphertext := decoded[:len(decoded)-callbackHMACSize]
 		plaintext, err = imp.Enc.AESCbcDecrypt(ciphertext)
 		if err != nil {
-			return internal.NIL, nil, malformed("session decrypt failed: %v", err)
+			return ParseResult{}, malformed("session decrypt failed: %v", err)
 		}
 	}
 
 	reader := bytes.NewReader(plaintext)
-	if err := readBinary(reader, &messageType, "message type"); err != nil {
-		return internal.NIL, nil, err
+	if err := readBinary(reader, &result.MessageType, "message type"); err != nil {
+		return ParseResult{}, err
 	}
-	if authenticatedName == "" && messageType != internal.REG {
-		return internal.NIL, nil, malformed("registration endpoint received message type %d", messageType)
+	if authenticatedName == "" && result.MessageType != internal.REG {
+		return ParseResult{}, malformed("registration endpoint received message type %d", result.MessageType)
 	}
-	if authenticatedName != "" && messageType == internal.REG {
-		return internal.NIL, nil, malformed("session endpoint received registration message")
+	if authenticatedName != "" && result.MessageType == internal.REG {
+		return ParseResult{}, malformed("session endpoint received registration message")
 	}
 
-	switch messageType {
+	result.Session = authenticatedName
+	switch result.MessageType {
 	case internal.REG:
-		err = ParseAndRegWithContext(reader, transport)
+		result.Session, err = parseAndRegWithContext(reader, transport)
 	case internal.CHK:
-		task, err = ParseCheck(reader, authenticatedName)
+		result.Task, err = ParseCheck(reader, authenticatedName)
 	case internal.RSP:
 		err = ParseResponse(reader, authenticatedName)
 	case internal.CHU:
 		err = ParseChunkData(reader, authenticatedName)
 	default:
-		err = malformed("unknown message type %d", messageType)
+		err = malformed("unknown message type %d", result.MessageType)
 	}
 	if err != nil {
-		return internal.NIL, nil, err
+		return ParseResult{}, err
 	}
-	return messageType, task, nil
+	return result, nil
 }
 
 func decodePayload(encoded []byte) ([]byte, error) {
@@ -178,22 +205,8 @@ func requireConsumed(reader *bytes.Reader) error {
 }
 
 func ParseMetadata(reader io.Reader, metadata *impx.ImplantMetadata) error {
-	fields := []struct {
-		name  string
-		value any
-	}{
-		{"PID", &metadata.PID},
-		{"session ID", &metadata.SessionID},
-		{"OTS", &metadata.OTS},
-		{"IP", &metadata.IP},
-		{"port", &metadata.Port},
-		{"sleep", &metadata.Sleep},
-		{"architecture", &metadata.Arch},
-	}
-	for _, field := range fields {
-		if err := readBinary(reader, field.value, field.name); err != nil {
-			return err
-		}
+	if err := protocol.ReadMetadata(reader, metadata); err != nil {
+		return malformed("%v", err)
 	}
 	return nil
 }
@@ -207,56 +220,94 @@ func ParseAndReg(reader *bytes.Reader, req *http.Request) error {
 }
 
 func ParseAndRegWithContext(reader *bytes.Reader, transport TransportContext) error {
+	_, err := parseAndRegWithContext(reader, transport)
+	return err
+}
+
+func parseAndRegWithContext(reader *bytes.Reader, transport TransportContext) (string, error) {
 	metadata := new(impx.ImplantMetadata)
 	if err := ParseMetadata(reader, metadata); err != nil {
-		return err
+		return "", err
 	}
 
 	var aesKey [16]byte
 	var aesIV [16]byte
 	if err := readBinary(reader, &aesKey, "AES key"); err != nil {
-		return err
+		return "", err
 	}
 	if err := readBinary(reader, &aesIV, "AES IV"); err != nil {
-		return err
+		return "", err
 	}
 
 	var dataLength uint16
 	if err := readBinary(reader, &dataLength, "registration data length"); err != nil {
-		return err
+		return "", err
 	}
 	data, err := readSizedBytes(reader, uint64(dataLength), maxRegistrationDataSize, "registration data")
 	if err != nil {
-		return err
+		return "", err
 	}
 	if err := requireConsumed(reader); err != nil {
-		return err
+		return "", err
 	}
 
 	entities := bytes.Split(data, internal.SEP)
 	if len(entities) != 4 {
-		return malformed("registration data must contain exactly four entities")
+		return "", malformed("registration data must contain exactly four entities")
 	}
 	metadata.Proc = string(entities[0])
 	metadata.Hostname = string(entities[1])
 	metadata.User = string(entities[2])
 	payloadType := string(entities[3])
 	if err := internal.ValidatePayloadType(payloadType); err != nil {
-		return malformed("invalid payload type: %v", err)
+		return "", malformed("invalid payload type: %v", err)
 	}
 	metadata.Type = payloadType
 
+	profile := strings.TrimSpace(transport.Profile)
+	if profile != "" {
+		definition, err := db.DBImplantDefinitionGet(profile)
+		if err != nil {
+			return "", malformed("registration profile: %v", err)
+		}
+		if definition.PayloadType != metadata.Type {
+			return "", malformed("registration payload type %q does not match profile %q", metadata.Type, profile)
+		}
+	}
+
 	name := fmt.Sprintf("%d", metadata.SessionID)
-	if implant.ImplantPtrByName(name) != nil {
+	kind, transportName, transportID := normalizedTransport(transport)
+	replaceDeadSession := false
+	if existing := implant.ImplantPtrByName(name); existing != nil {
 		session, err := implant.APIGetSession(name)
 		if err != nil {
-			return malformed("inspect existing session: %v", err)
+			return "", malformed("inspect existing session: %v", err)
+		}
+		sameSpeaker := kind == teamapi.SessionTransportSpeaker && session.Transport == teamapi.SessionTransportSpeaker &&
+			((transportID != "" && session.SpeakerUUID == transportID) || (transportID == "" && session.Speaker == transportName))
+		if sameSpeaker {
+			existing.ImplantSetMetadata(metadata)
+			existing.ImplantSetEncryption(encrypt.EncryptImport(aesKey, aesIV))
+			existing.ImplantSetSpeaker(transportName, transportID)
+			if transport.RemoteAddress != "" {
+				existing.ImplantSetRemoteSocket(transport.RemoteAddress)
+			}
+			existing.ImplantUpdateLastseen()
+			return name, nil
 		}
 		if session.Alive {
-			return malformed("session already exists")
+			return "", malformed("session already exists")
 		}
+		replaceDeadSession = true
+	}
+	if profile != "" {
+		if err := db.DBImplantDefinitionValidateAndConsumeOTS(profile, metadata.OTS, time.Now().UTC()); err != nil {
+			return "", malformed("registration one-time secret: %v", err)
+		}
+	}
+	if replaceDeadSession {
 		if err := implant.APIDeleteSession(name); err != nil {
-			return malformed("replace dead session: %v", err)
+			return "", malformed("replace dead session: %v", err)
 		}
 	}
 
@@ -266,15 +317,28 @@ func ParseAndRegWithContext(reader *bytes.Reader, transport TransportContext) er
 	if transport.RemoteAddress != "" {
 		imp.ImplantSetRemoteSocket(transport.RemoteAddress)
 	}
-	if transport.ListenerName != "" || transport.ListenerUUID != "" {
-		imp.ImplantSetListener(transport.ListenerName, transport.ListenerUUID)
+	if kind == teamapi.SessionTransportSpeaker {
+		imp.ImplantSetSpeaker(transportName, transportID)
+	} else if transportName != "" || transportID != "" {
+		imp.ImplantSetListener(transportName, transportID)
 	}
 	imp.ImplantAddImplant()
 
 	lua.LuaOnRegister(*imp)
 	log.AsyncWriteStdout(fmt.Sprintf("[\u001B[1;32m!\u001B[0;0m]- New implant %s - SOCK:%s HOSTNAME:%s USERNAME:%s TYPE:%s\n",
 		imp.Name, imp.Metadata.Socket, imp.Metadata.Hostname, imp.Metadata.User, imp.Metadata.Type))
-	return nil
+	return name, nil
+}
+
+func normalizedTransport(transport TransportContext) (kind, name, id string) {
+	kind, name, id = transport.Kind, transport.Name, transport.UUID
+	if kind == "" && (transport.ListenerName != "" || transport.ListenerUUID != "") {
+		kind, name, id = teamapi.SessionTransportListener, transport.ListenerName, transport.ListenerUUID
+	}
+	if kind == "" {
+		kind = teamapi.SessionTransportListener
+	}
+	return kind, name, id
 }
 
 func validateSession(metadata *impx.ImplantMetadata, authenticatedName string) (*implant.Implant, error) {

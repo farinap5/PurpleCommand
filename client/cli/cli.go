@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"sort"
@@ -28,6 +29,7 @@ type mode string
 const (
 	modeMain     mode = "main"
 	modeListener mode = "listener"
+	modeSpeaker  mode = "speaker"
 	modeSession  mode = "session"
 	modeScript   mode = "script"
 	modeLoot     mode = "loot"
@@ -39,6 +41,7 @@ type CLI struct {
 	mu               sync.RWMutex
 	mode             mode
 	selectedListener string
+	selectedSpeaker  string
 	selectedSession  string
 	selectedProfile  string
 	snapshot         teamapi.Snapshot
@@ -120,6 +123,8 @@ func (cli *CLI) livePrefix() (string, bool) {
 	switch cli.mode {
 	case modeListener:
 		return "(listener - " + selected(cli.selectedListener) + ")>> ", true
+	case modeSpeaker:
+		return "(speaker - " + selected(cli.selectedSpeaker) + ")>> ", true
 	case modeSession:
 		return "(session - " + selected(cli.selectedSession) + ")>> ", true
 	case modeScript:
@@ -129,7 +134,7 @@ func (cli *CLI) livePrefix() (string, bool) {
 	case modeProfile:
 		return "(implant - " + selected(cli.selectedProfile) + ")>> ", true
 	default:
-		return fmt.Sprintf("[PURPC L:%d S:%d]>> ", len(cli.snapshot.Listeners), len(cli.snapshot.Sessions)), true
+		return fmt.Sprintf("[PURPC L:%d SP:%d S:%d]>> ", len(cli.snapshot.Listeners), len(cli.snapshot.Speakers), len(cli.snapshot.Sessions)), true
 	}
 }
 
@@ -177,6 +182,8 @@ func (cli *CLI) execute(input string) {
 		err = cli.executeMain(fields)
 	case modeListener:
 		err = cli.executeListener(fields)
+	case modeSpeaker:
+		err = cli.executeSpeaker(fields)
 	case modeSession:
 		err = cli.executeSession(input, fields)
 	case modeScript:
@@ -198,6 +205,8 @@ func (cli *CLI) executeMain(fields []string) error {
 	switch strings.ToLower(fields[0]) {
 	case "listener":
 		cli.mode = modeListener
+	case "speaker":
+		cli.mode = modeSpeaker
 	case "session":
 		cli.mode = modeSession
 	case "script":
@@ -210,6 +219,167 @@ func (cli *CLI) executeMain(fields []string) error {
 		return errorsNew("Unknow command: type `help`")
 	}
 	return nil
+}
+
+func (cli *CLI) executeSpeaker(fields []string) error {
+	command := strings.ToLower(fields[0])
+	switch command {
+	case "list":
+		var items []teamapi.Speaker
+		if err := cli.request(teamapi.AskSpeakerList, struct{}{}, &items); err != nil {
+			return err
+		}
+		printSpeakers(items)
+	case "new":
+		if len(fields) < 3 || len(fields) > 4 {
+			return errorsNew("usage: new name base-url [path]")
+		}
+		configuration := teamapi.SpeakerConfig{
+			Client:  teamapi.SpeakerHTTPClientConfig{BaseURL: fields[2]},
+			Request: teamapi.SpeakerHTTPRequestConfig{Method: http.MethodPost},
+		}
+		if len(fields) == 4 {
+			configuration.Request.Path = fields[3]
+		}
+		return cli.createSpeaker(fields[1], configuration)
+	case "new-json":
+		if len(fields) != 3 {
+			return errorsNew("usage: new-json name config.json")
+		}
+		configuration, err := readSpeakerConfig(fields[2])
+		if err != nil {
+			return err
+		}
+		return cli.createSpeaker(fields[1], configuration)
+	case "interact", "select":
+		if len(fields) != 2 {
+			return errorsNew("usage: select name")
+		}
+		var item teamapi.Speaker
+		if err := cli.request(teamapi.AskSpeakerGet, teamapi.NameRequest{Name: fields[1]}, &item); err != nil {
+			return err
+		}
+		cli.mu.Lock()
+		cli.selectedSpeaker = item.Name
+		cli.mu.Unlock()
+	case "options":
+		name, err := cli.speakerName(fields[1:])
+		if err != nil {
+			return err
+		}
+		var item teamapi.Speaker
+		if err := cli.request(teamapi.AskSpeakerGet, teamapi.NameRequest{Name: name}, &item); err != nil {
+			return err
+		}
+		encoded, _ := json.MarshalIndent(item, "", "  ")
+		fmt.Println(string(encoded))
+	case "update":
+		if len(fields) != 2 {
+			return errorsNew("usage: update config.json")
+		}
+		name, err := cli.speakerName(nil)
+		if err != nil {
+			return err
+		}
+		configuration, err := readSpeakerConfig(fields[1])
+		if err != nil {
+			return err
+		}
+		var current teamapi.Speaker
+		if err := cli.request(teamapi.AskSpeakerGet, teamapi.NameRequest{Name: name}, &current); err != nil {
+			return err
+		}
+		var updated teamapi.Speaker
+		return cli.request(teamapi.AskSpeakerUpdate, teamapi.SpeakerUpdateRequest{
+			Name: name, Config: &configuration, ExpectedConfigVersion: &current.ConfigVersion,
+		}, &updated)
+	case "rename":
+		if len(fields) != 2 {
+			return errorsNew("usage: rename new-name")
+		}
+		name, err := cli.speakerName(nil)
+		if err != nil {
+			return err
+		}
+		var current teamapi.Speaker
+		if err := cli.request(teamapi.AskSpeakerGet, teamapi.NameRequest{Name: name}, &current); err != nil {
+			return err
+		}
+		var updated teamapi.Speaker
+		if err := cli.request(teamapi.AskSpeakerUpdate, teamapi.SpeakerUpdateRequest{
+			Name: name, NewName: fields[1], ExpectedConfigVersion: &current.ConfigVersion,
+		}, &updated); err != nil {
+			return err
+		}
+		cli.mu.Lock()
+		cli.selectedSpeaker = updated.Name
+		cli.mu.Unlock()
+	case "start", "run", "stop", "restart", "delete":
+		name, err := cli.speakerName(fields[1:])
+		if err != nil {
+			return err
+		}
+		operation := map[string]string{
+			"start": teamapi.AskSpeakerStart, "run": teamapi.AskSpeakerStart,
+			"stop": teamapi.AskSpeakerStop, "restart": teamapi.AskSpeakerRestart,
+			"delete": teamapi.AskSpeakerDelete,
+		}[command]
+		var item teamapi.Speaker
+		if err := cli.request(operation, teamapi.NameRequest{Name: name}, &item); err != nil {
+			return err
+		}
+		if command == "delete" {
+			cli.mu.Lock()
+			if cli.selectedSpeaker == name {
+				cli.selectedSpeaker = ""
+			}
+			cli.mu.Unlock()
+		}
+	default:
+		return errorsNew("speaker commands: list, new, new-json, select, options, update, rename, start, stop, restart, delete, back")
+	}
+	return nil
+}
+
+func (cli *CLI) createSpeaker(name string, configuration teamapi.SpeakerConfig) error {
+	var item teamapi.Speaker
+	if err := cli.request(teamapi.AskSpeakerCreate, teamapi.SpeakerCreateRequest{Name: name, Config: configuration}, &item); err != nil {
+		return err
+	}
+	cli.mu.Lock()
+	cli.selectedSpeaker = item.Name
+	cli.mu.Unlock()
+	printSpeakers([]teamapi.Speaker{item})
+	return nil
+}
+
+func (cli *CLI) speakerName(arguments []string) (string, error) {
+	if len(arguments) > 0 {
+		return arguments[0], nil
+	}
+	cli.mu.RLock()
+	defer cli.mu.RUnlock()
+	if cli.selectedSpeaker == "" {
+		return "", errorsNew("select a speaker first")
+	}
+	return cli.selectedSpeaker, nil
+}
+
+func readSpeakerConfig(path string) (teamapi.SpeakerConfig, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return teamapi.SpeakerConfig{}, err
+	}
+	var configuration teamapi.SpeakerConfig
+	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&configuration); err != nil {
+		return teamapi.SpeakerConfig{}, fmt.Errorf("decode speaker config: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return teamapi.SpeakerConfig{}, errorsNew("decode speaker config: trailing JSON data")
+	}
+	return configuration, nil
 }
 
 func (cli *CLI) executeListener(fields []string) error {
@@ -881,6 +1051,14 @@ func (cli *CLI) completeText(input string) []prompt.Suggest {
 			prompt.Suggest{Text: "start", Description: "Start listener"},
 			prompt.Suggest{Text: "select", Description: "Select a listener"},
 		)
+	case modeSpeaker:
+		if argumentIndex == 1 && isOneOf(command, "interact", "select", "options", "start", "run", "stop", "restart", "delete") {
+			suggestions = nil
+			for _, item := range cli.snapshot.Speakers {
+				suggestions = append(suggestions, prompt.Suggest{Text: item.Name, Description: item.State + " " + item.Config.Client.BaseURL})
+			}
+			return prompt.FilterHasPrefix(suggestions, prefix, true)
+		}
 	case modeSession:
 		if argumentIndex == 1 && isOneOf(command, "interact", "select") {
 			suggestions = nil
@@ -958,6 +1136,8 @@ func stateForMode(current mode) int {
 	switch current {
 	case modeListener:
 		return types.LISTENER
+	case modeSpeaker:
+		return types.SPEAKER
 	case modeSession:
 		return types.SESSION
 	case modeScript:
@@ -986,6 +1166,10 @@ func (cli *CLI) help() {
 			core.HelpEntry{Command: "host not-found", Description: "Use `host not-found <source-path> [headers-json]`."},
 			core.HelpEntry{Command: "host clear-not-found", Description: "Remove the configured default 404 page."},
 			core.HelpEntry{Command: "restart", Description: "Restart a listener."},
+			core.HelpEntry{Command: "select", Description: "Alias for `interact <name>`."},
+		)
+	case modeSpeaker:
+		entries = append(entries,
 			core.HelpEntry{Command: "select", Description: "Alias for `interact <name>`."},
 		)
 	case modeSession:
@@ -1035,11 +1219,20 @@ func printListeners(items []teamapi.Listener) {
 	}
 	table.Print()
 }
+func printSpeakers(items []teamapi.Speaker) {
+	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
+	table := tabby.New()
+	table.AddHeader("NAME", "ENDPOINT", "STATE", "DESIRED", "SESSION", "PERSIST", "SESSIONS", "ERROR")
+	for _, item := range items {
+		table.AddLine(item.Name, item.Config.Client.BaseURL, item.State, item.DesiredState, item.Session, item.Persistent, item.Associations, item.LastError)
+	}
+	table.Print()
+}
 func printSessions(items []teamapi.Session) {
 	table := tabby.New()
-	table.AddHeader("NAME", "TYPE", "USER", "HOST", "PID", "ALIVE", "LAST SEEN")
+	table.AddHeader("NAME", "TYPE", "TRANSPORT", "USER", "HOST", "PID", "LIVENESS", "LAST SEEN")
 	for _, item := range items {
-		table.AddLine(item.Name, item.PayloadType, item.User, item.Hostname, item.PID, item.Alive, item.LastSeen.Format(time.RFC3339))
+		table.AddLine(item.Name, item.PayloadType, item.Transport, item.User, item.Hostname, item.PID, item.Liveness, item.LastSeen.Format(time.RFC3339))
 	}
 	table.Print()
 }
@@ -1053,13 +1246,13 @@ func printTasks(items []teamapi.Task) {
 }
 func printProfiles(items []teamapi.Profile) {
 	table := tabby.New()
-	table.AddHeader("NAME", "TYPE", "LHOST", "OS/ARCH", "BUILDER", "OUTPUT", "TEMPLATE")
+	table.AddHeader("NAME", "TYPE", "MODE", "LHOST", "OS/ARCH", "BUILDER", "OUTPUT", "TEMPLATE")
 	for _, item := range items {
 		builder := item.Builder
 		if builder == "" {
 			builder = "legacy"
 		}
-		table.AddLine(item.Name, item.Type, item.LHOST, item.OS+"/"+item.ARCH, builder, item.Output, item.Template)
+		table.AddLine(item.Name, item.Type, item.Mode, item.LHOST, item.OS+"/"+item.ARCH, builder, item.Output, item.Template)
 	}
 	table.Print()
 }

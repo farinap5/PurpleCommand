@@ -90,6 +90,11 @@ func APIUpdateProfile(request teamapi.ProfileUpdateRequest) (teamapi.Profile, er
 	switch key {
 	case "TYPE":
 		updated.Type = request.Value
+	case "MODE":
+		updated.Mode = request.Value
+		if strings.EqualFold(strings.TrimSpace(request.Value), "bind") || strings.EqualFold(strings.TrimSpace(request.Value), "speaker") {
+			updated.ListenerUUID = ""
+		}
 	case "LHOST":
 		updated.LHOST = request.Value
 		updated.ListenerUUID = ""
@@ -149,6 +154,9 @@ func APISetProfileListener(name, listenerUUID, lhost string) (teamapi.Profile, b
 	}
 	listenerUUID = strings.TrimSpace(listenerUUID)
 	if listenerUUID != "" {
+		if profile.Mode == "bind" {
+			return teamapi.Profile{}, false, errors.New("bind-mode profiles cannot attach to reverse listeners")
+		}
 		lhost = strings.TrimSpace(lhost)
 		if lhost == "" {
 			return teamapi.Profile{}, false, errors.New("listener advertisement is required")
@@ -297,6 +305,7 @@ func APISyncProfileDefinition(name, payloadType, builder string, osOptions, arch
 func profileDTO(name string, profile *Profile) teamapi.Profile {
 	result := teamapi.Profile{
 		Name: name, Type: profile.Type, LHOST: profile.LHOST, OS: profile.OS,
+		Mode: profile.Mode,
 		ARCH: profile.ARCH, OSOptions: cloneStrings(profile.OSOptions),
 		ARCHOptions: cloneStrings(profile.ARCHOptions), Output: profile.Output,
 		Template: profile.Template, PublicKey: profile.PublicKey, Builder: profile.Builder,
@@ -322,6 +331,9 @@ func profileDTO(name string, profile *Profile) teamapi.Profile {
 func applyProfileDTO(profile *Profile, request teamapi.Profile) {
 	if request.Type != "" {
 		profile.Type = request.Type
+	}
+	if request.Mode != "" {
+		profile.Mode = request.Mode
 	}
 	if request.LHOST != "" {
 		profile.LHOST = request.LHOST
@@ -358,6 +370,11 @@ func validateProfile(profile *Profile) error {
 	if err := internal.ValidatePayloadType(profile.Type); err != nil {
 		return err
 	}
+	mode, err := normalizeMode(profile.Mode)
+	if err != nil {
+		return err
+	}
+	profile.Mode = mode
 	if strings.TrimSpace(profile.OS) == "" || strings.TrimSpace(profile.ARCH) == "" {
 		return errors.New("OS and ARCH are required")
 	}

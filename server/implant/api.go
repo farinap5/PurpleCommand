@@ -35,25 +35,34 @@ func APIGetSession(name string) (teamapi.Session, error) {
 
 func (implant *Implant) apiSession() teamapi.Session {
 	alive, terminating, lastSeen := implant.implantLifecycleAt(time.Now())
-	transport, speaker, listener, listenerUUID := implant.sessionRoute()
+	transport, speaker, speakerUUID, listener, listenerUUID, healthMonitoring := implant.sessionRoute()
+	liveness := "healthy"
+	if transport == teamapi.SessionTransportSpeaker && !healthMonitoring {
+		liveness = "unknown"
+	} else if !alive {
+		liveness = "unavailable"
+	}
 	return teamapi.Session{
-		Name:         implant.Name,
-		UUID:         implant.UUID,
-		PayloadType:  implant.Metadata.Type,
-		Transport:    transport,
-		Speaker:      speaker,
-		Listener:     listener,
-		ListenerUUID: listenerUUID,
-		User:         implant.Metadata.User,
-		Hostname:     implant.Metadata.Hostname,
-		Process:      implant.Metadata.Proc,
-		Socket:       implant.Metadata.Socket,
-		PID:          implant.Metadata.PID,
-		Sleep:        implant.Metadata.Sleep,
-		Alive:        alive,
-		Terminating:  terminating,
-		FirstSeen:    implant.FirstSeen,
-		LastSeen:     lastSeen,
+		Name:             implant.Name,
+		UUID:             implant.UUID,
+		PayloadType:      implant.Metadata.Type,
+		Transport:        transport,
+		Speaker:          speaker,
+		SpeakerUUID:      speakerUUID,
+		Listener:         listener,
+		ListenerUUID:     listenerUUID,
+		User:             implant.Metadata.User,
+		Hostname:         implant.Metadata.Hostname,
+		Process:          implant.Metadata.Proc,
+		Socket:           implant.Metadata.Socket,
+		PID:              implant.Metadata.PID,
+		Sleep:            implant.Metadata.Sleep,
+		Alive:            alive,
+		Liveness:         liveness,
+		HealthMonitoring: healthMonitoring,
+		Terminating:      terminating,
+		FirstSeen:        implant.FirstSeen,
+		LastSeen:         lastSeen,
 	}
 }
 

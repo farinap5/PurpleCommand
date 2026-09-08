@@ -9,14 +9,16 @@ import (
 )
 
 type Implant struct {
-	Name         string
-	UUID         string
-	Enc          encrypt.Encrypt
-	Metadata     implant.ImplantMetadata
-	Transport    string
-	Speaker      string
-	Listener     string
-	ListenerUUID string
+	Name             string
+	UUID             string
+	Enc              encrypt.Encrypt
+	Metadata         implant.ImplantMetadata
+	Transport        string
+	Speaker          string
+	SpeakerUUID      string
+	HealthMonitoring bool
+	Listener         string
+	ListenerUUID     string
 
 	Alive       bool
 	Terminating bool
@@ -27,9 +29,10 @@ type Implant struct {
 	TaskMap   map[[8]byte]*Task
 	taskMu    *sync.Mutex
 	taskReady chan struct{}
+	taskRetry time.Duration
 }
 
-func (i *Implant) sessionRoute() (transport, speaker, listener, listenerUUID string) {
+func (i *Implant) sessionRoute() (transport, speaker, speakerUUID, listener, listenerUUID string, healthMonitoring bool) {
 	mu := i.taskMutex()
 	mu.Lock()
 	defer mu.Unlock()
@@ -37,7 +40,7 @@ func (i *Implant) sessionRoute() (transport, speaker, listener, listenerUUID str
 	if transport == "" {
 		transport = teamapi.SessionTransportListener
 	}
-	return transport, i.Speaker, i.Listener, i.ListenerUUID
+	return transport, i.Speaker, i.SpeakerUUID, i.Listener, i.ListenerUUID, i.HealthMonitoring
 }
 
 type Task struct {

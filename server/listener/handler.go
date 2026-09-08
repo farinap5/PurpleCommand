@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"purpcmd/internal"
+	"purpcmd/pkg/teamapi"
 	"purpcmd/server/callback"
 	"purpcmd/server/interactive"
 	"purpcmd/server/log"
@@ -93,6 +94,6 @@ func (l *Listener) processPayload(w http.ResponseWriter, r *http.Request) (uint1
 		transport = "http"
 	}
 	return callback.ParseCallbackWithContext(data, callback.TransportContext{
-		ListenerName: l.Name, ListenerUUID: l.UUID, Transport: transport, RemoteAddress: r.RemoteAddr,
+		Kind: teamapi.SessionTransportListener, Name: l.Name, UUID: l.UUID, Protocol: transport, RemoteAddress: r.RemoteAddr,
 	}, name)
 }

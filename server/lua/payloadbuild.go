@@ -101,6 +101,7 @@ func (profile *LuaProfile) implantProfile(state *lua.LState) int {
 	}
 	if execution := profile.executionBuild; execution != nil && execution.ProfileName == name {
 		item.Type = execution.Profile.Type
+		item.Mode = execution.Profile.Mode
 		item.LHOST = execution.Profile.LHOST
 		item.OS = execution.Profile.OS
 		item.ARCH = execution.Profile.ARCH
@@ -124,6 +125,7 @@ func luaProfileTable(state *lua.LState, profile teamapi.Profile) *lua.LTable {
 	table := state.NewTable()
 	state.SetField(table, "name", lua.LString(profile.Name))
 	state.SetField(table, "type", lua.LString(profile.Type))
+	state.SetField(table, "mode", lua.LString(profile.Mode))
 	state.SetField(table, "lhost", lua.LString(profile.LHOST))
 	state.SetField(table, "os", lua.LString(profile.OS))
 	state.SetField(table, "arch", lua.LString(profile.ARCH))
@@ -219,6 +221,8 @@ func (profile *LuaProfile) payloadBuildExec(state *lua.LState) int {
 		"PURPCMD_PUBLIC_KEY="+execution.Profile.PublicKey,
 		"PURPCMD_LHOST="+execution.Profile.LHOST,
 		"PURPCMD_PAYLOAD_TYPE="+execution.Profile.Type,
+		"PURPCMD_MODE="+execution.Profile.Mode,
+		"PURPCMD_OTS_TOKEN="+fmt.Sprintf("%x", execution.Profile.OTSToken),
 		"PURPCMD_LISTENER_UUID="+execution.Profile.ListenerUUID,
 		"PURPCMD_PROJECT_ROOT="+execution.ProjectRoot,
 		"PURPCMD_BUILD_ID="+execution.Profile.BuildID,

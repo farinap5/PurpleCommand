@@ -12,9 +12,16 @@ make build
 ./bin/purpc
 ```
 
-See [TEAMSERVER.md](TEAMSERVER.md) for architecture, security, protocol,
+See [TEAMSERVER.md](docs/TEAMSERVER.md) for architecture, security, protocol,
 migration, HTTP listener file hosting, file transfer, interactive SSH, and
 deployment details.
+
+Frontend implementations should use the
+[listener and speaker UI contract](docs/listener-speaker-ui-contract.md) for
+resource schemas, lifecycle behavior, events, permissions, and redaction rules.
+Implant authors should use the
+[implant protocol specification](docs/IMPLANT_PROTOCOL.md), including the
+speaker/bind HTTP carriage and first-blood lifecycle.
 
 ## Project overview
 

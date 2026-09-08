@@ -12,6 +12,51 @@ import (
 	"purpcmd/server/runtimeevents"
 )
 
+func TestRenderGoSourceSelectsBindRuntimeAndEmbedsOTS(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "..", "template", "main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := Profile{
+		Type: "bind.impl", Mode: "bind", LHOST: ":8443", PublicKey: filepath.Join("..", "..", "server.pub"),
+		OTSToken: [12]byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c},
+	}
+	rendered, err := RenderGoSource(profile, string(source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		`payloadMode := "bind"`, `remoteAdd := ":8443"`, `payloadType := "bind.impl"`,
+		`var implantOTS = [12]byte{0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c}`,
+		`core.StartBind(remoteAdd, payloadType)`, `var publicKeyDER = []byte{`,
+	} {
+		if !strings.Contains(rendered, expected) {
+			t.Fatalf("rendered bind source is missing %q", expected)
+		}
+	}
+	if strings.Contains(rendered, `"IMPLANT_MODE"`) || strings.Contains(rendered, `"IMPLANT_TYPE"`) || strings.Contains(rendered, `"LHOST"`) {
+		t.Fatal("rendered bind source retained a build placeholder")
+	}
+}
+
+func TestBundledMakefileSubstitutesBindRuntimeInputs(t *testing.T) {
+	contents, err := os.ReadFile(filepath.Join("..", "..", "template", "Makefile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	makefile := string(contents)
+	for _, expected := range []string{
+		`MODE      ?= reverse`,
+		`OTS_BYTES ?=`,
+		`'s|"IMPLANT_MODE"|"$(MODE)"|g'`,
+		`'s|var implantOTS \[12\]byte|var implantOTS = [12]byte{$(OTS_BYTES)}|g'`,
+	} {
+		if !strings.Contains(makefile, expected) {
+			t.Fatalf("bundled Makefile is missing %q", expected)
+		}
+	}
+}
+
 func TestRegisteredPayloadBuilderDispatchAndCleanup(t *testing.T) {
 	const source = "payloadbuilder-test.lua"
 	UnregisterPayloadBuilders(source)

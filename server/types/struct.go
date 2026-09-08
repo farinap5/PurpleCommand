@@ -7,6 +7,7 @@ const (
 	SCRIPT
 	LOOT
 	IMPLANT_BUILD
+	SPEAKER
 )
 
 type Profile struct {

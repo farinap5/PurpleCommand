@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"purpcmd/pkg/teamapi"
 	"purpcmd/server/callback"
 )
 
@@ -16,8 +17,8 @@ var ErrInvalidImplantRequest = errors.New("invalid implant request")
 // encrypted implant callback protocol.
 func CallbackExchangeHandler(_ context.Context, exchange Exchange) (ExchangeResult, error) {
 	messageType, payload, err := callback.ParseCallbackWithContext(exchange.Payload, callback.TransportContext{
-		ListenerName: exchange.ListenerName, ListenerUUID: exchange.ListenerUUID,
-		Transport: exchange.Transport, RemoteAddress: exchange.RemoteAddress,
+		Kind: teamapi.SessionTransportListener, Name: exchange.ListenerName, UUID: exchange.ListenerUUID,
+		Protocol: exchange.Transport, RemoteAddress: exchange.RemoteAddress,
 	}, exchange.AuthenticatedSession)
 	if errors.Is(err, callback.ErrMalformedPayload) {
 		err = fmt.Errorf("%w: %v", ErrInvalidImplantRequest, err)

@@ -37,26 +37,32 @@ func (i *Implant) ImplantAddImplant() {
 func ImplantNew(name string) *Implant {
 	n := time.Now()
 	return &Implant{
-		Name:      name,
-		UUID:      uuid.NewString(),
-		Transport: teamapi.SessionTransportListener,
-		Alive:     true,
-		LastSeen:  n,
-		FirstSeen: n,
-		TaskMap:   make(map[[8]byte]*Task),
-		taskMu:    &sync.Mutex{},
-		taskReady: make(chan struct{}, 1),
+		Name:             name,
+		UUID:             uuid.NewString(),
+		Transport:        teamapi.SessionTransportListener,
+		Alive:            true,
+		LastSeen:         n,
+		FirstSeen:        n,
+		TaskMap:          make(map[[8]byte]*Task),
+		taskMu:           &sync.Mutex{},
+		taskReady:        make(chan struct{}, 1),
+		HealthMonitoring: true,
 	}
 }
 
 // ImplantSetSpeaker routes this session's queued tasks through the named
 // speaker. The session remains in the normal implant registry so command and
 // Lua task handling do not need a speaker-specific path.
-func (i *Implant) ImplantSetSpeaker(name string) {
+func (i *Implant) ImplantSetSpeaker(name string, ids ...string) {
+	id := ""
+	if len(ids) > 0 {
+		id = ids[0]
+	}
 	mu := i.taskMutex()
 	mu.Lock()
 	i.Transport = teamapi.SessionTransportSpeaker
 	i.Speaker = name
+	i.SpeakerUUID = id
 	i.Listener = ""
 	i.ListenerUUID = ""
 	pending := false
@@ -73,6 +79,46 @@ func (i *Implant) ImplantSetSpeaker(name string) {
 	}
 }
 
+// ImplantRenameSpeaker refreshes the display name for sessions owned by a
+// stable speaker UUID. Routing never relies on the mutable name.
+func ImplantRenameSpeaker(id, previousName, newName string) {
+	implantMapMu.RLock()
+	items := make([]*Implant, 0, len(ImplantMAP))
+	for _, item := range ImplantMAP {
+		items = append(items, item)
+	}
+	implantMapMu.RUnlock()
+	for _, item := range items {
+		mu := item.taskMutex()
+		mu.Lock()
+		owned := item.Transport == teamapi.SessionTransportSpeaker &&
+			((id != "" && item.SpeakerUUID == id) || (item.SpeakerUUID == "" && item.Speaker == previousName))
+		if owned {
+			item.Speaker = newName
+		}
+		mu.Unlock()
+		if owned {
+			persistSession(item)
+		}
+	}
+}
+
+func (i *Implant) ImplantSetHealthMonitoring(enabled bool) {
+	mu := i.taskMutex()
+	mu.Lock()
+	i.HealthMonitoring = enabled
+	mu.Unlock()
+	persistSession(i)
+}
+
+func (i *Implant) ImplantSetUnavailable() {
+	mu := i.taskMutex()
+	mu.Lock()
+	i.Alive = false
+	mu.Unlock()
+	persistSession(i)
+}
+
 // ImplantSetListener records the listener instance that accepted this
 // session. The listener UUID remains stable if the display name later changes.
 func (i *Implant) ImplantSetListener(name, id string) {
@@ -80,6 +126,8 @@ func (i *Implant) ImplantSetListener(name, id string) {
 	mu.Lock()
 	i.Transport = teamapi.SessionTransportListener
 	i.Speaker = ""
+	i.SpeakerUUID = ""
+	i.HealthMonitoring = true
 	i.Listener = name
 	i.ListenerUUID = id
 	mu.Unlock()
@@ -189,7 +237,12 @@ func (i *Implant) ImplantUpdateLastseen() {
 }
 
 func (i *Implant) refreshAliveLocked(now time.Time) {
-	if !i.Alive || i.Metadata.Sleep == 0 {
+	// Reverse sessions advertise their callback cadence in Metadata.Sleep.
+	// Speaker sessions instead use the worker's independently configured
+	// health interval and failure threshold; the worker marks them unavailable
+	// explicitly, so applying the reverse timeout here would create false
+	// failures whenever that interval exceeds the implant sleep value.
+	if !i.Alive || i.Metadata.Sleep == 0 || i.Transport == teamapi.SessionTransportSpeaker {
 		return
 	}
 	if now.Sub(i.LastSeen) > time.Duration(i.Metadata.Sleep)*time.Second {

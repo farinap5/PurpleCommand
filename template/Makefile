@@ -6,6 +6,8 @@ ARCH      ?= amd64
 URI       ?= /
 UA        ?= Mozilla PurpCMD
 TYPE      ?= impl
+MODE      ?= reverse
+OTS_BYTES ?= 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00
 PUBLICKEY ?=
 
 GOOS      ?= $(OS)
@@ -22,6 +24,8 @@ build: ## Build implant binary (used by implantbuilder and manually)
 	@sed \
 		-e 's|"LHOST"|"$(LHOST)"|g' \
 		-e 's|"IMPLANT_TYPE"|"$(TYPE)"|g' \
+		-e 's|"IMPLANT_MODE"|"$(MODE)"|g' \
+		-e 's|var implantOTS \[12\]byte|var implantOTS = [12]byte{$(OTS_BYTES)}|g' \
 		-e 's|uri  := "/"|uri  := "$(URI)"|g' \
 		-e 's|"Mozilla PurpCMD"|"$(UA)"|g' \
 		main.go > $(TMP_SRC)
@@ -74,6 +78,7 @@ help: ## Show this help
 	@echo '  URI=$(URI)'
 	@echo '  UA=$(UA)'
 	@echo '  TYPE=$(TYPE)'
+	@echo '  MODE=$(MODE)'
 	@echo '  PUBLICKEY=$(PUBLICKEY)'
 	@echo ''
 	@echo 'Targets:'

@@ -1,14 +1,13 @@
 package implant
 
 import (
-	"bytes"
 	"encoding/base64"
-	"encoding/binary"
 	"errors"
 	"sync"
 	"time"
 
 	"purpcmd/internal"
+	"purpcmd/internal/protocol"
 	"purpcmd/pkg/teamapi"
 	"purpcmd/server"
 )
@@ -52,6 +51,9 @@ func (i *Implant) signalTaskReady() {
 }
 
 func (i *Implant) taskRetryInterval() time.Duration {
+	if i.taskRetry > 0 {
+		return i.taskRetry
+	}
 	retryAfter := 2 * time.Duration(i.Metadata.Sleep) * time.Second
 	if retryAfter < minimumTaskRetryInterval {
 		return minimumTaskRetryInterval
@@ -60,6 +62,48 @@ func (i *Implant) taskRetryInterval() time.Duration {
 		return maximumTaskRetryInterval
 	}
 	return retryAfter
+}
+
+func (i *Implant) ImplantSetTaskRetryInterval(interval time.Duration) {
+	mu := i.taskMutex()
+	mu.Lock()
+	if interval > 0 {
+		i.taskRetry = interval
+	}
+	mu.Unlock()
+}
+
+// NextTaskDeliveryDelay reports when the next unfinished task may be claimed.
+// It lets speaker workers drain coalesced task notifications without changing
+// the listener lease and retry semantics.
+func (i *Implant) NextTaskDeliveryDelay(now time.Time) (time.Duration, bool) {
+	mu := i.taskMutex()
+	mu.Lock()
+	defer mu.Unlock()
+
+	retryAfter := i.taskRetryInterval()
+	var earliest time.Duration
+	found := false
+	for _, task := range i.Task {
+		if task.Done || task.Processing || (task.Code == internal.KILL && task.Sent) {
+			continue
+		}
+		delay := time.Duration(0)
+		if task.Sent {
+			delay = time.Until(task.LastSent.Add(retryAfter))
+			if !now.IsZero() {
+				delay = task.LastSent.Add(retryAfter).Sub(now)
+			}
+			if delay < 0 {
+				delay = 0
+			}
+		}
+		if !found || delay < earliest {
+			earliest = delay
+			found = true
+		}
+	}
+	return earliest, found
 }
 
 // taskClaimAt leases the next unfinished task for delivery. If a previous
@@ -155,14 +199,7 @@ func (i *Implant) pruneCompletedTasksLocked(now time.Time) {
 }
 
 func (t Task) TaskMarshal() []byte {
-	b := new(bytes.Buffer)
-
-	binary.Write(b, binary.BigEndian, t.Code)
-	binary.Write(b, binary.BigEndian, t.ID)
-	binary.Write(b, binary.BigEndian, uint32(len(t.Payload)))
-	binary.Write(b, binary.BigEndian, t.Payload)
-
-	return b.Bytes()
+	return protocol.EncodeTask(t.Code, t.ID, t.Payload)
 }
 
 func TaskEncode(data []byte) string {

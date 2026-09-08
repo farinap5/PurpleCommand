@@ -73,11 +73,13 @@ var defaultEventRetentionConfigurations = []EventRetentionConfiguration{
 	{EventType: teamapi.EventUserDeleted, Tier: EventRetentionTierImportant, Retention: eventRetentionImportant},
 	{EventType: teamapi.EventUserMessage, Tier: EventRetentionTierArchive, Retention: eventRetentionArchive},
 	{EventType: teamapi.EventSpeakerCreated, Tier: EventRetentionTierStandard, Retention: eventRetentionStandard},
+	{EventType: teamapi.EventSpeakerUpdated, Tier: EventRetentionTierStandard, Retention: eventRetentionStandard},
 	{EventType: teamapi.EventSpeakerConnecting, Tier: EventRetentionTierStandard, Retention: eventRetentionStandard},
 	{EventType: teamapi.EventSpeakerConnected, Tier: EventRetentionTierStandard, Retention: eventRetentionStandard},
 	{EventType: teamapi.EventSpeakerDisconnected, Tier: EventRetentionTierStandard, Retention: eventRetentionStandard},
 	{EventType: teamapi.EventSpeakerFailed, Tier: EventRetentionTierImportant, Retention: eventRetentionImportant},
 	{EventType: teamapi.EventSpeakerStopped, Tier: EventRetentionTierStandard, Retention: eventRetentionStandard},
+	{EventType: teamapi.EventSpeakerDeleted, Tier: EventRetentionTierStandard, Retention: eventRetentionStandard},
 }
 
 func ensureDefaultEventRetentionConfigurations() error {

@@ -34,6 +34,7 @@ type ImplantProtocolOptions struct {
 // the implantbuilder profile.
 type LuaImplantDefinition struct {
 	Protocol         string
+	Mode             string
 	Type             string
 	Builder          string
 	OperatingSystems []string
@@ -109,6 +110,7 @@ func ImplantDefinitionsReloadFromDB() {
 //	    OS = {"linux"},
 //	    ARCH = {"amd64", "386"},
 //	    PROTOCOL = "http",
+//	    MODE = "bind",
 //	    TYPE = "impl",
 //	    OPTIONS = {
 //	        PATH = "/",
@@ -137,6 +139,7 @@ func LuaRegisterImplantProfile(L *lua.LState) int {
 		request := teamapi.Profile{
 			Name:        name,
 			Type:        definition.Type,
+			Mode:        definition.Mode,
 			Builder:     definition.Builder,
 			OS:          definition.OperatingSystems[0],
 			ARCH:        definition.Architectures[0],
@@ -187,6 +190,18 @@ func decodeStructuredImplantDefinition(tbl *lua.LTable) (LuaImplantDefinition, e
 	if protocol == "" {
 		return LuaImplantDefinition{}, errors.New("PROTOCOL is required")
 	}
+	mode, err := luaStringField(tbl, "MODE", "reverse")
+	if err != nil {
+		return LuaImplantDefinition{}, err
+	}
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "", "reverse":
+		mode = "reverse"
+	case "bind", "speaker":
+		mode = "bind"
+	default:
+		return LuaImplantDefinition{}, errors.New("MODE must be reverse or bind")
+	}
 
 	payloadType, err := luaStringField(tbl, "TYPE", internal.DefaultPayloadType)
 	if err != nil {
@@ -209,6 +224,7 @@ func decodeStructuredImplantDefinition(tbl *lua.LTable) (LuaImplantDefinition, e
 
 	definition := LuaImplantDefinition{
 		Protocol:         protocol,
+		Mode:             mode,
 		Type:             payloadType,
 		Builder:          builder,
 		OperatingSystems: operatingSystems,
@@ -292,6 +308,7 @@ func decodeStructuredImplantDefinition(tbl *lua.LTable) (LuaImplantDefinition, e
 func registerLegacyImplantProfile(L *lua.LState, name string, tbl *lua.LTable) int {
 	p := implantbuilder.Profile{
 		Type:        internal.DefaultPayloadType,
+		Mode:        "reverse",
 		OS:          "linux",
 		ARCH:        "amd64",
 		OSOptions:   []string{"linux"},
@@ -304,6 +321,9 @@ func registerLegacyImplantProfile(L *lua.LState, name string, tbl *lua.LTable) i
 
 	if v := tbl.RawGetString("type"); v != lua.LNil {
 		p.Type = v.String()
+	}
+	if v := tbl.RawGetString("mode"); v != lua.LNil {
+		p.Mode = v.String()
 	}
 	if v := tbl.RawGetString("lhost"); v != lua.LNil {
 		p.LHOST = v.String()
@@ -333,7 +353,7 @@ func registerLegacyImplantProfile(L *lua.LState, name string, tbl *lua.LTable) i
 	}
 
 	request := teamapi.Profile{
-		Name: name, Type: p.Type, LHOST: p.LHOST, OS: p.OS, ARCH: p.ARCH,
+		Name: name, Type: p.Type, Mode: p.Mode, LHOST: p.LHOST, OS: p.OS, ARCH: p.ARCH,
 		OSOptions: p.OSOptions, ARCHOptions: p.ARCHOptions, Output: p.Output,
 		Template: p.Template, PublicKey: p.PublicKey,
 		Builder: p.Builder,
@@ -391,6 +411,7 @@ func isStructuredImplantDefinition(tbl *lua.LTable) bool {
 	return tbl.RawGetString("OS") != lua.LNil ||
 		tbl.RawGetString("ARCH") != lua.LNil ||
 		tbl.RawGetString("PROTOCOL") != lua.LNil ||
+		tbl.RawGetString("MODE") != lua.LNil ||
 		tbl.RawGetString("TYPE") != lua.LNil ||
 		tbl.RawGetString("BUILDER") != lua.LNil ||
 		tbl.RawGetString("OPTIONS") != lua.LNil ||

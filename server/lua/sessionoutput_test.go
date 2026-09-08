@@ -62,6 +62,71 @@ func TestSessionPrintPublishesExplicitSessionAndTask(t *testing.T) {
 	}
 }
 
+func TestSessionPrintPublishesWithoutTask(t *testing.T) {
+	isolateLuaCommands(t)
+	isolateLuaDatabase(t)
+	previousImplants := serverimplant.ImplantMAP
+	serverimplant.ImplantMAP = make(map[string]*serverimplant.Implant)
+	t.Cleanup(func() {
+		serverimplant.ImplantMAP = previousImplants
+		runtimeevents.SetPublisher(nil)
+	})
+
+	profile := loadCommandTestProfile(t, "session-output-no-task.lua", "")
+	item := serverimplant.ImplantNew("no-task-session")
+	item.ImplantAddImplant()
+
+	var eventType string
+	var output teamapi.SessionOutput
+	runtimeevents.SetPublisher(func(gotType string, value any) {
+		eventType = gotType
+		var ok bool
+		output, ok = value.(teamapi.SessionOutput)
+		if !ok {
+			t.Fatalf("session output event value = %T", value)
+		}
+	})
+
+	if err := profile.state.DoString(`session_print("no-task-session", "Starting command")`); err != nil {
+		t.Fatal(err)
+	}
+	if eventType != teamapi.EventSessionOutput {
+		t.Fatalf("event type = %q", eventType)
+	}
+	want := teamapi.SessionOutput{
+		Session: item.Name,
+		Message: "Starting command",
+		Source:  luaSessionOutputSource,
+	}
+	if output != want {
+		t.Fatalf("session output = %#v, want %#v", output, want)
+	}
+}
+
+func TestSessionPrintWithoutTaskRejectsUnknownSession(t *testing.T) {
+	isolateLuaCommands(t)
+	previousImplants := serverimplant.ImplantMAP
+	serverimplant.ImplantMAP = make(map[string]*serverimplant.Implant)
+	t.Cleanup(func() { serverimplant.ImplantMAP = previousImplants })
+	profile := loadCommandTestProfile(t, "session-output-no-task-invalid.lua", "")
+
+	published := false
+	runtimeevents.SetPublisher(func(string, any) { published = true })
+	t.Cleanup(func() { runtimeevents.SetPublisher(nil) })
+	if err := profile.state.DoString(`ok, call_err = pcall(session_print, "missing", "message")`); err != nil {
+		t.Fatal(err)
+	}
+	if profile.state.GetGlobal("ok") != lua.LFalse {
+		t.Fatal("session_print accepted an unknown session")
+	}
+	if got := profile.state.GetGlobal("call_err").String(); !strings.Contains(got, "was not found") {
+		t.Fatalf("session_print error = %q", got)
+	}
+	if published {
+		t.Fatal("invalid session output was published")
+	}
+}
+
 func TestSessionPrintRejectsTaskFromAnotherSession(t *testing.T) {
 	isolateLuaCommands(t)
 	isolateLuaDatabase(t)

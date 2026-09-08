@@ -129,6 +129,8 @@ const (
 	EventSpeakerDisconnected = "evt.speaker.disconnected"
 	EventSpeakerFailed       = "evt.speaker.failed"
 	EventSpeakerStopped      = "evt.speaker.stopped"
+	EventSpeakerUpdated      = "evt.speaker.updated"
+	EventSpeakerDeleted      = "evt.speaker.deleted"
 )
 
 const (
@@ -205,23 +207,26 @@ type NameRequest struct {
 }
 
 type Session struct {
-	Name         string    `json:"name"`
-	UUID         string    `json:"uuid"`
-	PayloadType  string    `json:"payload_type"`
-	Transport    string    `json:"transport"`
-	Speaker      string    `json:"speaker,omitempty"`
-	Listener     string    `json:"listener,omitempty"`
-	ListenerUUID string    `json:"listener_uuid,omitempty"`
-	User         string    `json:"user"`
-	Hostname     string    `json:"hostname"`
-	Process      string    `json:"process"`
-	Socket       string    `json:"socket"`
-	PID          uint32    `json:"pid"`
-	Sleep        uint32    `json:"sleep"`
-	Alive        bool      `json:"alive"`
-	Terminating  bool      `json:"terminating"`
-	FirstSeen    time.Time `json:"first_seen"`
-	LastSeen     time.Time `json:"last_seen"`
+	Name             string    `json:"name"`
+	UUID             string    `json:"uuid"`
+	PayloadType      string    `json:"payload_type"`
+	Transport        string    `json:"transport"`
+	Speaker          string    `json:"speaker,omitempty"`
+	SpeakerUUID      string    `json:"speaker_uuid,omitempty"`
+	Listener         string    `json:"listener,omitempty"`
+	ListenerUUID     string    `json:"listener_uuid,omitempty"`
+	User             string    `json:"user"`
+	Hostname         string    `json:"hostname"`
+	Process          string    `json:"process"`
+	Socket           string    `json:"socket"`
+	PID              uint32    `json:"pid"`
+	Sleep            uint32    `json:"sleep"`
+	Alive            bool      `json:"alive"`
+	Liveness         string    `json:"liveness"`
+	HealthMonitoring bool      `json:"health_monitoring"`
+	Terminating      bool      `json:"terminating"`
+	FirstSeen        time.Time `json:"first_seen"`
+	LastSeen         time.Time `json:"last_seen"`
 }
 
 type Snapshot struct {

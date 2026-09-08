@@ -21,6 +21,10 @@ type Speaker struct {
 	Running       bool          `json:"running"`
 	InFlight      bool          `json:"in_flight"`
 	Persistent    bool          `json:"persistent"`
+	State         string        `json:"state"`
+	DesiredState  string        `json:"desired_state"`
+	ConfigVersion uint64        `json:"config_version"`
+	Associations  int           `json:"associations"`
 	Session       string        `json:"session,omitempty"`
 	LastAttemptAt time.Time     `json:"last_attempt_at,omitempty"`
 	LastSuccessAt time.Time     `json:"last_success_at,omitempty"`
@@ -31,8 +35,24 @@ type Speaker struct {
 // SpeakerConfig contains the transport defaults and the template used for
 // each command request.
 type SpeakerConfig struct {
-	Client  SpeakerHTTPClientConfig  `json:"client"`
-	Request SpeakerHTTPRequestConfig `json:"request"`
+	Profile     string                    `json:"profile,omitempty"`
+	Client      SpeakerHTTPClientConfig   `json:"client"`
+	Request     SpeakerHTTPRequestConfig  `json:"request"`
+	Healthcheck *SpeakerHealthcheckConfig `json:"healthcheck,omitempty"`
+	Retry       SpeakerRetryConfig        `json:"retry,omitempty"`
+}
+
+// SpeakerHealthcheckConfig controls background CHK probes. A nil Enabled
+// value defaults to true; setting it to false disables background probes while
+// retaining task-triggered exchanges.
+type SpeakerHealthcheckConfig struct {
+	Enabled          *bool         `json:"enabled,omitempty"`
+	Interval         time.Duration `json:"interval,omitempty"`
+	FailureThreshold int           `json:"failure_threshold,omitempty"`
+}
+
+type SpeakerRetryConfig struct {
+	Interval time.Duration `json:"interval,omitempty"`
 }
 
 // SpeakerCreateRequest creates a stopped speaker. Persistent defaults to true
@@ -47,9 +67,11 @@ type SpeakerCreateRequest struct {
 // Runtime fields such as Running and InFlight cannot be changed through this
 // request. A nil field leaves its current value unchanged.
 type SpeakerUpdateRequest struct {
-	Name       string         `json:"name"`
-	Persistent *bool          `json:"persistent,omitempty"`
-	Config     *SpeakerConfig `json:"config,omitempty"`
+	Name                  string         `json:"name"`
+	NewName               string         `json:"new_name,omitempty"`
+	Persistent            *bool          `json:"persistent,omitempty"`
+	Config                *SpeakerConfig `json:"config,omitempty"`
+	ExpectedConfigVersion *uint64        `json:"expected_config_version,omitempty"`
 }
 
 // SpeakerTLSConfig controls server trust, optional mutual TLS, and certificate

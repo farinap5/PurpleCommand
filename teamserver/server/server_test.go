@@ -222,6 +222,108 @@ replayLoop:
 	}
 }
 
+func TestSpeakerControlPlaneRedactsSecretsAndRequiresAdminForMutation(t *testing.T) {
+	setupTeamserverDatabase(t, "speaker-control.db")
+	const adminToken = "speaker-admin-token-that-is-long-enough"
+	eventBus := events.New()
+	instance := teamserver.New(config.Config{Token: adminToken, ScriptDir: t.TempDir()}, eventBus)
+	cleanupTeamserver(t, instance)
+	httpServer := httptest.NewServer(instance.Handler())
+	defer httpServer.Close()
+
+	admin := clientapi.New(clientapi.Config{URL: httpServer.URL, Token: adminToken, Timeout: 5 * time.Second})
+	defer admin.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	created := teamapi.Speaker{}
+	request := teamapi.SpeakerCreateRequest{
+		Name: "redacted-bind",
+		Config: teamapi.SpeakerConfig{
+			Client: teamapi.SpeakerHTTPClientConfig{
+				BaseURL:  "https://implant.example",
+				Headers:  http.Header{"Authorization": {"Bearer top-secret"}},
+				Query:    map[string][]string{"token": {"query-secret"}},
+				Cookies:  map[string]string{"session": "cookie-secret"},
+				ProxyURL: "http://user:password@proxy.example",
+			},
+			Request: teamapi.SpeakerHTTPRequestConfig{Method: http.MethodPost, Headers: http.Header{"X-Secret": {"request-secret"}}},
+		},
+	}
+	if err := admin.Request(ctx, teamapi.AskSpeakerCreate, request, &created); err != nil {
+		t.Fatal(err)
+	}
+	assertSpeakerRedacted(t, created)
+	for {
+		select {
+		case event := <-admin.Events():
+			if event.Type != teamapi.EventSpeakerCreated {
+				continue
+			}
+			var eventSpeaker teamapi.Speaker
+			if err := teamapi.DecodeData(event, &eventSpeaker); err != nil {
+				t.Fatal(err)
+			}
+			assertSpeakerRedacted(t, eventSpeaker)
+			goto eventReceived
+		case <-ctx.Done():
+			t.Fatal("speaker creation event was not received")
+		}
+	}
+eventReceived:
+
+	var listed []teamapi.Speaker
+	if err := admin.Request(ctx, teamapi.AskSpeakerList, struct{}{}, &listed); err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 1 {
+		t.Fatalf("speaker list = %#v", listed)
+	}
+	assertSpeakerRedacted(t, listed[0])
+	var snapshot teamapi.Snapshot
+	if err := admin.Request(ctx, teamapi.AskSystemSnapshot, struct{}{}, &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Speakers) != 1 {
+		t.Fatalf("snapshot speakers = %#v", snapshot.Speakers)
+	}
+	assertSpeakerRedacted(t, snapshot.Speakers[0])
+
+	stored, err := db.DBSpeakerList()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored) != 1 || stored[0].Config.Client.Headers.Get("Authorization") != "Bearer top-secret" {
+		t.Fatalf("runtime credential was not persisted intact: %#v", stored)
+	}
+
+	var credentials teamapi.UserCredentials
+	if err := admin.Request(ctx, teamapi.AskUserCreate, teamapi.UserCreateRequest{Name: "operator"}, &credentials); err != nil {
+		t.Fatal(err)
+	}
+	operator := clientapi.New(clientapi.Config{URL: httpServer.URL, Token: credentials.Token, Timeout: 5 * time.Second})
+	defer operator.Close()
+	if err := operator.Request(ctx, teamapi.AskSpeakerList, struct{}{}, &listed); err != nil {
+		t.Fatalf("non-admin could not inspect redacted speakers: %v", err)
+	}
+	err = operator.Request(ctx, teamapi.AskSpeakerDelete, teamapi.NameRequest{Name: created.Name}, &teamapi.Speaker{})
+	var apiErr *teamapi.APIError
+	if !errors.As(err, &apiErr) || apiErr.Code != "forbidden" {
+		t.Fatalf("non-admin mutation error = %v", err)
+	}
+}
+
+func assertSpeakerRedacted(t *testing.T, item teamapi.Speaker) {
+	t.Helper()
+	const redacted = "[REDACTED]"
+	if item.Config.Client.Headers.Get("Authorization") != redacted ||
+		item.Config.Client.Query.Get("token") != redacted ||
+		item.Config.Client.Cookies["session"] != redacted ||
+		item.Config.Client.ProxyURL != redacted ||
+		item.Config.Request.Headers.Get("X-Secret") != redacted {
+		t.Fatalf("speaker secrets were exposed: %#v", item)
+	}
+}
+
 func TestListenerControlContractAllOperationsAndEvents(t *testing.T) {
 	setupTeamserverDatabase(t, "listener-contract.db")
 	const token = "listener-contract-token-that-is-long-enough"

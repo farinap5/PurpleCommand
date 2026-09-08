@@ -1,12 +1,20 @@
 package db
 
 import (
+	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
+)
+
+var (
+	ErrOTSRequired = errors.New("registration one-time secret is required")
+	ErrOTSInvalid  = errors.New("registration one-time secret is invalid")
+	ErrOTSExpired  = errors.New("registration one-time secret has expired")
+	ErrOTSUsed     = errors.New("registration one-time secret has already been used")
 )
 
 // ImplantDefinition stores the protocol-facing portion of an implant profile.
@@ -199,6 +207,49 @@ SELECT Name, Protocol, PayloadType, OptionsJSON, OTSHash, OTSExpiresAt, OTSUsedA
 FROM ImplantDefinitions WHERE Name = ?;
 `, name)
 	return scanImplantDefinition(row)
+}
+
+// DBImplantDefinitionValidateAndConsumeOTS atomically validates the 96-bit
+// wire token derived from a profile's SHA-256 OTS hash and records first use.
+func DBImplantDefinitionValidateAndConsumeOTS(name string, token [12]byte, now time.Time) error {
+	definition, err := DBImplantDefinitionGet(name)
+	if err != nil {
+		return err
+	}
+	zero := [12]byte{}
+	if len(definition.OTSHash) == 0 {
+		if subtle.ConstantTimeCompare(token[:], zero[:]) != 1 {
+			return ErrOTSInvalid
+		}
+		return nil
+	}
+	if subtle.ConstantTimeCompare(token[:], zero[:]) == 1 {
+		return ErrOTSRequired
+	}
+	if len(definition.OTSHash) < len(token) || subtle.ConstantTimeCompare(token[:], definition.OTSHash[:len(token)]) != 1 {
+		return ErrOTSInvalid
+	}
+	if definition.OTSUsedAt != nil {
+		return ErrOTSUsed
+	}
+	if definition.OTSExpiresAt != nil && !now.Before(*definition.OTSExpiresAt) {
+		return ErrOTSExpired
+	}
+	result, err := DBMS.DBConn.Exec(
+		`UPDATE ImplantDefinitions SET OTSUsedAt=? WHERE Name=? AND OTSUsedAt IS NULL;`,
+		now.UTC().Format(time.RFC3339Nano), name,
+	)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return ErrOTSUsed
+	}
+	return nil
 }
 
 func DBImplantDefinitionGetAll() ([]ImplantDefinition, error) {

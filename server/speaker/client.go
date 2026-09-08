@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"purpcmd/internal/protocol"
 	"purpcmd/pkg/teamapi"
 )
 
@@ -31,8 +32,8 @@ const (
 	defaultTLSHandshakeTimeout   = 10 * time.Second
 	defaultResponseHeaderTimeout = 15 * time.Second
 	defaultIdleConnTimeout       = 90 * time.Second
-	defaultMaxRequestBytes       = int64(10 << 20)
-	defaultMaxResponseBytes      = int64(10 << 20)
+	defaultMaxRequestBytes       = int64(protocol.MaxEncodedPacketSize)
+	defaultMaxResponseBytes      = int64(protocol.MaxEncodedPacketSize)
 	defaultMaxResponseHeaders    = int64(64 << 10)
 	defaultMaxRedirects          = 5
 )

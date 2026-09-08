@@ -1,6 +1,7 @@
 package lua
 
 import (
+	"errors"
 	"math"
 	"strconv"
 	"strings"
@@ -12,7 +13,12 @@ import (
 )
 
 func (profile *LuaProfile) session(state *lua.LState) int {
-	name := luaSessionName(state)
+	name, err := profile.sessionLookupName(state)
+	if err != nil {
+		state.Push(lua.LNil)
+		state.Push(lua.LString(err.Error()))
+		return 2
+	}
 	item, err := implant.APIGetSession(name)
 	if err != nil {
 		state.Push(lua.LNil)
@@ -49,6 +55,21 @@ func (profile *LuaProfile) session(state *lua.LState) int {
 	state.Push(table)
 	state.Push(lua.LNil)
 	return 2
+}
+
+// sessionLookupName preserves the explicit session(id) lookup and adds the
+// session() form for code running inside a session-scoped Lua invocation. The
+// execution context is owned by the serialized LuaProfile state; it must never
+// fall back to implant.CurrentImplant, which is process-global operator state.
+func (profile *LuaProfile) sessionLookupName(state *lua.LState) (string, error) {
+	if state.GetTop() > 0 {
+		return luaSessionName(state), nil
+	}
+	name := strings.TrimSpace(profile.executionSession)
+	if name == "" || name == "none" {
+		return "", errors.New("session() has no active session")
+	}
+	return name, nil
 }
 
 func luaSessionName(state *lua.LState) string {

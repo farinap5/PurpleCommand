@@ -70,7 +70,9 @@ func (e Encrypt) RSAEncode(data []byte) ([]byte, error) {
 }
 
 func (e Encrypt) RSADecode(data []byte) ([]byte, error) {
+	rsaKeyMu.RLock()
 	privKey := serverRSAKey
+	rsaKeyMu.RUnlock()
 	if privKey == nil {
 		if e.RSAPrivate == nil {
 			return nil, fmt.Errorf("RSADecode: no private key loaded; call LoadServerRSAKey first")

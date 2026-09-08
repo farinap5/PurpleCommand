@@ -11,6 +11,7 @@ import (
 type ImplantProfile struct {
 	Name         string
 	Type         string
+	Mode         string
 	LHOST        string
 	OS           string
 	ARCH         string
@@ -43,9 +44,9 @@ func DBImplantProfileInsert(p ImplantProfile) error {
 	}
 	_, err = DBMS.DBConn.Exec(
 		`INSERT INTO ImplantProfiles
-		 (Name, Type, LHOST, OS, ARCH, OSOptionsJSON, ARCHOptionsJSON, Output, Template, PublicKey, Builder, ListenerUUID)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?);`,
-		p.Name, p.Type, p.LHOST, p.OS, p.ARCH, osOptionsJSON, archOptionsJSON, p.Output, p.Template, p.PublicKey, p.Builder, p.ListenerUUID,
+		 (Name, Type, Mode, LHOST, OS, ARCH, OSOptionsJSON, ARCHOptionsJSON, Output, Template, PublicKey, Builder, ListenerUUID)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?);`,
+		p.Name, p.Type, p.Mode, p.LHOST, p.OS, p.ARCH, osOptionsJSON, archOptionsJSON, p.Output, p.Template, p.PublicKey, p.Builder, p.ListenerUUID,
 	)
 	return err
 }
@@ -64,9 +65,9 @@ func DBImplantProfileUpdate(p ImplantProfile) error {
 	}
 	_, err = DBMS.DBConn.Exec(
 		`UPDATE ImplantProfiles
-		 SET Type=?, LHOST=?, OS=?, ARCH=?, OSOptionsJSON=?, ARCHOptionsJSON=?, Output=?, Template=?, PublicKey=?, Builder=?, ListenerUUID=?
+		 SET Type=?, Mode=?, LHOST=?, OS=?, ARCH=?, OSOptionsJSON=?, ARCHOptionsJSON=?, Output=?, Template=?, PublicKey=?, Builder=?, ListenerUUID=?
 		 WHERE Name=?;`,
-		p.Type, p.LHOST, p.OS, p.ARCH, osOptionsJSON, archOptionsJSON, p.Output, p.Template, p.PublicKey, p.Builder, p.ListenerUUID, p.Name,
+		p.Type, p.Mode, p.LHOST, p.OS, p.ARCH, osOptionsJSON, archOptionsJSON, p.Output, p.Template, p.PublicKey, p.Builder, p.ListenerUUID, p.Name,
 	)
 	return err
 }
@@ -110,7 +111,7 @@ func DBImplantProfilesClearListener(listenerUUID string) (int64, error) {
 func DBImplantProfileGetAll() ([]ImplantProfile, error) {
 	var profiles []ImplantProfile
 	rows, err := DBMS.DBConn.Query(
-		`SELECT Name, Type, LHOST, OS, ARCH, OSOptionsJSON, ARCHOptionsJSON, Output, Template, PublicKey, Builder, ListenerUUID
+		`SELECT Name, Type, Mode, LHOST, OS, ARCH, OSOptionsJSON, ARCHOptionsJSON, Output, Template, PublicKey, Builder, ListenerUUID
 		 FROM ImplantProfiles;`,
 	)
 	if err != nil {
@@ -122,7 +123,7 @@ func DBImplantProfileGetAll() ([]ImplantProfile, error) {
 		var p ImplantProfile
 		var osOptionsJSON, archOptionsJSON string
 		if err := rows.Scan(
-			&p.Name, &p.Type, &p.LHOST, &p.OS, &p.ARCH, &osOptionsJSON, &archOptionsJSON,
+			&p.Name, &p.Type, &p.Mode, &p.LHOST, &p.OS, &p.ARCH, &osOptionsJSON, &archOptionsJSON,
 			&p.Output, &p.Template, &p.PublicKey, &p.Builder, &p.ListenerUUID,
 		); err != nil {
 			return nil, err

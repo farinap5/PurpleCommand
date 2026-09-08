@@ -3,6 +3,7 @@ package encrypt
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/x509"
 	"testing"
 )
 
@@ -54,5 +55,39 @@ func TestRSADecodeRejectsMissingOrMisalignedPayload(t *testing.T) {
 	}
 	if _, err := encryption.RSADecode(make([]byte, privateKey.Size()+1)); err == nil {
 		t.Fatal("accepted non-block-aligned RSA payload")
+	}
+}
+
+func TestServerPublicKeyMatchUsesLoadedPrivateKey(t *testing.T) {
+	privateKey, err := rsa.GenerateKey(rand.Reader, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherKey, err := rsa.GenerateKey(rand.Reader, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rsaKeyMu.Lock()
+	previous := serverRSAKey
+	serverRSAKey = privateKey
+	rsaKeyMu.Unlock()
+	t.Cleanup(func() {
+		rsaKeyMu.Lock()
+		serverRSAKey = previous
+		rsaKeyMu.Unlock()
+	})
+	matchingDER, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherDER, err := x509.MarshalPKIXPublicKey(&otherKey.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if matches, configured := ServerPublicKeyMatchesDER(matchingDER); !configured || !matches {
+		t.Fatalf("matching key result = %v/%v", matches, configured)
+	}
+	if matches, configured := ServerPublicKeyMatchesDER(otherDER); !configured || matches {
+		t.Fatalf("mismatched key result = %v/%v", matches, configured)
 	}
 }

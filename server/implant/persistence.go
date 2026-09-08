@@ -37,19 +37,21 @@ func RestoreFromDB() error {
 			return fmt.Errorf("restore session %s: %w", stored.Session.Name, err)
 		}
 		item := &Implant{
-			Name:         stored.Session.Name,
-			UUID:         stored.Session.UUID,
-			Metadata:     metadata,
-			Transport:    stored.Session.Transport,
-			Speaker:      stored.Session.Speaker,
-			Listener:     stored.Session.Listener,
-			ListenerUUID: stored.Session.ListenerUUID,
-			Alive:        false,
-			Terminating:  stored.Session.Terminating,
-			FirstSeen:    stored.Session.FirstSeen,
-			LastSeen:     stored.Session.LastSeen,
-			TaskMap:      make(map[[8]byte]*Task),
-			taskReady:    make(chan struct{}, 1),
+			Name:             stored.Session.Name,
+			UUID:             stored.Session.UUID,
+			Metadata:         metadata,
+			Transport:        stored.Session.Transport,
+			Speaker:          stored.Session.Speaker,
+			SpeakerUUID:      stored.Session.SpeakerUUID,
+			HealthMonitoring: stored.Session.HealthMonitoring,
+			Listener:         stored.Session.Listener,
+			ListenerUUID:     stored.Session.ListenerUUID,
+			Alive:            false,
+			Terminating:      stored.Session.Terminating,
+			FirstSeen:        stored.Session.FirstSeen,
+			LastSeen:         stored.Session.LastSeen,
+			TaskMap:          make(map[[8]byte]*Task),
+			taskReady:        make(chan struct{}, 1),
 		}
 		if item.Transport == "" {
 			item.Transport = teamapi.SessionTransportListener

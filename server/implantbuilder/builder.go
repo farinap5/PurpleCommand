@@ -3,6 +3,7 @@ package implantbuilder
 import (
 	"crypto/rsa"
 	"crypto/x509"
+	"database/sql"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -11,8 +12,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"purpcmd/internal"
+	protocolencrypt "purpcmd/internal/encrypt"
 	"purpcmd/pkg/teamapi"
 	"purpcmd/server/db"
 	"purpcmd/server/log"
@@ -24,6 +27,7 @@ import (
 // Profile holds the build configuration for a single implant binary.
 type Profile struct {
 	Type            string
+	Mode            string
 	LHOST           string
 	OS              string
 	ARCH            string
@@ -37,6 +41,7 @@ type Profile struct {
 	ProfileName     string                    // Execution-only profile name; never persisted.
 	BuildID         string                    // Execution-only build job ID; never persisted.
 	OutputPublisher func(teamapi.BuildOutput) // Execution-only event sink; never persisted.
+	OTSToken        [12]byte                  // Execution-only registration token derived from the stored OTS hash.
 }
 
 var (
@@ -50,6 +55,7 @@ var (
 func defaultProfile() *Profile {
 	return &Profile{
 		Type:        internal.DefaultPayloadType,
+		Mode:        "reverse",
 		LHOST:       "",
 		OS:          "linux",
 		ARCH:        "amd64",
@@ -87,7 +93,7 @@ func RegisterProfile(name string, p Profile) error {
 	if p.Type == "" {
 		p.Type = internal.DefaultPayloadType
 	}
-	if err := internal.ValidatePayloadType(p.Type); err != nil {
+	if err := validateProfile(&p); err != nil {
 		return fmt.Errorf("profile %q: %w", name, err)
 	}
 	copy := cloneProfile(p)
@@ -133,13 +139,13 @@ func ListProfiles() {
 	}
 	t := tabby.New()
 	print("\n")
-	t.AddHeader("NAME", "TYPE", "LHOST", "OS", "ARCH", "OUTPUT", "ACTIVE")
+	t.AddHeader("NAME", "TYPE", "MODE", "LHOST", "OS", "ARCH", "OUTPUT", "ACTIVE")
 	for name, p := range ProfileMap {
 		active := ""
 		if name == CurrentName {
 			active = "*"
 		}
-		t.AddLine(name, p.Type, p.LHOST, p.OS, p.ARCH, p.Output, active)
+		t.AddLine(name, p.Type, p.Mode, p.LHOST, p.OS, p.ARCH, p.Output, active)
 	}
 	t.Print()
 	print("\n")
@@ -157,7 +163,8 @@ func ShowOptions() {
 	println("Profile: " + CurrentName)
 	t.AddHeader("OPTION", "VALUE", "DESCRIPTION")
 	t.AddLine("TYPE", p.Type, "Payload type used for Lua command routing")
-	t.AddLine("LHOST", p.LHOST, "Listener callback address (host:port)")
+	t.AddLine("MODE", p.Mode, "Transport direction: reverse or bind")
+	t.AddLine("LHOST", p.LHOST, "Remote callback address (reverse) or local bind address (bind)")
 	t.AddLine("OS", p.OS, "Target OS (linux, windows, darwin)")
 	t.AddLine("ARCH", p.ARCH, "Target architecture (amd64, 386, arm64)")
 	t.AddLine("OS OPTIONS", strings.Join(p.OSOptions, ", "), "Target suggestions supplied by the implant definition")
@@ -182,6 +189,15 @@ func SetOption(key, value string) error {
 			return err
 		}
 		p.Type = value
+	case "MODE":
+		mode, err := normalizeMode(value)
+		if err != nil {
+			return err
+		}
+		p.Mode = mode
+		if mode == "bind" {
+			p.ListenerUUID = ""
+		}
 	case "LHOST":
 		p.LHOST = value
 		p.ListenerUUID = ""
@@ -218,6 +234,7 @@ func profileToDBRow(name string, p *Profile) db.ImplantProfile {
 	return db.ImplantProfile{
 		Name:         name,
 		Type:         p.Type,
+		Mode:         p.Mode,
 		LHOST:        p.LHOST,
 		OS:           p.OS,
 		ARCH:         p.ARCH,
@@ -245,6 +262,7 @@ func ProfilesReloadFromDB() {
 		}
 		p := &Profile{
 			Type:         r.Type,
+			Mode:         r.Mode,
 			LHOST:        r.LHOST,
 			OS:           r.OS,
 			ARCH:         r.ARCH,
@@ -255,6 +273,9 @@ func ProfilesReloadFromDB() {
 			PublicKey:    r.PublicKey,
 			Builder:      r.Builder,
 			ListenerUUID: r.ListenerUUID,
+		}
+		if p.Mode == "" {
+			p.Mode = "reverse"
 		}
 		if p.Type == "" {
 			p.Type = internal.DefaultPayloadType
@@ -288,8 +309,34 @@ func generate(name string, p *Profile) error {
 	if err := internal.ValidatePayloadType(p.Type); err != nil {
 		return fmt.Errorf("profile %q: %w", name, err)
 	}
+	mode, err := normalizeMode(p.Mode)
+	if err != nil {
+		return fmt.Errorf("profile %q: %w", name, err)
+	}
+	p.Mode = mode
 	if p.LHOST == "" {
 		return fmt.Errorf("profile %q: LHOST is not set", name)
+	}
+	definition, definitionErr := db.DBImplantDefinitionGet(name)
+	if definitionErr != nil && db.DBMS.DBConn != nil && !errors.Is(definitionErr, sql.ErrNoRows) {
+		return fmt.Errorf("profile %q: load one-time secret: %w", name, definitionErr)
+	}
+	if definitionErr == nil && len(definition.OTSHash) != 0 {
+		now := time.Now().UTC()
+		if definition.OTSUsedAt != nil {
+			return fmt.Errorf("profile %q: one-time secret has already been used", name)
+		}
+		if definition.OTSExpiresAt != nil && !now.Before(*definition.OTSExpiresAt) {
+			return fmt.Errorf("profile %q: one-time secret has expired", name)
+		}
+		if len(definition.OTSHash) < len(p.OTSToken) {
+			return fmt.Errorf("profile %q: stored one-time secret hash is invalid", name)
+		}
+		length := len(definition.OTSHash)
+		if length > len(p.OTSToken) {
+			length = len(p.OTSToken)
+		}
+		copy(p.OTSToken[:], definition.OTSHash[:length])
 	}
 
 	absTemplateDir, err := filepath.Abs(p.Template)
@@ -304,6 +351,11 @@ func generate(name string, p *Profile) error {
 	if p.PublicKey != "" {
 		absPublicKey, err = filepath.Abs(p.PublicKey)
 		if err != nil {
+			return err
+		}
+	}
+	if absPublicKey != "" {
+		if _, err := loadAndValidatePublicKey(absPublicKey); err != nil {
 			return err
 		}
 	}
@@ -328,6 +380,13 @@ func generate(name string, p *Profile) error {
 // profile fields as make variables. The Makefile is responsible for producing the
 // final binary at $(OUTPUT).
 func generateWithMakefile(name string, p *Profile, absTemplateDir, absOutput, absPublicKey string) error {
+	mainSource, err := os.ReadFile(filepath.Join(absTemplateDir, "main.go"))
+	if err != nil {
+		return fmt.Errorf("cannot read template main.go: %w", err)
+	}
+	if strings.Contains(string(mainSource), `var publicKeyDER`) && absPublicKey == "" {
+		return errors.New("PUBLICKEY is required by the payload source")
+	}
 	log.PrintInfo(fmt.Sprintf("[%s] Building %s -> %s", name, absTemplateDir, absOutput))
 
 	cmd := exec.Command("make",
@@ -337,12 +396,16 @@ func generateWithMakefile(name string, p *Profile, absTemplateDir, absOutput, ab
 		fmt.Sprintf("OS=%s", p.OS),
 		fmt.Sprintf("ARCH=%s", p.ARCH),
 		fmt.Sprintf("TYPE=%s", p.Type),
+		fmt.Sprintf("MODE=%s", p.Mode),
+		fmt.Sprintf("OTS_BYTES=%s", byteList(p.OTSToken[:])),
 		fmt.Sprintf("PUBLICKEY=%s", absPublicKey),
 	)
 	cmd.Env = append(os.Environ(),
 		"GOOS="+p.OS,
 		"GOARCH="+p.ARCH,
 		"CGO_ENABLED=0",
+		"PURPCMD_MODE="+p.Mode,
+		"PURPCMD_OTS_TOKEN="+fmt.Sprintf("%x", p.OTSToken),
 	)
 	if err := runBuildCommand(cmd, *p, "makefile"); err != nil {
 		return fmt.Errorf("make build failed: %w", err)
@@ -421,28 +484,23 @@ func PublishBuildOutput(profile Profile, builder, message string) {
 // Lua os.write use this function so Lua builds preserve the old Makefile's key
 // embedding behavior without invoking Python.
 func RenderGoSource(profile Profile, source string) (string, error) {
+	if strings.Contains(source, `var publicKeyDER`) && strings.TrimSpace(profile.PublicKey) == "" {
+		return "", errors.New("PUBLICKEY is required by the payload source")
+	}
 	var publicKeyDER []byte
 	if profile.PublicKey != "" {
-		data, err := os.ReadFile(profile.PublicKey)
+		var err error
+		publicKeyDER, err = loadAndValidatePublicKey(profile.PublicKey)
 		if err != nil {
-			return "", fmt.Errorf("cannot read public key %s: %w", profile.PublicKey, err)
+			return "", err
 		}
-		block, _ := pem.Decode(data)
-		if block == nil {
-			return "", fmt.Errorf("no PEM block in public key file %s", profile.PublicKey)
-		}
-		key, err := x509.ParsePKIXPublicKey(block.Bytes)
-		if err != nil {
-			return "", fmt.Errorf("cannot parse public key: %w", err)
-		}
-		if _, ok := key.(*rsa.PublicKey); !ok {
-			return "", errors.New("public key is not RSA")
-		}
-		publicKeyDER = block.Bytes
 	}
 
 	modified := strings.Replace(source, `"LHOST"`, fmt.Sprintf("%q", profile.LHOST), 1)
 	modified = strings.Replace(modified, `"IMPLANT_TYPE"`, fmt.Sprintf("%q", profile.Type), 1)
+	modified = strings.Replace(modified, `"IMPLANT_MODE"`, fmt.Sprintf("%q", profile.Mode), 1)
+	otsDeclaration := fmt.Sprintf("[12]byte{%s}", byteList(profile.OTSToken[:]))
+	modified = strings.Replace(modified, `var implantOTS [12]byte`, "var implantOTS = "+otsDeclaration, 1)
 	if len(publicKeyDER) == 0 {
 		return modified, nil
 	}
@@ -464,6 +522,50 @@ func RenderGoSource(profile Profile, source string) (string, error) {
 		1,
 	)
 	return modified, nil
+}
+
+func loadAndValidatePublicKey(path string) ([]byte, error) {
+	if strings.TrimSpace(path) == "" {
+		return nil, errors.New("PUBLICKEY is required")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("cannot read public key %s: %w", path, err)
+	}
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return nil, fmt.Errorf("no PEM block in public key file %s", path)
+	}
+	key, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("cannot parse public key: %w", err)
+	}
+	if _, ok := key.(*rsa.PublicKey); !ok {
+		return nil, errors.New("public key is not RSA")
+	}
+	if matches, configured := protocolencrypt.ServerPublicKeyMatchesDER(block.Bytes); configured && !matches {
+		return nil, errors.New("payload public key does not match the configured teamserver private key")
+	}
+	return append([]byte(nil), block.Bytes...), nil
+}
+
+func byteList(values []byte) string {
+	parts := make([]string, len(values))
+	for index, value := range values {
+		parts[index] = fmt.Sprintf("0x%02x", value)
+	}
+	return strings.Join(parts, ",")
+}
+
+func normalizeMode(value string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "reverse":
+		return "reverse", nil
+	case "bind", "speaker":
+		return "bind", nil
+	default:
+		return "", errors.New("MODE must be reverse or bind")
+	}
 }
 
 // ProfileNamesForSuggestions returns a slice of [name, description] pairs

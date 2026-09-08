@@ -223,12 +223,8 @@ func callCommandForSession(session, name, payloadType, payload string) (string, 
 	if profile.state == nil {
 		return "", nil, fmt.Errorf("script %q was unloaded", command.ScriptName)
 	}
-	profile.executionSession = session
-	profile.createdTaskIDs = nil
-	defer func() {
-		profile.executionSession = ""
-		profile.createdTaskIDs = nil
-	}()
+	restoreExecution := profile.enterSessionExecution(session)
+	defer restoreExecution()
 
 	state := profile.state
 	state.Push(command.ptr)
